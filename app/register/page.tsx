@@ -3,10 +3,29 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Navbar from "../../components/Navbar"; // إذا المسار عندك مختلف عدّليه
-import { supabase } from "../lib/supabase";
-
+import Navbar from "../../components/Navbar"; 
+import { supabase } from "../../lib/supabase";
+import PhoneInput from "react-phone-number-input";
+import "react-phone-number-input/style.css";
+import { isValidPhoneNumber } from "react-phone-number-input";
 type AccountType = "merchant" | "small_business" | "delivery" | "supporter";
+import { getCountryCallingCode } from "react-phone-number-input";
+import ar from "react-phone-number-input/locale/ar.json";
+import countries from "world-countries";
+import { City, ICity } from "country-state-city";
+
+
+
+
+const isValidUrl = (val: string): boolean => {
+  try {
+    const url = new URL(val);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 
 type ProjectStage = "idea" | "running" | "scaling" | "";
 type DeliveryScope = "local" | "international" | "";
@@ -23,9 +42,12 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState<string | undefined>();
   const [country, setCountry] = useState("");
-  const [city, setCity] = useState("");
+
+  const handleCountryChange = (val: string) => {
+    setCountry(val);
+  };
 
   const [accountType, setAccountType] = useState<AccountType>("merchant");
   const [bio, setBio] = useState("");
@@ -62,12 +84,47 @@ export default function RegisterPage() {
   const [proofLink1, setProofLink1] = useState("");
   const [proofLink2, setProofLink2] = useState("");
   const [proofNote, setProofNote] = useState("");
+  const [proofFiles, setProofFiles] = useState<File[]>([]);
+
+  const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []);
+    const merged = [...proofFiles, ...selected];
+    if (merged.length > 5) {
+      setErrorMsg("الحد الأقصى 5 ملفات.");
+      return;
+    }
+    setProofFiles(merged);
+    e.target.value = "";
+  };
+
+  const removeFile = (index: number) => {
+    setProofFiles((prev) => prev.filter((_, i) => i !== index));
+  };
 
   // UI states
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [countryName, setCountryName] = useState("");
+  // المدن حسب الدولة
+const [countryCode, setCountryCode] = useState("");
 
+const cities = useMemo<ICity[]>(() => {
+  if (!countryCode) return [];
+  return City.getCitiesOfCountry(countryCode) ?? [];
+}, [countryCode]);
+// معلومات الدولة
+const countryData = countries.find(c => c.cca2 === countryCode);
+
+// العملة
+let currency = countryData?.currencies
+  ? Object.keys(countryData.currencies)[0]
+  : "";
+
+// تصحيح بعض الدول
+if (countryCode === "PS") {
+  currency = "ILS";
+}
   // Helpers
   const cleanEmail = useMemo(() => email.trim(), [email]);
 
@@ -81,11 +138,25 @@ export default function RegisterPage() {
   const validateStep1 = (): string => {
     if (!fullName.trim()) return "يرجى إدخال الاسم الكامل.";
     if (!cleanEmail) return "يرجى إدخال البريد الإلكتروني.";
+
+    // التحقق من صيغة الإيميل الحقيقي
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    if (!emailRegex.test(cleanEmail)) return "يرجى إدخال بريد إلكتروني صحيح.";
+
     if (!password) return "يرجى إدخال كلمة المرور.";
-    if (password.length < 6) return "يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.";
-    if (!phone.trim()) return "يرجى إدخال رقم الهاتف.";
+
+    // التحقق من قوة الباسوورد
+    if (password.length < 8) return "كلمة المرور يجب أن تكون 8 أحرف على الأقل.";
+    if (!/[A-Z]/.test(password)) return "يجب أن تحتوي كلمة المرور على حرف كبير.";
+    if (!/[a-z]/.test(password)) return "يجب أن تحتوي كلمة المرور على حرف صغير.";
+    if (!/[0-9]/.test(password)) return "يجب أن تحتوي كلمة المرور على رقم.";
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password))
+      return "يجب أن تحتوي كلمة المرور على رمز خاص (!@#$...).";
+
+    if (!phone) return "يرجى إدخال رقم الهاتف.";
+    if (!isValidPhoneNumber(phone))
+  return "رقم الهاتف غير صحيح.";
     if (!country.trim()) return "يرجى إدخال الدولة.";
-    if (!city.trim()) return "يرجى إدخال المدينة.";
     if (!bio.trim()) return "يرجى إدخال نبذة قصيرة.";
     return "";
   };
@@ -96,7 +167,7 @@ export default function RegisterPage() {
       if (!storeName.trim()) return "يرجى إدخال اسم المتجر/العلامة.";
       if (!productCategory.trim()) return "يرجى اختيار/إدخال نوع المنتجات (تصنيف).";
       if (!storeLink.trim()) return "يرجى إدخال رابط صفحة المتجر (إنستغرام/فيسبوك/موقع).";
-      // commercialRegNo اختياري
+      if (!isValidUrl(storeLink.trim())) return "رابط صفحة المتجر غير صحيح، يجب أن يبدأ بـ https://";
     }
 
     if (accountType === "small_business") {
@@ -105,6 +176,7 @@ export default function RegisterPage() {
       if (!projectStage) return "يرجى اختيار مرحلة المشروع.";
       if (needs.length === 0) return "يرجى اختيار احتياج واحد على الأقل.";
       if (!socialLink.trim()) return "يرجى إدخال رابط السوشال للمشروع.";
+      if (!isValidUrl(socialLink.trim())) return "رابط السوشال غير صحيح، يجب أن يبدأ بـ https://";
     }
 
     if (accountType === "delivery") {
@@ -112,7 +184,6 @@ export default function RegisterPage() {
       if (!deliveryScope) return "يرجى اختيار نطاق التوصيل (محلي/دولي).";
       if (!deliveryCities.trim()) return "يرجى إدخال المدن/المناطق التي يتم تغطيتها.";
       if (!avgDeliveryTime.trim()) return "يرجى إدخال متوسط وقت التوصيل.";
-      // licenseNo مطلوب حسب طلبك
       if (!licenseNo.trim()) return "يرجى إدخال رقم الترخيص.";
     }
 
@@ -121,11 +192,14 @@ export default function RegisterPage() {
       if (!fundingRange.trim()) return "يرجى إدخال نطاق التمويل/الدعم.";
       if (!interests.trim()) return "يرجى إدخال المجالات المهتم بها.";
       if (!professionalLink.trim()) return "يرجى إدخال رابط مهني (LinkedIn أو موقع).";
+      if (!isValidUrl(professionalLink.trim())) return "الرابط المهني غير صحيح، يجب أن يبدأ بـ https://";
       if (!previousExperience.trim()) return "يرجى إدخال خبرة سابقة أو مشاريع تم دعمها.";
     }
 
     // إثبات داخل نفس Step 2
     if (!proofLink1.trim()) return "يرجى إدخال رابط إثبات واحد على الأقل.";
+    if (!isValidUrl(proofLink1.trim())) return "رابط الإثبات غير صحيح، يجب أن يبدأ بـ https://";
+    if (proofLink2.trim() && !isValidUrl(proofLink2.trim())) return "الرابط الإضافي غير صحيح، يجب أن يبدأ بـ https://";
     return "";
   };
 
@@ -224,9 +298,8 @@ export default function RegisterPage() {
       const { error: profileError } = await supabase.from("profiles").insert({
         id: userId,
         full_name: fullName.trim(),
-        phone: phone.trim(),
-        country: country.trim(),
-        city: city.trim(),
+        phone: phone,
+        country: countryName,
         account_type: accountType,
         status: "pending",
         // بإمكانك إضافة bio للجدول إذا حابة (إذا عندك عمود لها)
@@ -239,14 +312,35 @@ export default function RegisterPage() {
         return;
       }
 
-      // 3) Insert application (طلب إنشاء حساب)
+      // 3) رفع الملفات على Supabase Storage
+      const uploadedFileUrls: string[] = [];
+
+      for (const file of proofFiles) {
+        const filePath = `${userId}/${Date.now()}_${file.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from("documents")
+          .upload(filePath, file);
+
+        if (uploadError) {
+          setErrorMsg(`تعذر رفع الملف ${file.name}: ${uploadError.message}`);
+          setLoading(false);
+          return;
+        }
+
+        const { data: urlData } = supabase.storage
+          .from("documents")
+          .getPublicUrl(filePath);
+
+        uploadedFileUrls.push(urlData.publicUrl);
+      }
+
+      // 4) Insert application (طلب إنشاء حساب)
       const dataJson = {
         basic: {
           full_name: fullName.trim(),
           email: cleanEmail,
-          phone: phone.trim(),
-          country: country.trim(),
-          city: city.trim(),
+          phone: phone,
+          country: countryName,
           account_type: accountType,
           bio: bio.trim(),
         },
@@ -257,7 +351,7 @@ export default function RegisterPage() {
         proof_link_1: proofLink1.trim(),
         proof_link_2: proofLink2.trim() || null,
         note: proofNote.trim() || null,
-        file_upload: null, // لاحقًا
+        file_urls: uploadedFileUrls.length > 0 ? uploadedFileUrls : null,
       };
 
       const { error: appError } = await supabase.from("applications").insert({
@@ -408,7 +502,7 @@ export default function RegisterPage() {
                         placeholder="••••••••"
                       />
                       <p className="mt-1 text-xs text-[#273347]/60">
-                        الحد الأدنى 6 أحرف.
+                        8 أحرف على الأقل، حرف كبير وصغير، رقم، ورمز خاص (!@#$...).
                       </p>
                     </div>
                   </div>
@@ -418,37 +512,49 @@ export default function RegisterPage() {
                       <label className="block text-sm font-semibold text-[#273347] mb-2">
                         رقم الهاتف
                       </label>
-                      <input
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                        placeholder="059xxxxxxx"
-                      />
+               <PhoneInput
+  international
+  defaultCountry="PS"
+  labels={ar}
+  value={phone}
+  onChange={setPhone}
+  onCountryChange={(country) => {
+  if (country) {
+    const name = ar[country as keyof typeof ar];
+    setCountryCode(country);
+    setCountryName(name);
+    setCountry(name);   // هذا السطر المهم
+  }
+}}
+  className="w-full border border-gray-300 rounded-xl p-3"
+  placeholder="أدخل رقم الهاتف"
+/>
                     </div>
 
                     <div>
                       <label className="block text-sm font-semibold text-[#273347] mb-2">
                         الدولة
                       </label>
-                      <input
-                        value={country}
-                        onChange={(e) => setCountry(e.target.value)}
-                        className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                        placeholder="فلسطين"
-                      />
+                 <input
+  type="text"
+  value={countryName}
+  readOnly
+  className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
+/>
+<div className="space-y-2">
+<label className="text-sm font-medium">العملة</label>
+
+<input
+type="text"
+value={currency}
+readOnly
+className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
+/>
+
+</div>
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-semibold text-[#273347] mb-2">
-                        المدينة
-                      </label>
-                      <input
-                        value={city}
-                        onChange={(e) => setCity(e.target.value)}
-                        className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                        placeholder="نابلس"
-                      />
-                    </div>
+                   
                   </div>
 
                   <div>
@@ -663,12 +769,21 @@ export default function RegisterPage() {
                           <label className="block text-sm font-semibold text-[#273347] mb-2">
                             المدن/المناطق (افصل بفواصل)
                           </label>
-                          <input
-                            value={deliveryCities}
-                            onChange={(e) => setDeliveryCities(e.target.value)}
-                            className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                            placeholder="نابلس، رام الله، ... "
-                          />
+                         <select
+value={deliveryCities}
+onChange={(e) => setDeliveryCities(e.target.value)}
+className="w-full border border-gray-300 rounded-xl p-3"
+>
+
+<option value="">اختر المدينة</option>
+
+{cities.map((city) => (
+<option key={city.name} value={city.name}>
+{city.name}
+</option>
+))}
+
+</select>
                         </div>
 
                         <div>
@@ -818,8 +933,46 @@ export default function RegisterPage() {
                     />
                   </div>
 
-                  <div className="text-xs text-[#273347]/60">
-                    رفع الملفات سيتم إضافته لاحقًا.
+                  {/* رفع الملفات */}
+                  <div>
+                    <label className="block text-sm font-semibold text-[#273347] mb-2">
+                      رفع ملفات (اختياري - حد أقصى 5 ملفات)
+                    </label>
+
+                    <label className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-[#bbd0e4] rounded-xl p-4 cursor-pointer hover:bg-[#f8fafc] transition">
+                      <span className="text-sm text-[#273347]/70">اضغط لاختيار ملف</span>
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={handleFilesChange}
+                        disabled={proofFiles.length >= 5}
+                      />
+                    </label>
+
+                    {proofFiles.length > 0 && (
+                      <ul className="mt-3 space-y-2">
+                        {proofFiles.map((file, index) => (
+                          <li
+                            key={index}
+                            className="flex items-center justify-between bg-[#f1f5f9] rounded-xl px-3 py-2 text-sm text-[#273347]"
+                          >
+                            <span className="truncate max-w-[80%]">{file.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeFile(index)}
+                              className="text-red-400 hover:text-red-600 font-bold text-lg leading-none"
+                            >
+                              ×
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <p className="mt-1 text-xs text-[#273347]/50">
+                      {proofFiles.length}/5 ملفات
+                    </p>
                   </div>
                 </section>
 
