@@ -10,48 +10,83 @@ export default function ResetPasswordPage() {
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg("");
-    setSuccessMsg("");
+  e.preventDefault();
+  setErrorMsg("");
+  setSuccessMsg("");
 
-    if (!newPassword || !confirmPassword) {
-      setErrorMsg("يرجى إدخال كلمة المرور الجديدة وتأكيدها.");
-      return;
-    }
+  if (!currentPassword) {
+    setErrorMsg("يرجى إدخال كلمة المرور الحالية.");
+    return;
+  }
 
-    if (newPassword.length < 6) {
-      setErrorMsg("يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.");
-      return;
-    }
+  if (!newPassword || !confirmPassword) {
+    setErrorMsg("يرجى إدخال كلمة المرور الجديدة وتأكيدها.");
+    return;
+  }
 
-    if (newPassword !== confirmPassword) {
-      setErrorMsg("كلمتا المرور غير متطابقتين.");
-      return;
-    }
+  // التحقق من قوة كلمة المرور
+  if (newPassword.length < 8) return setErrorMsg("كلمة المرور يجب أن تكون 8 أحرف على الأقل.");
+  if (!/[A-Z]/.test(newPassword)) return setErrorMsg("يجب أن تحتوي كلمة المرور على حرف كبير.");
+  if (!/[a-z]/.test(newPassword)) return setErrorMsg("يجب أن تحتوي كلمة المرور على حرف صغير.");
+  if (!/[0-9]/.test(newPassword)) return setErrorMsg("يجب أن تحتوي كلمة المرور على رقم.");
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword))
+    return setErrorMsg("يجب أن تحتوي كلمة المرور على رمز خاص (!@#$...).");
 
-    setLoading(true);
+  if (newPassword !== confirmPassword) {
+    setErrorMsg("كلمتا المرور غير متطابقتين.");
+    return;
+  }
 
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
+  if (currentPassword === newPassword) {
+    setErrorMsg("كلمة المرور الجديدة يجب أن تكون مختلفة عن الحالية.");
+    return;
+  }
 
+  setLoading(true);
+
+  // التحقق من كلمة المرور الحالية
+  const { data: userData } = await supabase.auth.getUser();
+  const userEmail = userData.user?.email;
+
+  if (!userEmail) {
+    setErrorMsg("تعذر التحقق من المستخدم.");
     setLoading(false);
+    return;
+  }
 
-    if (error) {
-      setErrorMsg("تعذر تحديث كلمة المرور. يرجى المحاولة مرة أخرى.");
-      return;
-    }
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: userEmail,
+    password: currentPassword,
+  });
 
-    setSuccessMsg("تم تحديث كلمة المرور بنجاح ✅");
-    // بعد النجاح: رجّعيه لصفحة تسجيل الدخول
-    setTimeout(() => router.push("/login"), 900);
-  };
+  if (signInError) {
+    setErrorMsg("كلمة المرور الحالية غير صحيحة.");
+    setLoading(false);
+    return;
+  }
+
+  // تحديث كلمة المرور
+  const { error } = await supabase.auth.updateUser({
+    password: newPassword,
+  });
+
+  setLoading(false);
+
+  if (error) {
+    setErrorMsg("تعذر تحديث كلمة المرور. يرجى المحاولة مرة أخرى.");
+    return;
+  }
+
+  setSuccessMsg("تم تحديث كلمة المرور بنجاح ✅");
+  setTimeout(() => router.push("/login"), 900);
+};
 
   return (
     <main className="min-h-screen bg-[#f8fafc]">
@@ -69,6 +104,18 @@ export default function ResetPasswordPage() {
 
           <form className="space-y-4" onSubmit={handleUpdatePassword}>
             <div>
+  <label className="block text-sm font-semibold text-[#273347] mb-2">
+    كلمة المرور الحالية
+  </label>
+  <input
+    type="password"
+    value={currentPassword}
+    onChange={(e) => setCurrentPassword(e.target.value)}
+    placeholder="••••••••"
+    className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+  />
+</div>
+            <div>
               <label className="block text-sm font-semibold text-[#273347] mb-2">
                 كلمة المرور الجديدة
               </label>
@@ -79,6 +126,9 @@ export default function ResetPasswordPage() {
                 placeholder="••••••••"
                 className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
               />
+               <p className="mt-1 text-xs text-[#273347]/60">
+    8 أحرف على الأقل، حرف كبير وصغير، رقم، ورمز خاص (!@#$...).
+  </p>
             </div>
 
             <div>
