@@ -9,13 +9,25 @@ import PhoneInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import { isValidPhoneNumber } from "react-phone-number-input";
 type AccountType = "merchant" | "small_business" | "delivery" | "supporter";
-import { getCountryCallingCode } from "react-phone-number-input";
 import ar from "react-phone-number-input/locale/ar.json";
 import countries from "world-countries";
-import { City, ICity } from "country-state-city";
+import { City } from "country-state-city";
 
+const disposableDomains = [
+  "10minutemail.com",
+  "tempmail.com",
+  "mailinator.com",
+  "guerrillamail.com",
+  "yopmail.com",
+  "trashmail.com",
+  "temp-mail.org",
+  "sharklasers.com"
+];
 
-
+const isDisposableEmail = (email: string) => {
+  const domain = email.split("@")[1]?.toLowerCase();
+  return disposableDomains.includes(domain);
+};
 
 const isValidUrl = (val: string): boolean => {
   try {
@@ -28,7 +40,7 @@ const isValidUrl = (val: string): boolean => {
 
 
 type ProjectStage = "idea" | "running" | "scaling" | "";
-type DeliveryScope = "local" | "international" | "";
+type DeliveryScope = "local" | "international" | "international_local" | "";
 type SupportType = "financial" | "consulting" | "partnerships" | "";
 
 export default function RegisterPage() {
@@ -43,11 +55,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
 
   const [phone, setPhone] = useState<string | undefined>();
-  const [country, setCountry] = useState("");
-
-  const handleCountryChange = (val: string) => {
-    setCountry(val);
-  };
+  const [country, setCountry] = useState("فلسطين");
 
   const [accountType, setAccountType] = useState<AccountType>("merchant");
   const [bio, setBio] = useState("");
@@ -66,10 +74,18 @@ export default function RegisterPage() {
   const [needs, setNeeds] = useState<string[]>([]);
   const [socialLink, setSocialLink] = useState("");
 
+
+  const arabCountryNames: Record<string, string> = {
+  PS: "فلسطين", JO: "الأردن", SA: "السعودية", EG: "مصر", AE: "الإمارات",
+  KW: "الكويت", QA: "قطر", BH: "البحرين", OM: "عُمان", LB: "لبنان",
+  SY: "سوريا", IQ: "العراق", MA: "المغرب", TN: "تونس", DZ: "الجزائر",
+  LY: "ليبيا", YE: "اليمن", SD: "السودان", TR: "تركيا", DE: "ألمانيا",
+  GB: "المملكة المتحدة", FR: "فرنسا", US: "الولايات المتحدة", CA: "كندا",
+};
   // Delivery
   const [companyName, setCompanyName] = useState("");
   const [deliveryScope, setDeliveryScope] = useState<DeliveryScope>("");
-  const [deliveryCities, setDeliveryCities] = useState("");
+  const [deliveryCities, setDeliveryCities] = useState<string[]>([]);
   const [avgDeliveryTime, setAvgDeliveryTime] = useState("");
   const [licenseNo, setLicenseNo] = useState("");
 
@@ -105,21 +121,55 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
-  const [countryName, setCountryName] = useState("");
-  // المدن حسب الدولة
-const [countryCode, setCountryCode] = useState("");
+  const [countryName, setCountryName] = useState("فلسطين");
+const [interestsOther, setInterestsOther] = useState("");
+const [countryCode, setCountryCode] = useState("PS");
+const [productCategoryOther, setProductCategoryOther] = useState("");
+const [projectFieldOther, setProjectFieldOther] = useState("");
 
-const cities = useMemo<ICity[]>(() => {
+
+
+const arabCitiesMap: Record<string, string[]> = {
+  JO: ["عمّان", "الزرقاء", "إربد", "العقبة", "السلط", "مادبا", "جرش", "الكرك"],
+  SA: ["الرياض", "جدة", "مكة المكرمة", "المدينة المنورة", "الدمام", "الخبر", "تبوك", "أبها"],
+  EG: ["القاهرة", "الإسكندرية", "الجيزة", "أسوان", "الأقصر", "بورسعيد", "السويس", "المنصورة"],
+  AE: ["دبي", "أبوظبي", "الشارقة", "عجمان", "رأس الخيمة", "الفجيرة", "أم القيوين"],
+  KW: ["الكويت", "حولي", "الفروانية", "الأحمدي", "الجهراء", "مبارك الكبير"],
+  QA: ["الدوحة", "الوكرة", "الريان", "الخور", "أم صلال", "الشمال"],
+  BH: ["المنامة", "المحرق", "الرفاع", "مدينة عيسى", "مدينة حمد", "سترة"],
+  OM: ["مسقط", "صلالة", "نزوى", "صحار", "السيب", "مطرح"],
+  LB: ["بيروت", "طرابلس", "صيدا", "صور", "زحلة", "جونية"],
+  SY: ["دمشق", "حلب", "حمص", "حماة", "اللاذقية", "دير الزور", "درعا"],
+  IQ: ["بغداد", "البصرة", "الموصل", "أربيل", "النجف", "كربلاء", "كركوك"],
+  MA: ["الرباط", "الدار البيضاء", "فاس", "مراكش", "أكادير", "طنجة", "مكناس"],
+  TN: ["تونس", "صفاقس", "سوسة", "قفصة", "بنزرت", "قابس"],
+  DZ: ["الجزائر", "وهران", "قسنطينة", "عنابة", "بجاية", "سطيف"],
+  LY: ["طرابلس", "بنغازي", "مصراتة", "الزاوية", "البيضاء", "سبها"],
+  YE: ["صنعاء", "عدن", "تعز", "الحديدة", "إب", "ذمار"],
+  SD: ["الخرطوم", "أم درمان", "بورتسودان", "كسلا", "الأبيض", "وادي حلفا"],
+};
+
+const palestinianCities = [
+  "رام الله", "نابلس", "الخليل", "جنين", "طولكرم", "قلقيلية",
+  "أريحا", "بيت لحم", "سلفيت", "طوباس", "غزة", "خان يونس",
+  "رفح", "دير البلح", "بيت حانون", "القدس", "أبو ديس",
+  "بيرزيت", "عنبتا", "يطا", "دورا", "بيت جالا", "بيت ساحور",
+];
+
+const cities = useMemo(() => {
   if (!countryCode) return [];
-  return City.getCitiesOfCountry(countryCode) ?? [];
+  if (countryCode === "PS") return palestinianCities.map(name => ({ name }));
+  if (arabCitiesMap[countryCode]) return arabCitiesMap[countryCode].map(name => ({ name }));
+  return City.getCitiesOfCountry(countryCode)?.map(c => ({ name: c.name })) ?? [];
 }, [countryCode]);
+
 // معلومات الدولة
 const countryData = countries.find(c => c.cca2 === countryCode);
 
 // العملة
 let currency = countryData?.currencies
   ? Object.keys(countryData.currencies)[0]
-  : "";
+  : "ILS";
 
 // تصحيح بعض الدول
 if (countryCode === "PS") {
@@ -140,9 +190,12 @@ if (countryCode === "PS") {
     if (!cleanEmail) return "يرجى إدخال البريد الإلكتروني.";
 
     // التحقق من صيغة الإيميل الحقيقي
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  const emailRegex =/^(?!.*\.\.)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
     if (!emailRegex.test(cleanEmail)) return "يرجى إدخال بريد إلكتروني صحيح.";
 
+    if (isDisposableEmail(cleanEmail)) {
+  return "لا يسمح باستخدام بريد إلكتروني مؤقت.";
+}
     if (!password) return "يرجى إدخال كلمة المرور.";
 
     // التحقق من قوة الباسوورد
@@ -165,14 +218,16 @@ if (countryCode === "PS") {
     // حقول حسب النوع
     if (accountType === "merchant") {
       if (!storeName.trim()) return "يرجى إدخال اسم المتجر/العلامة.";
-      if (!productCategory.trim()) return "يرجى اختيار/إدخال نوع المنتجات (تصنيف).";
+if (!productCategory.trim()) return "يرجى اختيار نوع المنتجات.";
+if (productCategory === "other" && !productCategoryOther.trim()) return "يرجى كتابة نوع المنتجات.";
       if (!storeLink.trim()) return "يرجى إدخال رابط صفحة المتجر (إنستغرام/فيسبوك/موقع).";
       if (!isValidUrl(storeLink.trim())) return "رابط صفحة المتجر غير صحيح، يجب أن يبدأ بـ https://";
     }
 
     if (accountType === "small_business") {
       if (!projectName.trim()) return "يرجى إدخال اسم المشروع.";
-      if (!projectField.trim()) return "يرجى إدخال المجال/التصنيف.";
+if (!projectField.trim()) return "يرجى اختيار المجال.";
+if (projectField === "other" && !projectFieldOther.trim()) return "يرجى كتابة المجال.";   
       if (!projectStage) return "يرجى اختيار مرحلة المشروع.";
       if (needs.length === 0) return "يرجى اختيار احتياج واحد على الأقل.";
       if (!socialLink.trim()) return "يرجى إدخال رابط السوشال للمشروع.";
@@ -182,15 +237,16 @@ if (countryCode === "PS") {
     if (accountType === "delivery") {
       if (!companyName.trim()) return "يرجى إدخال اسم الشركة.";
       if (!deliveryScope) return "يرجى اختيار نطاق التوصيل (محلي/دولي).";
-      if (!deliveryCities.trim()) return "يرجى إدخال المدن/المناطق التي يتم تغطيتها.";
+      if (deliveryCities.length === 0) return "يرجى اختيار مدينة/دولة واحدة على الأقل.";
       if (!avgDeliveryTime.trim()) return "يرجى إدخال متوسط وقت التوصيل.";
       if (!licenseNo.trim()) return "يرجى إدخال رقم الترخيص.";
     }
 
     if (accountType === "supporter") {
       if (!supportType) return "يرجى اختيار نوع الدعم.";
-      if (!fundingRange.trim()) return "يرجى إدخال نطاق التمويل/الدعم.";
-      if (!interests.trim()) return "يرجى إدخال المجالات المهتم بها.";
+if (supportType === "financial" && !fundingRange.trim()) return "يرجى إدخال نطاق التمويل/الدعم.";
+if (!interests.trim()) return "يرجى اختيار المجال المهتم به.";
+if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة المجال.";
       if (!professionalLink.trim()) return "يرجى إدخال رابط مهني (LinkedIn أو موقع).";
       if (!isValidUrl(professionalLink.trim())) return "الرابط المهني غير صحيح، يجب أن يبدأ بـ https://";
       if (!previousExperience.trim()) return "يرجى إدخال خبرة سابقة أو مشاريع تم دعمها.";
@@ -224,7 +280,7 @@ if (countryCode === "PS") {
     if (accountType === "merchant") {
       return {
         store_name: storeName.trim(),
-        product_category: productCategory.trim(),
+        product_category: productCategory === "other" ? productCategoryOther.trim() : productCategory.trim(),
         store_link: storeLink.trim(),
         commercial_reg_no: commercialRegNo.trim() || null,
       };
@@ -233,7 +289,7 @@ if (countryCode === "PS") {
     if (accountType === "small_business") {
       return {
         project_name: projectName.trim(),
-        project_field: projectField.trim(),
+        project_field: projectField === "other" ? projectFieldOther.trim() : projectField.trim(),
         project_stage: projectStage,
         needs,
         social_link: socialLink.trim(),
@@ -244,7 +300,7 @@ if (countryCode === "PS") {
       return {
         company_name: companyName.trim(),
         delivery_scope: deliveryScope,
-        delivery_cities: deliveryCities.trim(),
+        delivery_cities: deliveryCities,
         avg_delivery_time: avgDeliveryTime.trim(),
         license_no: licenseNo.trim(),
       };
@@ -254,7 +310,7 @@ if (countryCode === "PS") {
     return {
       support_type: supportType,
       funding_range: fundingRange.trim(),
-      interests: interests.trim(),
+      interests: interests === "other" ? interestsOther.trim() : interests.trim(),
       professional_link: professionalLink.trim(),
       previous_experience: previousExperience.trim(),
     };
@@ -275,11 +331,15 @@ if (countryCode === "PS") {
     setLoading(true);
 
     try {
-      // 1) Create Auth user
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-      });
+     // 1) Create Auth user
+const { data: signUpData, error: signUpError } =
+await supabase.auth.signUp({
+  email: cleanEmail,
+  password,
+  options: {
+    emailRedirectTo: "http://localhost:3000/auth/callback",
+  },
+});
 
       if (signUpError) {
         setErrorMsg(signUpError.message);
@@ -486,7 +546,7 @@ if (countryCode === "PS") {
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                        placeholder="name@email.com"
+                        placeholder="name@example.com"
                       />
                     </div>
 
@@ -507,56 +567,56 @@ if (countryCode === "PS") {
                     </div>
                   </div>
 
-                  <div className="grid md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-[#273347] mb-2">
-                        رقم الهاتف
-                      </label>
-               <PhoneInput
-  international
-  defaultCountry="PS"
-  labels={ar}
-  value={phone}
-  onChange={setPhone}
-  onCountryChange={(country) => {
-  if (country) {
-    const name = ar[country as keyof typeof ar];
-    setCountryCode(country);
-    setCountryName(name);
-    setCountry(name);   // هذا السطر المهم
-  }
-}}
-  className="w-full border border-gray-300 rounded-xl p-3"
-  placeholder="أدخل رقم الهاتف"
-/>
-                    </div>
+                 <div className="grid md:grid-cols-2 gap-4">
+  <div>
+    <label className="block text-sm font-semibold text-[#273347] mb-2">
+      رقم الهاتف
+    </label>
+    <PhoneInput
+      international
+      defaultCountry="PS"
+      labels={ar}
+      value={phone}
+      onChange={setPhone}
+      onCountryChange={(country) => {
+        if (country) {
+          const name = ar[country as keyof typeof ar];
+          setCountryCode(country);
+          setCountryName(name);
+          setCountry(name);
+        }
+      }}
+      className="w-full border border-gray-300 rounded-xl p-3"
+      placeholder="أدخل رقم الهاتف"
+    />
+  </div>
 
-                    <div>
-                      <label className="block text-sm font-semibold text-[#273347] mb-2">
-                        الدولة
-                      </label>
-                 <input
-  type="text"
-  value={countryName}
-  readOnly
-  className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
-/>
-<div className="space-y-2">
-<label className="text-sm font-medium">العملة</label>
-
-<input
-type="text"
-value={currency}
-readOnly
-className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
-/>
-
+  <div className="grid grid-cols-2 gap-3">
+    <div>
+      <label className="block text-sm font-semibold text-[#273347] mb-2">
+        الدولة
+      </label>
+      <input
+        type="text"
+        value={countryName || "فلسطين"}
+        readOnly
+        className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
+      />
+    </div>
+    <div>
+      <label className="block text-sm font-semibold text-[#273347] mb-2">
+        العملة
+      </label>
+      <input
+        type="text"
+        value={currency}
+        readOnly
+        className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
+      />
+    </div>
+  </div>
 </div>
-                    </div>
-
-                   
-                  </div>
-
+                  
                   <div>
                     <label className="block text-sm font-semibold text-[#273347] mb-2">
                       نبذة قصيرة (سطران)
@@ -611,17 +671,38 @@ className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
                         />
                       </div>
 
-                      <div>
-                        <label className="block text-sm font-semibold text-[#273347] mb-2">
-                          نوع المنتجات (تصنيف)
-                        </label>
-                        <input
-                          value={productCategory}
-                          onChange={(e) => setProductCategory(e.target.value)}
-                          className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                          placeholder="ملابس، عطور، إلكترونيات..."
-                        />
-                      </div>
+                    <div>
+  <label className="block text-sm font-semibold text-[#273347] mb-2">
+    نوع المنتجات (تصنيف)
+  </label>
+  <select
+    value={productCategory}
+    onChange={(e) => setProductCategory(e.target.value)}
+    className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+  >
+    <option value="">اختر التصنيف...</option>
+    <option value="clothing">ملابس وأزياء</option>
+    <option value="perfumes">عطور ومستحضرات</option>
+    <option value="electronics">إلكترونيات</option>
+    <option value="food">مواد غذائية</option>
+    <option value="furniture">أثاث ومفروشات</option>
+    <option value="toys">ألعاب وأطفال</option>
+    <option value="sports">رياضة ولياقة</option>
+    <option value="books">كتب وقرطاسية</option>
+    <option value="jewelry">مجوهرات وإكسسوارات</option>
+    <option value="health">صحة وعناية</option>
+    <option value="tools">أدوات ومعدات</option>
+    <option value="other">أخرى</option>
+  </select>
+  {productCategory === "other" && (
+    <input
+      value={productCategoryOther}
+      onChange={(e) => setProductCategoryOther(e.target.value)}
+      className="w-full mt-2 border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+      placeholder="اكتب نوع المنتجات..."
+    />
+  )}
+</div>
 
                       <div className="md:col-span-2">
                         <label className="block text-sm font-semibold text-[#273347] mb-2">
@@ -667,12 +748,33 @@ className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
                           <label className="block text-sm font-semibold text-[#273347] mb-2">
                             المجال/التصنيف
                           </label>
-                          <input
-                            value={projectField}
-                            onChange={(e) => setProjectField(e.target.value)}
-                            className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                            placeholder="مطاعم، متجر إلكتروني، خدمات..."
-                          />
+                          <select
+  value={projectField}
+  onChange={(e) => setProjectField(e.target.value)}
+  className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+>
+  <option value="">اختر المجال...</option>
+  <option value="food">مطاعم وأغذية</option>
+  <option value="ecommerce">متجر إلكتروني</option>
+  <option value="services">خدمات</option>
+  <option value="technology">تقنية وبرمجة</option>
+  <option value="education">تعليم وتدريب</option>
+  <option value="health">صحة وعناية</option>
+  <option value="fashion">أزياء وموضة</option>
+  <option value="crafts">حرف يدوية</option>
+  <option value="beauty">تجميل</option>
+  <option value="tourism">سياحة وسفر</option>
+  <option value="agriculture">زراعة</option>
+  <option value="other">أخرى</option>
+</select>
+{projectField === "other" && (
+  <input
+    value={projectFieldOther ?? ""}
+    onChange={(e) => setProjectFieldOther(e.target.value)}
+    className="w-full mt-2 border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+    placeholder="اكتب المجال..."
+  />
+)}
                         </div>
                       </div>
 
@@ -751,52 +853,112 @@ className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
                             نطاق التوصيل
                           </label>
                           <select
+
                             value={deliveryScope}
                             onChange={(e) =>
-                              setDeliveryScope(e.target.value as "local" | "international" | "")
+                              setDeliveryScope(e.target.value as "local" | "international" | "international_local" | "")
                             }
                             className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                          >
+>
                             <option value="">اختر...</option>
                             <option value="local">محلي</option>
                             <option value="international">دولي</option>
+                            <option value="international_local">محلي ودولي</option>
+
                           </select>
                         </div>
                       </div>
 
                       <div className="grid md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+  <label className="block text-sm font-semibold text-[#273347] mb-2">
+    {deliveryScope === "international" ? "الدول" : "المدن/المناطق"}
+    {deliveryScope === "international_local" ? " (مدن + دول)" : ""}
+  </label>
+
+  {/* المدن المحلية */}
+  {(deliveryScope === "local" || deliveryScope === "international_local") && (
+    <div className="mb-3">
+      {deliveryScope === "international_local" && (
+        <p className="text-xs text-[#273347]/60 mb-2">المدن المحلية:</p>
+      )}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-xl p-3">
+        {cities.map((city) => (
+          <label key={city.name} className="flex items-center gap-2 cursor-pointer hover:bg-[#f8fafc] rounded-lg p-1">
+            <input
+              type="checkbox"
+              checked={deliveryCities.includes(city.name)}
+              onChange={() => {
+                setDeliveryCities(prev =>
+                  prev.includes(city.name)
+                    ? prev.filter(c => c !== city.name)
+                    : [...prev, city.name]
+                );
+              }}
+              className="accent-[#bbd0e4]"
+            />
+            <span className="text-sm text-[#273347]">{city.name}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  )}
+
+  {/* الدول الدولية */}
+  {(deliveryScope === "international" || deliveryScope === "international_local") && (
+    <div>
+      {deliveryScope === "international_local" && (
+        <p className="text-xs text-[#273347]/60 mb-2">الدول الدولية:</p>
+      )}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-xl p-3">
+        {Object.entries(arabCountryNames)
+  .filter(([code]) => code !== countryCode)
+  .map(([code, name]) => (
+          <label key={code} className="flex items-center gap-2 cursor-pointer hover:bg-[#f8fafc] rounded-lg p-1">
+            <input
+              type="checkbox"
+              checked={deliveryCities.includes(name)}
+              onChange={() => {
+                setDeliveryCities(prev =>
+                  prev.includes(name)
+                    ? prev.filter(c => c !== name)
+                    : [...prev, name]
+                );
+              }}
+              className="accent-[#bbd0e4]"
+            />
+            <span className="text-sm text-[#273347]">{name}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  )}
+
+  {deliveryCities.length > 0 && (
+    <p className="mt-2 text-xs text-[#273347]/60">
+      تم اختيار: {deliveryCities.join("، ")}
+    </p>
+  )}
+</div>
                         <div>
-                          <label className="block text-sm font-semibold text-[#273347] mb-2">
-                            المدن/المناطق (افصل بفواصل)
-                          </label>
-                         <select
-value={deliveryCities}
-onChange={(e) => setDeliveryCities(e.target.value)}
-className="w-full border border-gray-300 rounded-xl p-3"
->
-
-<option value="">اختر المدينة</option>
-
-{cities.map((city) => (
-<option key={city.name} value={city.name}>
-{city.name}
-</option>
-))}
-
-</select>
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-[#273347] mb-2">
-                            متوسط وقت التوصيل
-                          </label>
-                          <input
-                            value={avgDeliveryTime}
-                            onChange={(e) => setAvgDeliveryTime(e.target.value)}
-                            className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                            placeholder="مثال: 24-48 ساعة"
-                          />
-                        </div>
+  <label className="block text-sm font-semibold text-[#273347] mb-2">
+    متوسط وقت التوصيل
+  </label>
+  <select
+    value={avgDeliveryTime}
+    onChange={(e) => setAvgDeliveryTime(e.target.value)}
+    className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+  >
+    <option value="">اختر الوقت...</option>
+    <option value="same_day">نفس اليوم</option>
+    <option value="1_day">يوم واحد</option>
+    <option value="1_2_days">1 - 2 يوم</option>
+    <option value="2_3_days">2 - 3 أيام</option>
+    <option value="3_5_days">3 - 5 أيام</option>
+    <option value="1_week">أسبوع</option>
+    <option value="above_week">أكثر من أسبوع</option>
+  </select>
+</div>
                       </div>
 
                       <div>
@@ -820,46 +982,74 @@ className="w-full border border-gray-300 rounded-xl p-3"
                           <label className="block text-sm font-semibold text-[#273347] mb-2">
                             نوع الدعم
                           </label>
-                          <select
-                            value={supportType}
-                            onChange={(e) =>
-                              setSupportType(
-                                e.target.value as "financial" | "consulting" | "partnerships" | ""
-                              )
-                            }
-                            className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                          >
-                            <option value="">اختر...</option>
-                            <option value="financial">مالي</option>
-                            <option value="consulting">استشارات</option>
-                            <option value="partnerships">شراكات</option>
-                          </select>
+                       <select
+  value={supportType}
+  onChange={(e) => {
+    setSupportType(e.target.value as "financial" | "consulting" | "partnerships" | "");
+    if (e.target.value !== "financial") setFundingRange("");
+  }}
+  className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+>
+  <option value="">اختر...</option>
+  <option value="financial">مالي</option>
+  <option value="consulting">استشارات</option>
+  <option value="partnerships">شراكات</option>
+</select>
                         </div>
 
-                        <div>
-                          <label className="block text-sm font-semibold text-[#273347] mb-2">
-                            نطاق التمويل/الدعم
-                          </label>
-                          <input
-                            value={fundingRange}
-                            onChange={(e) => setFundingRange(e.target.value)}
-                            className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                            placeholder="مثال: 500 - 2000$"
-                          />
+                       {supportType === "financial" && (
+<div>
+  <label className="block text-sm font-semibold text-[#273347] mb-2">
+    نطاق التمويل/الدعم
+  </label>
+  
+                       <select
+  value={fundingRange}
+  onChange={(e) => setFundingRange(e.target.value)}
+  className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+>
+  <option value="">اختر النطاق...</option>
+  <option value="under_500">أقل من 500 {currency}</option>
+  <option value="500_2000">500 - 2,000 {currency}</option>
+  <option value="2000_5000">2,000 - 5,000 {currency}</option>
+  <option value="5000_10000">5,000 - 10,000 {currency}</option>
+  <option value="10000_50000">10,000 - 50,000 {currency}</option>
+  <option value="above_50000">أكثر من 50,000 {currency}</option>
+</select>
                         </div>
-                      </div>
+                       )}</div>
 
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-semibold text-[#273347] mb-2">
                             المجالات المهتم بها
                           </label>
-                          <input
-                            value={interests}
-                            onChange={(e) => setInterests(e.target.value)}
-                            className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                            placeholder="تجارة إلكترونية، أغذية، تقنية..."
-                          />
+                         <select
+  value={interests}
+  onChange={(e) => setInterests(e.target.value)}
+  className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+>
+  <option value="">اختر المجال...</option>
+  <option value="ecommerce">تجارة إلكترونية</option>
+  <option value="food">أغذية ومطاعم</option>
+  <option value="technology">تقنية وبرمجة</option>
+  <option value="fashion">أزياء وموضة</option>
+  <option value="health">صحة وعناية</option>
+  <option value="education">تعليم وتدريب</option>
+  <option value="agriculture">زراعة</option>
+  <option value="tourism">سياحة وسفر</option>
+  <option value="crafts">حرف يدوية</option>
+  <option value="real_estate">عقارات</option>
+  <option value="other">أخرى</option>
+</select>
+{interests === "other" && (
+  <input
+    value={interestsOther ?? ""}
+    onChange={(e) => setInterestsOther(e.target.value)}
+    className="w-full mt-2 border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+    placeholder="اكتب المجال..."
+  />
+)}
                         </div>
 
                         <div>
