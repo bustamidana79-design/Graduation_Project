@@ -358,6 +358,7 @@ await supabase.auth.signUp({
       const { error: profileError } = await supabase.from("profiles").insert({
         id: userId,
         full_name: fullName.trim(),
+         email: cleanEmail,   
         phone: phone,
         country: countryName,
         account_type: accountType,
@@ -428,9 +429,7 @@ await supabase.auth.signUp({
         return;
       }
 
-      setSuccessMsg(
-        "تم إرسال طلب إنشاء الحساب بنجاح. إذا كان البريد الإلكتروني مسجّلًا، فسيتم إرسال رسالة تأكيد. بعد التأكيد سيتم مراجعة الطلب من الإدارة."
-      );
+      
 
       // توجيه لصفحة pending
       setTimeout(() => router.push("/pending"), 900);

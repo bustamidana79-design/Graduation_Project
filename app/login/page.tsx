@@ -15,22 +15,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [successMsg, setSuccessMsg] = useState<string>("");
+  const [statusMsg, setStatusMsg] = useState<"pending" | "verify_email" | "rejected" | null>(null);
 
   const humanizeSupabaseError = (msg: string) => {
     const m = msg.toLowerCase();
-
-    if (m.includes("invalid login credentials")) {
+    if (m.includes("invalid login credentials"))
       return "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
-    }
-
-    if (m.includes("email not confirmed")) {
-      return "يرجى تأكيد البريد الإلكتروني أولًا. تحقّق من البريد الوارد أو الرسائل غير المرغوب فيها.";
-    }
-
-    if (m.includes("too many requests")) {
+    if (m.includes("too many requests"))
       return "عدد كبير من المحاولات. يرجى الانتظار قليلًا ثم المحاولة مرة أخرى.";
-    }
-
     return "حدث خطأ. يرجى التحقق من البيانات ثم المحاولة مرة أخرى.";
   };
 
@@ -38,6 +30,7 @@ export default function LoginPage() {
     e.preventDefault();
     setErrorMsg("");
     setSuccessMsg("");
+    setStatusMsg(null);
 
     const cleanEmail = email.trim();
     if (!cleanEmail || !password) {
@@ -55,6 +48,25 @@ export default function LoginPage() {
     setLoading(false);
 
     if (error) {
+      if (error.message.toLowerCase().includes("email not confirmed")) {
+        // نفحص الـ status أولاً — لأن البريد غير مؤكد ممكن يكون حساب pending
+        const { data: profileByEmail } = await supabase
+          .from("profiles")
+          .select("status")
+          .eq("email", cleanEmail)
+          .maybeSingle();
+
+        if (profileByEmail?.status === "pending") {
+          setStatusMsg("pending");
+        } else if (profileByEmail?.status === "rejected") {
+          setStatusMsg("rejected");
+        } else {
+          // approved أو ما لقيناه → يفتح رابط التأكيد
+          setStatusMsg("verify_email");
+        }
+        return;
+      }
+
       setErrorMsg(humanizeSupabaseError(error.message));
       return;
     }
@@ -64,25 +76,48 @@ export default function LoginPage() {
       return;
     }
 
-    setSuccessMsg("تم تسجيل الدخول بنجاح ✅");
-   const { data: profile } = await supabase
-  .from("profiles")
-  .select("status")
-  .eq("id", data.user.id)
-  .single();
+    // تسجيل ناجح — نفحص الـ profile
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("status, email_verified")
+      .eq("id", data.user.id)
+      .single();
 
-if (profile?.status === "pending") {
-  router.push("/pending");
-} else if (profile?.status === "approved") {
-  router.push("/dashboard");
-} else if (profile?.status === "rejected") {
-  router.push("/pending");
-}
+    if (profile?.status === "pending") {
+      await supabase.auth.signOut();
+      setStatusMsg("pending");
+      return;
+    }
+
+    if (profile?.status === "rejected") {
+      await supabase.auth.signOut();
+      setStatusMsg("rejected");
+      return;
+    }
+
+    if (profile?.status === "approved") {
+      if (!profile.email_verified) {
+        await supabase.auth.signOut();
+        setStatusMsg("verify_email");
+        return;
+      }
+      setSuccessMsg("تم تسجيل الدخول بنجاح ✅");
+      router.push("/dashboard");
+      return;
+    }
+
+setSuccessMsg("تم تسجيل الدخول بنجاح ✅");
+router.push("/dashboard/small-business");
+return;
+
+    await supabase.auth.signOut();
+    setErrorMsg("حدث خطأ غير متوقع. يرجى التواصل مع الإدارة.");
   };
 
   const handleResetPassword = async () => {
     setErrorMsg("");
     setSuccessMsg("");
+    setStatusMsg(null);
 
     const cleanEmail = email.trim();
     if (!cleanEmail) {
@@ -99,7 +134,8 @@ if (profile?.status === "pending") {
       return;
     }
 
-      setSuccessMsg("إذا كان البريد الإلكتروني مسجّلاً في النظام، سيتم إرسال رابط إعادة تعيين كلمة المرور.");  };
+    setSuccessMsg("إذا كان البريد الإلكتروني مسجّلاً في النظام، سيتم إرسال رابط إعادة تعيين كلمة المرور.");
+  };
 
   return (
     <main className="min-h-screen bg-[#f8fafc]">
@@ -140,7 +176,6 @@ if (profile?.status === "pending") {
                 placeholder="••••••••"
                 className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
               />
-
               <div className="mt-2 text-left">
                 <button
                   type="button"
@@ -160,12 +195,45 @@ if (profile?.status === "pending") {
               {loading ? "جارٍ تسجيل الدخول..." : "دخول"}
             </button>
 
+            {/* طلب قيد المراجعة */}
+            {statusMsg === "pending" && (
+              <div className="bg-[#f1f5f9] border border-[#bbd0e4] rounded-xl p-4 text-sm text-[#273347] space-y-1">
+                <p className="font-semibold">طلبك لا يزال قيد المراجعة</p>
+                <p className="text-[#273347]/70 leading-relaxed">
+                  سنتواصل معك عبر البريد الإلكتروني فور الانتهاء من المراجعة.
+                </p>
+              </div>
+            )}
+
+            {/* يحتاج فتح رابط التأكيد */}
+            {statusMsg === "verify_email" && (
+              <div className="bg-[#f1f5f9] border border-[#bbd0e4] rounded-xl p-4 text-sm text-[#273347] space-y-1">
+                <p className="font-semibold">يرجى تفعيل حسابك</p>
+                <p className="text-[#273347]/70 leading-relaxed">
+                  يرجى فتح رابط التأكيد المُرسل إلى بريدك الإلكتروني، تحقّق
+                  من البريد الوارد أو مجلد الرسائل غير المرغوب فيها (Spam).
+                </p>
+              </div>
+            )}
+
+            {/* مرفوض */}
+            {statusMsg === "rejected" && (
+              <div className="bg-[#f1f5f9] border border-[#bbd0e4] rounded-xl p-4 text-sm text-[#273347] space-y-1">
+                <p className="font-semibold">تم الرد على طلبك</p>
+                <p className="text-[#273347]/70 leading-relaxed">
+                  يرجى مراجعة بريدك الإلكتروني للاطلاع على رد الإدارة.
+                </p>
+              </div>
+            )}
+
+            {/* خطأ عادي */}
             {errorMsg && (
               <div className="bg-red-50 text-red-700 border border-red-200 rounded-xl p-3 text-sm">
                 {errorMsg}
               </div>
             )}
 
+            {/* نجاح */}
             {successMsg && (
               <div className="bg-green-50 text-green-700 border border-green-200 rounded-xl p-3 text-sm">
                 {successMsg}
