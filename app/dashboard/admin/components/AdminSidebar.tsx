@@ -7,7 +7,7 @@ import { supabase } from "../../../../lib/supabase";
 
 const navItems = [
   { label: "لوحة التحكم", href: "/admin", icon: "⊞" },
-  { label: "الطلبات", href: "/admin/applications", icon: "📋" },
+  { label: "الطلبات", href: "/dashboard/admin/applications", icon: "📋" },
   { label: "المنتجات", href: "/admin/products", icon: "📦" },
   { label: "المحادثات", href: "/admin/messages", icon: "💬" },
   { label: "الملف الشخصي", href: "/admin/profile", icon: "👤" },

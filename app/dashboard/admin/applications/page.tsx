@@ -1,8 +1,7 @@
-// app/admin/applications/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../../../lib/supabase";
+import { supabase } from "../../../../lib/supabase";
 
 type ApplicationStatus = "pending" | "approved" | "rejected";
 
@@ -51,6 +50,8 @@ const statusColor: Record<ApplicationStatus, string> = {
   rejected: "bg-red-100 text-red-700 border-red-200",
 };
 
+const BASE_URL = "http://localhost:3000";
+
 export default function ApplicationsPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,10 +88,13 @@ export default function ApplicationsPage() {
         ? "تهانينا! تم قبول طلبك في منصة الموردين"
         : "بخصوص طلب إنشاء حسابك في منصة الموردين";
 
+    const loginLink = `${BASE_URL}/login`;
+    const registerLink = `${BASE_URL}/register`;
+
     const bodyText =
       status === "approved"
-        ? `عزيزي ${fullName}،\n\nيسعدنا إبلاغك بأنه تم قبول طلب إنشاء حسابك في منصة الموردين.\nيمكنك الآن تسجيل الدخول والبدء باستخدام المنصة.\n${note ? `\nملاحظة من الإدارة: ${note}` : ""}\n\nفريق منصة الموردين`
-        : `عزيزي ${fullName}،\n\nنأسف لإبلاغك بأنه تم رفض طلب إنشاء حسابك في منصة الموردين.\n${note ? `\nسبب الرفض: ${note}` : ""}\n\nيمكنك التواصل معنا لمزيد من التوضيح.\n\nفريق منصة الموردين`;
+        ? `عزيزي ${fullName}،\n\nيسعدنا إبلاغك بأنه تم قبول طلب إنشاء حسابك في منصة الموردين.\n${note ? `\nملاحظة من الإدارة: ${note}\n` : ""}\nيمكنك الآن تسجيل الدخول من هنا:\n${loginLink}\n\nفريق منصة الموردين`
+        : `عزيزي ${fullName}،\n\nنأسف لإبلاغك بأنه تم رفض طلب إنشاء حسابك في منصة الموردين.\n${note ? `\nسبب الرفض: ${note}\n` : ""}\nيمكنك إعادة التسجيل من هنا:\n${registerLink}\n\nفريق منصة الموردين`;
 
     await fetch("/api/send-email", {
       method: "POST",
@@ -354,7 +358,7 @@ export default function ApplicationsPage() {
                     value={adminNote}
                     onChange={(e) => setAdminNote(e.target.value)}
                     rows={3}
-                    placeholder="سيتم إرسالها مع الإيميل..."
+                    placeholder="سيتم إرسالها مع الإيميل للمستخدم..."
                     className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
                   />
                 </section>
