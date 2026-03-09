@@ -72,7 +72,6 @@ export default function SmallBusinessDashboard() {
   return (
     <div className="min-h-screen bg-[#f8fafc] flex" dir="rtl">
 
-      {/* Overlay للموبايل */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/30 z-20 md:hidden"
@@ -110,7 +109,6 @@ export default function SmallBusinessDashboard() {
           ))}
         </nav>
 
-        {/* تسجيل الخروج */}
         <div className="px-4 py-4 border-t border-white/10">
           <button
             onClick={handleSignOut}
@@ -125,7 +123,6 @@ export default function SmallBusinessDashboard() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-h-screen">
 
-        {/* Top Bar */}
         <header className="bg-white border-b border-[#e6edf5] px-6 py-4 flex items-center justify-between sticky top-0 z-10">
           <button
             className="md:hidden text-[#273347] text-xl"
@@ -145,7 +142,6 @@ export default function SmallBusinessDashboard() {
           </div>
         </header>
 
-        {/* Page Content */}
         <div className="flex-1 px-6 py-8 max-w-5xl w-full mx-auto">
 
           {/* Welcome Banner */}
@@ -160,19 +156,19 @@ export default function SmallBusinessDashboard() {
             <div className="text-center text-[#273347]/40 text-sm py-10">جارٍ التحميل...</div>
           ) : (
             <>
-              {/* إجراءات سريعة */}
+              {/* التحليلات */}
               <div className="bg-white rounded-2xl border border-[#e6edf5] p-6 mb-6">
-                <h3 className="text-sm font-bold text-[#273347] mb-4">إجراءات سريعة</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {navItems.slice(1).map((action) => (
-                    <Link
-                      key={action.href}
-                      href={action.href}
-                      className="flex items-center gap-3 bg-[#f8fafc] hover:bg-[#eef3f8] transition rounded-xl px-4 py-3 text-sm text-[#273347] font-medium"
-                    >
-                      <span>{action.icon}</span>
-                      <span>{action.label}</span>
-                    </Link>
+                <h3 className="text-sm font-bold text-[#273347] mb-4">📊 تحليل الطلبات</h3>
+                <div className="flex items-end gap-2 h-36">
+                  {mockAnalytics.map((item) => (
+                    <div key={item.month} className="flex-1 flex flex-col items-center gap-1">
+                      <p className="text-xs font-bold text-[#273347]/50">{item.orders}</p>
+                      <div
+                        className="w-full bg-[#bbd0e4] rounded-t-md hover:bg-[#273347] transition"
+                        style={{ height: `${(item.orders / maxOrders) * 100}%` }}
+                      />
+                      <p className="text-[10px] text-[#273347]/50">{item.month.slice(0, 3)}</p>
+                    </div>
                   ))}
                 </div>
               </div>

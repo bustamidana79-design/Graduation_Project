@@ -3,110 +3,67 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "../../../lib/supabase";
 
 type Profile = {
-  id: string;
   full_name: string;
   account_type: string;
-  country: string;
-  city: string;
   status: string;
 };
 
-type Stats = {
-  products: number;
-  incomingOrders: number;
-  completedOrders: number;
-  totalSales: number;
-};
-
 const navItems = [
-  { label: "الرئيسية", href: "/merchant", icon: "🏠" },
-  { label: "المنتجات", href: "/merchant/products", icon: "📦" },
-  { label: "الطلبات", href: "/merchant/orders", icon: "🧾" },
-  { label: "المحادثات", href: "/merchant/chat", icon: "💬" },
-  { label: "لوحة التحكم", href: "/merchant/analytics", icon: "📊" },
-  { label: "الملف الشخصي", href: "/merchant/profile", icon: "👤" },
+  { label: "الرئيسية", href: "/dashboard/delivery", icon: "🏠" },
+  { label: "الطلبات", href: "/dashboard/delivery/orders", icon: "📦" },
+  { label: "المحادثات", href: "/dashboard/delivery/messages", icon: "💬" },
+  { label: "التحليلات", href: "/dashboard/delivery/analytics", icon: "📊" },
+  { label: "الملف الشخصي", href: "/dashboard/delivery/profile", icon: "👤" },
 ];
 
 const mockAnalytics = [
-  { month: "يناير", sales: 5 },
-  { month: "فبراير", sales: 12 },
-  { month: "مارس", sales: 8 },
-  { month: "أبريل", sales: 18 },
-  { month: "مايو", sales: 14 },
-  { month: "يونيو", sales: 22 },
+  { month: "يناير", deliveries: 8 },
+  { month: "فبراير", deliveries: 15 },
+  { month: "مارس", deliveries: 12 },
+  { month: "أبريل", deliveries: 20 },
+  { month: "مايو", deliveries: 18 },
+  { month: "يونيو", deliveries: 25 },
 ];
 
-export default function MerchantDashboard() {
+export default function DeliveryDashboard() {
   const router = useRouter();
   const pathname = usePathname();
 
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [stats, setStats] = useState<Stats>({
-    products: 0,
-    incomingOrders: 0,
-    completedOrders: 0,
-    totalSales: 0,
-  });
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const stats = {
+    incoming: 5,
+    inProgress: 3,
+    completed: 42,
+    rating: 4.8,
+  };
+
   useEffect(() => {
-    // fetchData();
+    // fetchProfile();
     setLoading(false);
   }, []);
 
-  const fetchData = async () => {
-    setLoading(true);
-
-    const { data: { user } } = await supabase.auth.getUser();
+  const fetchProfile = async () => {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
     if (!user) { router.push("/login"); return; }
 
-    const { data: profileData } = await supabase
+    const { data } = await supabase
       .from("profiles")
-      .select("*")
+      .select("full_name, account_type, status")
       .eq("id", user.id)
       .single();
 
-    if (profileData) {
-      if (profileData.status !== "approved") { router.push("/pending"); return; }
-      if (profileData.account_type !== "merchant") { router.push("/"); return; }
-      setProfile(profileData);
+    if (data) {
+      if (data.status !== "approved") { router.push("/pending"); return; }
+      if (data.account_type !== "delivery") { router.push("/"); return; }
+      setProfile(data);
     }
-
-    const { count: productsCount } = await supabase
-      .from("products")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id);
-
-    const { count: incomingCount } = await supabase
-      .from("orders")
-      .select("*", { count: "exact", head: true })
-      .eq("merchant_id", user.id)
-      .eq("status", "pending");
-
-    const { count: completedCount } = await supabase
-      .from("orders")
-      .select("*", { count: "exact", head: true })
-      .eq("merchant_id", user.id)
-      .eq("status", "completed");
-
-    const { data: salesData } = await supabase
-      .from("orders")
-      .select("total_price")
-      .eq("merchant_id", user.id)
-      .eq("status", "completed");
-
-    const totalSales = salesData?.reduce((sum, o) => sum + (o.total_price || 0), 0) || 0;
-
-    setStats({
-      products: productsCount || 0,
-      incomingOrders: incomingCount || 0,
-      completedOrders: completedCount || 0,
-      totalSales,
-    });
 
     setLoading(false);
   };
@@ -116,14 +73,14 @@ export default function MerchantDashboard() {
     router.push("/login");
   };
 
-  const statCards = [
-    { label: "المنتجات", value: stats.products, icon: "📦", color: "border-r-4 border-[#273347]" },
-    { label: "الطلبات الواردة", value: stats.incomingOrders, icon: "📥", color: "border-r-4 border-blue-400" },
-    { label: "طلبات مكتملة", value: stats.completedOrders, icon: "✅", color: "border-r-4 border-green-400" },
-    { label: "إجمالي المبيعات", value: `${stats.totalSales} ₪`, icon: "💰", color: "border-r-4 border-yellow-400" },
-  ];
+  const maxDeliveries = Math.max(...mockAnalytics.map((a) => a.deliveries));
 
-  const maxSales = Math.max(...mockAnalytics.map((a) => a.sales));
+  const statCards = [
+    { label: "طلبات واردة", value: stats.incoming, icon: "📥", color: "border-r-4 border-[#273347]" },
+    { label: "قيد التوصيل", value: stats.inProgress, icon: "🚚", color: "border-r-4 border-blue-400" },
+    { label: "مكتملة", value: stats.completed, icon: "✅", color: "border-r-4 border-green-400" },
+    { label: "تقييم الخدمة", value: `${stats.rating} ⭐`, icon: "🏅", color: "border-r-4 border-yellow-400" },
+  ];
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex" dir="rtl">
@@ -144,7 +101,7 @@ export default function MerchantDashboard() {
       `}>
         <div className="px-6 py-6 border-b border-white/10">
           <h1 className="text-xl font-bold">منصة الموردين</h1>
-          <p className="text-xs text-white/50 mt-1">لوحة التاجر</p>
+          <p className="text-xs text-white/50 mt-1">لوحة شركة الشحن</p>
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
@@ -189,23 +146,23 @@ export default function MerchantDashboard() {
 
           <div className="flex items-center gap-3 mr-auto">
             <div className="w-9 h-9 rounded-full bg-[#273347] text-white flex items-center justify-center text-sm font-bold">
-              {profile?.full_name?.charAt(0) || "؟"}
+              {profile?.full_name?.[0] || "ش"}
             </div>
             <div className="text-sm text-right">
               <p className="font-semibold text-[#273347]">{profile?.full_name || "..."}</p>
-              <p className="text-[#273347]/50 text-xs">تاجر جملة</p>
+              <p className="text-[#273347]/50 text-xs">شركة شحن</p>
             </div>
           </div>
         </header>
 
         <div className="flex-1 px-6 py-8 max-w-5xl w-full mx-auto">
 
-          {/* Welcome */}
+          {/* Welcome Banner */}
           <div className="bg-[#273347] text-white rounded-2xl px-8 py-6 mb-8">
             <h2 className="text-2xl font-bold">
               مرحباً، {loading ? "..." : profile?.full_name} 👋
             </h2>
-            <p className="text-white/60 text-sm mt-1">تاجر جملة</p>
+            <p className="text-white/60 text-sm mt-1">إليك ملخص نشاط شركتك</p>
           </div>
 
           {loading ? (
@@ -223,27 +180,16 @@ export default function MerchantDashboard() {
                 ))}
               </div>
 
-              {/* إضافة منتج */}
-              <div className="mb-6">
-                <Link
-                  href="/merchant/products/new"
-                  className="flex items-center gap-3 bg-white border border-[#e6edf5] hover:bg-[#eef3f8] transition rounded-2xl px-6 py-4 text-sm text-[#273347] font-medium w-fit"
-                >
-                  <span>➕</span>
-                  <span>إضافة منتج</span>
-                </Link>
-              </div>
-
               {/* التحليلات */}
               <div className="bg-white rounded-2xl border border-[#e6edf5] p-6 mb-6">
-                <h3 className="text-sm font-bold text-[#273347] mb-4">📊 تحليل المبيعات</h3>
+                <h3 className="text-sm font-bold text-[#273347] mb-4">📊 تحليل التوصيلات</h3>
                 <div className="flex items-end gap-2 h-36">
                   {mockAnalytics.map((item) => (
                     <div key={item.month} className="flex-1 flex flex-col items-center gap-1">
-                      <p className="text-xs font-bold text-[#273347]/50">{item.sales}</p>
+                      <p className="text-xs font-bold text-[#273347]/50">{item.deliveries}</p>
                       <div
                         className="w-full bg-[#bbd0e4] rounded-t-md hover:bg-[#273347] transition"
-                        style={{ height: `${(item.sales / maxSales) * 100}%` }}
+                        style={{ height: `${(item.deliveries / maxDeliveries) * 100}%` }}
                       />
                       <p className="text-[10px] text-[#273347]/50">{item.month.slice(0, 3)}</p>
                     </div>
@@ -255,7 +201,7 @@ export default function MerchantDashboard() {
               <div className="bg-white rounded-2xl border border-[#e6edf5] p-6 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-[#273347] mb-1">المساعد الذكي 🤖</h3>
-                  <p className="text-xs text-[#273347]/50">احصل على نصائح ومساعدة لتطوير تجارتك</p>
+                  <p className="text-xs text-[#273347]/50">احصل على مساعدة وتحليل لأداء شركتك</p>
                 </div>
                 <Link
                   href="/chat"
