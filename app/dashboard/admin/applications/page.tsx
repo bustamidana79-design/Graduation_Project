@@ -1,4 +1,4 @@
-// app/admin/applications/page.tsx
+// app/dashboard/admin/applications/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -32,6 +32,16 @@ type Application = {
   };
 };
 
+type AIReport = {
+  score: number;
+  recommendation: "approve" | "reject" | "review";
+  reasons: string[];
+  risks: string[];
+  summary: string;
+};
+
+const ITEMS_PER_PAGE = 8;
+
 const accountTypeLabel: Record<string, string> = {
   merchant: "تاجر (جملة)",
   small_business: "مشروع صغير",
@@ -51,6 +61,12 @@ const statusColor: Record<ApplicationStatus, string> = {
   rejected: "bg-red-100 text-red-700 border-red-200",
 };
 
+const recommendationConfig = {
+  approve: { label: "يُنصح بالقبول", color: "bg-green-100 text-green-700 border-green-300" },
+  reject: { label: "يُنصح بالرفض", color: "bg-red-100 text-red-700 border-red-300" },
+  review: { label: "يحتاج مراجعة إضافية", color: "bg-yellow-100 text-yellow-700 border-yellow-300" },
+};
+
 export default function ApplicationsPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,10 +77,22 @@ export default function ApplicationsPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMsg, setActionMsg] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // AI
+  const [aiApp, setAiApp] = useState<Application | null>(null);
+  const [aiReport, setAiReport] = useState<AIReport | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
 
   useEffect(() => {
     fetchApplications();
   }, []);
+
+  // reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterStatus, filterType, searchQuery]);
 
   const fetchApplications = async () => {
     setLoading(true);
@@ -76,22 +104,66 @@ export default function ApplicationsPage() {
     setLoading(false);
   };
 
-  const sendEmail = async (
-    email: string,
-    fullName: string,
-    status: "approved" | "rejected",
-    note: string
-  ) => {
-    const subject =
-      status === "approved"
-        ? "تهانينا! تم قبول طلبك في منصة الموردين"
-        : "بخصوص طلب إنشاء حسابك في منصة الموردين";
+  const runAiAnalysis = async (app: Application) => {
+    setAiApp(app);
+    setAiReport(null);
+    setAiError("");
+    setAiLoading(true);
 
-    const bodyText =
-      status === "approved"
-        ? `عزيزي ${fullName}،\n\nيسعدنا إبلاغك بأنه تم قبول طلب إنشاء حسابك في منصة الموردين.\nيمكنك الآن تسجيل الدخول والبدء باستخدام المنصة.\n${note ? `\nملاحظة من الإدارة: ${note}` : ""}\n\nفريق منصة الموردين`
-        : `عزيزي ${fullName}،\n\nنأسف لإبلاغك بأنه تم رفض طلب إنشاء حسابك في منصة الموردين.\n${note ? `\nسبب الرفض: ${note}` : ""}\n\nيمكنك التواصل معنا لمزيد من التوضيح.\n\nفريق منصة الموردين`;
+    const prompt = `
+أنت محلل أعمال خبير. قم بتحليل طلب التسجيل التالي في منصة تجارية وأعطِ تقريراً تقييمياً.
 
+معلومات المتقدم:
+- الاسم: ${app.data_json.basic.full_name}
+- نوع الحساب: ${accountTypeLabel[app.account_type]}
+- الدولة: ${app.data_json.basic.country}
+- المدينة: ${app.data_json.basic.city || "—"}
+- الهاتف: ${app.data_json.basic.phone}
+- النبذة: ${app.data_json.basic.bio || "لم يذكر"}
+- البيانات الإضافية: ${JSON.stringify(app.data_json.type_specific, null, 2)}
+- رابط إثبات 1: ${app.proof_json.proof_link_1 || "لم يذكر"}
+- رابط إثبات 2: ${app.proof_json.proof_link_2 || "لم يذكر"}
+- ملاحظة إضافية: ${app.proof_json.note || "لم تذكر"}
+
+أرجع JSON فقط بدون أي نص إضافي أو backticks بالشكل التالي:
+{
+  "score": <رقم من 0 إلى 100>,
+  "recommendation": <"approve" أو "reject" أو "review">,
+  "summary": "<جملة واحدة تلخص رأيك>",
+  "reasons": ["<سبب إيجابي 1>", "<سبب إيجابي 2>"],
+  "risks": ["<مخاطرة أو نقطة ضعف 1>"]
+}
+`;
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await res.json();
+      const text = data.content?.map((c: any) => c.text || "").join("") || "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      const parsed: AIReport = JSON.parse(clean);
+      setAiReport(parsed);
+    } catch {
+      setAiError("حدث خطأ أثناء التحليل. حاولي مرة أخرى.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const sendEmail = async (email: string, fullName: string, status: "approved" | "rejected", note: string) => {
+    const subject = status === "approved"
+      ? "تهانينا! تم قبول طلبك في منصة الموردين"
+      : "بخصوص طلب إنشاء حسابك في منصة الموردين";
+    const bodyText = status === "approved"
+      ? `عزيزي ${fullName}،\n\nيسعدنا إبلاغك بأنه تم قبول طلب إنشاء حسابك في منصة الموردين.\nيمكنك الآن تسجيل الدخول والبدء باستخدام المنصة.\n${note ? `\nملاحظة من الإدارة: ${note}` : ""}\n\nفريق منصة الموردين`
+      : `عزيزي ${fullName}،\n\nنأسف لإبلاغك بأنه تم رفض طلب إنشاء حسابك في منصة الموردين.\n${note ? `\nسبب الرفض: ${note}` : ""}\n\nيمكنك التواصل معنا لمزيد من التوضيح.\n\nفريق منصة الموردين`;
     await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -103,31 +175,14 @@ export default function ApplicationsPage() {
     if (!selectedApp) return;
     setActionLoading(true);
     setActionMsg("");
-
     try {
-      const { error: appError } = await supabase
-        .from("applications")
-        .update({ status, admin_note: adminNote.trim() || null })
-        .eq("id", selectedApp.id);
+      const { error: appError } = await supabase.from("applications").update({ status, admin_note: adminNote.trim() || null }).eq("id", selectedApp.id);
       if (appError) throw new Error(appError.message);
-
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .update({ status })
-        .eq("id", selectedApp.user_id);
+      const { error: profileError } = await supabase.from("profiles").update({ status }).eq("id", selectedApp.user_id);
       if (profileError) throw new Error(profileError.message);
-
-      await sendEmail(
-        selectedApp.data_json.basic.email,
-        selectedApp.data_json.basic.full_name,
-        status,
-        adminNote.trim()
-      );
-
+      await sendEmail(selectedApp.data_json.basic.email, selectedApp.data_json.basic.full_name, status, adminNote.trim());
       setActionMsg(status === "approved" ? "✅ تم قبول الطلب وإرسال الإيميل." : "❌ تم رفض الطلب وإرسال الإيميل.");
-      setApplications((prev) =>
-        prev.map((a) => (a.id === selectedApp.id ? { ...a, status } : a))
-      );
+      setApplications((prev) => prev.map((a) => (a.id === selectedApp.id ? { ...a, status } : a)));
       setSelectedApp(null);
       setAdminNote("");
     } catch (err: any) {
@@ -140,12 +195,12 @@ export default function ApplicationsPage() {
   const filtered = applications.filter((a) => {
     const matchStatus = filterStatus === "all" || a.status === filterStatus;
     const matchType = filterType === "all" || a.account_type === filterType;
-    const matchSearch =
-      !searchQuery ||
-      a.data_json.basic.full_name.includes(searchQuery) ||
-      a.data_json.basic.email.includes(searchQuery);
+    const matchSearch = !searchQuery || a.data_json.basic.full_name.includes(searchQuery) || a.data_json.basic.email.includes(searchQuery);
     return matchStatus && matchType && matchSearch;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const paginated = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   const counts = {
     all: applications.length,
@@ -153,6 +208,9 @@ export default function ApplicationsPage() {
     approved: applications.filter((a) => a.status === "approved").length,
     rejected: applications.filter((a) => a.status === "rejected").length,
   };
+
+  const scoreColor = (s: number) => s >= 70 ? "text-green-600" : s >= 40 ? "text-yellow-600" : "text-red-600";
+  const scoreBarColor = (s: number) => s >= 70 ? "bg-green-500" : s >= 40 ? "bg-yellow-500" : "bg-red-500";
 
   return (
     <div className="p-8" dir="rtl">
@@ -181,33 +239,20 @@ export default function ApplicationsPage() {
           placeholder="بحث بالاسم أو الإيميل..."
           className="border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#bbd0e4] flex-1 min-w-[200px]"
         />
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value as any)}
-          className="border border-gray-200 rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-        >
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="border border-gray-200 rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]">
           <option value="all">كل الحالات</option>
           <option value="pending">قيد المراجعة</option>
           <option value="approved">مقبول</option>
           <option value="rejected">مرفوض</option>
         </select>
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          className="border border-gray-200 rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-        >
+        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="border border-gray-200 rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]">
           <option value="all">كل الأنواع</option>
           <option value="merchant">تاجر (جملة)</option>
           <option value="small_business">مشروع صغير</option>
           <option value="delivery">شركة توصيل</option>
           <option value="supporter">داعم / مستثمر</option>
         </select>
-        <button
-          onClick={fetchApplications}
-          className="bg-[#273347] text-white text-sm px-5 py-2 rounded-xl hover:bg-[#1e2a38] transition"
-        >
-          تحديث
-        </button>
+        <button onClick={fetchApplications} className="bg-[#273347] text-white text-sm px-5 py-2 rounded-xl hover:bg-[#1e2a38] transition">تحديث</button>
       </div>
 
       {/* Table */}
@@ -217,56 +262,187 @@ export default function ApplicationsPage() {
         ) : filtered.length === 0 ? (
           <div className="p-10 text-center text-[#273347]/50 text-sm">لا توجد طلبات.</div>
         ) : (
-          <table className="w-full text-sm text-right">
-            <thead className="bg-[#f1f5f9] text-[#273347]/70 border-b border-[#e6edf5]">
-              <tr>
-                <th className="px-5 py-4 font-semibold">الاسم</th>
-                <th className="px-5 py-4 font-semibold">الإيميل</th>
-                <th className="px-5 py-4 font-semibold">نوع الحساب</th>
-                <th className="px-5 py-4 font-semibold">الدولة</th>
-                <th className="px-5 py-4 font-semibold">تاريخ الطلب</th>
-                <th className="px-5 py-4 font-semibold">الحالة</th>
-                <th className="px-5 py-4 font-semibold">إجراء</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((app, i) => (
-                <tr
-                  key={app.id}
-                  className={`border-b border-[#e6edf5] hover:bg-[#f8fafc] transition ${i % 2 === 0 ? "" : "bg-[#fafbfc]"}`}
-                >
-                  <td className="px-5 py-4 font-medium text-[#273347]">{app.data_json.basic.full_name}</td>
-                  <td className="px-5 py-4 text-[#273347]/70">{app.data_json.basic.email}</td>
-                  <td className="px-5 py-4">
-                    <span className="bg-[#eef3f8] text-[#273347] px-3 py-1 rounded-lg text-xs font-medium">
-                      {accountTypeLabel[app.account_type] || app.account_type}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 text-[#273347]/70">{app.data_json.basic.country}</td>
-                  <td className="px-5 py-4 text-[#273347]/60">
-                    {new Date(app.created_at).toLocaleDateString("ar-EG")}
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className={`border px-3 py-1 rounded-lg text-xs font-medium ${statusColor[app.status]}`}>
-                      {statusLabel[app.status]}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4">
-                    <button
-                      onClick={() => { setSelectedApp(app); setAdminNote(""); setActionMsg(""); }}
-                      className="text-[#546a85] hover:text-[#273347] font-semibold text-xs underline underline-offset-2"
-                    >
-                      عرض التفاصيل
-                    </button>
-                  </td>
+          <>
+            <table className="w-full text-sm text-right">
+              <thead className="bg-[#f1f5f9] text-[#273347]/70 border-b border-[#e6edf5]">
+                <tr>
+                  <th className="px-5 py-4 font-semibold">الاسم</th>
+                  <th className="px-5 py-4 font-semibold">الإيميل</th>
+                  <th className="px-5 py-4 font-semibold">نوع الحساب</th>
+                  <th className="px-5 py-4 font-semibold">الدولة</th>
+                  <th className="px-5 py-4 font-semibold">تاريخ الطلب</th>
+                  <th className="px-5 py-4 font-semibold">الحالة</th>
+                  <th className="px-5 py-4 font-semibold">إجراء</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {paginated.map((app, i) => (
+                  <tr key={app.id} className={`border-b border-[#e6edf5] hover:bg-[#f8fafc] transition ${i % 2 === 0 ? "" : "bg-[#fafbfc]"}`}>
+                    <td className="px-5 py-4 font-medium text-[#273347]">{app.data_json.basic.full_name}</td>
+                    <td className="px-5 py-4 text-[#273347]/70">{app.data_json.basic.email}</td>
+                    <td className="px-5 py-4">
+                      <span className="bg-[#eef3f8] text-[#273347] px-3 py-1 rounded-lg text-xs font-medium">
+                        {accountTypeLabel[app.account_type] || app.account_type}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-[#273347]/70">{app.data_json.basic.country}</td>
+                    <td className="px-5 py-4 text-[#273347]/60">{new Date(app.created_at).toLocaleDateString("ar-EG")}</td>
+                    <td className="px-5 py-4">
+                      <span className={`border px-3 py-1 rounded-lg text-xs font-medium ${statusColor[app.status]}`}>
+                        {statusLabel[app.status]}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => { setSelectedApp(app); setAdminNote(""); setActionMsg(""); }}
+                          className="text-[#546a85] hover:text-[#273347] font-semibold text-xs underline underline-offset-2"
+                        >
+                          التفاصيل
+                        </button>
+                        <button
+                          onClick={() => runAiAnalysis(app)}
+                          className="text-xs bg-[#273347] hover:bg-[#1e2a38] text-white px-3 py-1.5 rounded-lg transition font-medium"
+                        >
+                          ✨ AI
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination */}
+            <div className="flex items-center justify-between px-5 py-4 border-t border-[#e6edf5] bg-[#f8fafc]">
+              <p className="text-xs text-[#273347]/50">
+                عرض {((currentPage - 1) * ITEMS_PER_PAGE) + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} من {filtered.length} طلب
+              </p>
+              <div className="flex items-center gap-1">
+                {/* السهم السابق */}
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#e6edf5] text-[#273347] hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition text-sm"
+                >
+                  «
+                </button>
+
+                {/* أرقام الصفحات */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                  .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                    if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...");
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) =>
+                    item === "..." ? (
+                      <span key={`dots-${idx}`} className="w-8 h-8 flex items-center justify-center text-[#273347]/40 text-xs">...</span>
+                    ) : (
+                      <button
+                        key={item}
+                        onClick={() => setCurrentPage(item as number)}
+                        className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium transition ${
+                          currentPage === item
+                            ? "bg-[#273347] text-white"
+                            : "border border-[#e6edf5] text-[#273347] hover:bg-white"
+                        }`}
+                      >
+                        {item}
+                      </button>
+                    )
+                  )}
+
+                {/* السهم التالي */}
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#e6edf5] text-[#273347] hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition text-sm"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
-      {/* Modal */}
+      {/* AI Modal */}
+      {aiApp && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="bg-[#273347] text-white px-6 py-5 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">✨ تحليل AI</h2>
+                <p className="text-sm opacity-70">{aiApp.data_json.basic.full_name}</p>
+              </div>
+              <button onClick={() => { setAiApp(null); setAiReport(null); setAiError(""); }} className="text-white/70 hover:text-white text-2xl leading-none">×</button>
+            </div>
+            <div className="p-6">
+              {aiLoading && (
+                <div className="text-center py-12">
+                  <div className="text-4xl mb-4 animate-pulse">🤖</div>
+                  <p className="text-[#273347]/60 text-sm">جارٍ تحليل الطلب...</p>
+                </div>
+              )}
+              {aiError && (
+                <div className="bg-red-50 text-red-700 rounded-xl p-4 text-sm text-center">
+                  {aiError}
+                  <button onClick={() => runAiAnalysis(aiApp)} className="block mx-auto mt-3 text-xs underline">حاولي مرة أخرى</button>
+                </div>
+              )}
+              {aiReport && (
+                <div className="space-y-5">
+                  <div className="text-center bg-[#f8fafc] rounded-2xl p-6">
+                    <p className="text-xs text-[#273347]/50 mb-1">تقييم AI</p>
+                    <p className={`text-6xl font-bold mb-2 ${scoreColor(aiReport.score)}`}>
+                      {aiReport.score}<span className="text-2xl text-[#273347]/30">/100</span>
+                    </p>
+                    <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
+                      <div className={`h-2 rounded-full transition-all ${scoreBarColor(aiReport.score)}`} style={{ width: `${aiReport.score}%` }} />
+                    </div>
+                  </div>
+                  <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center ${recommendationConfig[aiReport.recommendation].color}`}>
+                    {recommendationConfig[aiReport.recommendation].label}
+                  </div>
+                  <div className="bg-[#f8fafc] rounded-xl p-4 text-sm text-[#273347]">
+                    <p className="text-xs text-[#273347]/50 mb-1 font-semibold">الملخص</p>
+                    {aiReport.summary}
+                  </div>
+                  {aiReport.reasons.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-[#273347]/50 mb-2">✅ نقاط إيجابية</p>
+                      <ul className="space-y-2">
+                        {aiReport.reasons.map((r, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm text-green-700 bg-green-50 rounded-xl px-4 py-2">
+                            <span>•</span>{r}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {aiReport.risks.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-[#273347]/50 mb-2">⚠️ مخاطر</p>
+                      <ul className="space-y-2">
+                        {aiReport.risks.map((r, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-xl px-4 py-2">
+                            <span>•</span>{r}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <p className="text-xs text-[#273347]/30 text-center pt-2">هذا التحليل مساعد فقط — القرار النهائي للمدير</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Details Modal */}
       {selectedApp && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -277,7 +453,6 @@ export default function ApplicationsPage() {
               </div>
               <button onClick={() => setSelectedApp(null)} className="text-white/70 hover:text-white text-2xl leading-none">×</button>
             </div>
-
             <div className="p-6 space-y-5">
               <section>
                 <h3 className="text-sm font-bold text-[#273347] mb-3 border-b border-[#e6edf5] pb-2">البيانات الأساسية</h3>
@@ -301,52 +476,34 @@ export default function ApplicationsPage() {
                   </div>
                 )}
               </section>
-
               <section>
                 <h3 className="text-sm font-bold text-[#273347] mb-3 border-b border-[#e6edf5] pb-2">البيانات الإضافية</h3>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   {Object.entries(selectedApp.data_json.type_specific).map(([key, val]) => (
                     <div key={key} className="bg-[#f8fafc] rounded-xl p-3">
                       <p className="text-[#273347]/50 text-xs mb-1">{key}</p>
-                      <p className="text-[#273347] font-medium break-all">
-                        {Array.isArray(val) ? val.join("، ") : String(val || "—")}
-                      </p>
+                      <p className="text-[#273347] font-medium break-all">{Array.isArray(val) ? val.join("، ") : String(val || "—")}</p>
                     </div>
                   ))}
                 </div>
               </section>
-
               <section>
                 <h3 className="text-sm font-bold text-[#273347] mb-3 border-b border-[#e6edf5] pb-2">الإثبات</h3>
                 <div className="space-y-2 text-sm">
                   {selectedApp.proof_json.proof_link_1 && (
-                    <a href={selectedApp.proof_json.proof_link_1} target="_blank" rel="noreferrer"
-                      className="block text-[#546a85] hover:underline break-all">
-                      🔗 {selectedApp.proof_json.proof_link_1}
-                    </a>
+                    <a href={selectedApp.proof_json.proof_link_1} target="_blank" rel="noreferrer" className="block text-[#546a85] hover:underline break-all">🔗 {selectedApp.proof_json.proof_link_1}</a>
                   )}
                   {selectedApp.proof_json.proof_link_2 && (
-                    <a href={selectedApp.proof_json.proof_link_2} target="_blank" rel="noreferrer"
-                      className="block text-[#546a85] hover:underline break-all">
-                      🔗 {selectedApp.proof_json.proof_link_2}
-                    </a>
+                    <a href={selectedApp.proof_json.proof_link_2} target="_blank" rel="noreferrer" className="block text-[#546a85] hover:underline break-all">🔗 {selectedApp.proof_json.proof_link_2}</a>
                   )}
                   {selectedApp.proof_json.note && (
                     <p className="text-[#273347]/70 bg-[#f8fafc] rounded-xl p-3">📝 {selectedApp.proof_json.note}</p>
                   )}
-                  {selectedApp.proof_json.file_urls && selectedApp.proof_json.file_urls.length > 0 && (
-                    <div className="space-y-1">
-                      {selectedApp.proof_json.file_urls.map((url, i) => (
-                        <a key={i} href={url} target="_blank" rel="noreferrer"
-                          className="block text-[#546a85] hover:underline break-all text-xs">
-                          📎 ملف {i + 1}
-                        </a>
-                      ))}
-                    </div>
-                  )}
+                  {selectedApp.proof_json.file_urls?.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noreferrer" className="block text-[#546a85] hover:underline break-all text-xs">📎 ملف {i + 1}</a>
+                  ))}
                 </div>
               </section>
-
               {selectedApp.status === "pending" && (
                 <section>
                   <h3 className="text-sm font-bold text-[#273347] mb-3 border-b border-[#e6edf5] pb-2">ملاحظة للمستخدم (اختياري)</h3>
@@ -359,32 +516,21 @@ export default function ApplicationsPage() {
                   />
                 </section>
               )}
-
               {actionMsg && (
                 <div className={`rounded-xl p-3 text-sm ${actionMsg.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
                   {actionMsg}
                 </div>
               )}
-
               {selectedApp.status === "pending" && (
                 <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={() => handleAction("approved")}
-                    disabled={actionLoading}
-                    className="flex-1 bg-green-500 hover:bg-green-600 transition text-white font-semibold py-3 rounded-xl disabled:opacity-60"
-                  >
+                  <button onClick={() => handleAction("approved")} disabled={actionLoading} className="flex-1 bg-green-500 hover:bg-green-600 transition text-white font-semibold py-3 rounded-xl disabled:opacity-60">
                     {actionLoading ? "جارٍ..." : "✅ قبول الطلب"}
                   </button>
-                  <button
-                    onClick={() => handleAction("rejected")}
-                    disabled={actionLoading}
-                    className="flex-1 bg-red-500 hover:bg-red-600 transition text-white font-semibold py-3 rounded-xl disabled:opacity-60"
-                  >
+                  <button onClick={() => handleAction("rejected")} disabled={actionLoading} className="flex-1 bg-red-500 hover:bg-red-600 transition text-white font-semibold py-3 rounded-xl disabled:opacity-60">
                     {actionLoading ? "جارٍ..." : "❌ رفض الطلب"}
                   </button>
                 </div>
               )}
-
               {selectedApp.status !== "pending" && (
                 <div className={`text-center py-3 rounded-xl font-semibold text-sm border ${statusColor[selectedApp.status]}`}>
                   تم {selectedApp.status === "approved" ? "قبول" : "رفض"} هذا الطلب مسبقاً
