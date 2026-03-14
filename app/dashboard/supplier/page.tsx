@@ -22,12 +22,13 @@ type Stats = {
 };
 
 const navItems = [
-  { label: "الرئيسية", href: "/merchant", icon: "🏠" },
-  { label: "المنتجات", href: "/merchant/products", icon: "📦" },
-  { label: "الطلبات", href: "/merchant/orders", icon: "🧾" },
-  { label: "المحادثات", href: "/merchant/chat", icon: "💬" },
-  { label: "لوحة التحكم", href: "/merchant/analytics", icon: "📊" },
-  { label: "الملف الشخصي", href: "/merchant/profile", icon: "👤" },
+  { label: "الرئيسية", href: "/dashboard/supplier", icon: "🏠" },
+  { label: "المنتجات", href: "/dashboard/supplier/products", icon: "📦" },
+  { label: "الطلبات", href: "/dashboard/supplier/orders", icon: "🧾" },
+  { label: "المحادثات", href: "/dashboard/supplier/messages", icon: "💬" },
+  { label: "لوحة التحكم", href: "/dashboard/supplier/analytics", icon: "📊" },
+  { label: "خدمة العملاء", href: "/dashboard/support", icon: "🎧" },
+  { label: "الملف الشخصي", href: "/dashboard/supplier/profile", icon: "👤" },
 ];
 
 const mockAnalytics = [
