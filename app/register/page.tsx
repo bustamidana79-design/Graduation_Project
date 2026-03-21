@@ -422,14 +422,53 @@ await supabase.auth.signUp({
         proof_json: proofJson,
         status: "pending",
       });
+/* ===============================
+   AI Evaluation
+================================ */
 
-      if (appError) {
-        setErrorMsg(`تعذر إرسال الطلب: ${appError.message}`);
-        setLoading(false);
-        return;
+try {
+
+  const aiResponse = await fetch("/api/ai/evaluate-application", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      full_name: fullName,
+      email: cleanEmail,
+      bio: bio,
+      account_type: accountType,
+      country: countryName,
+
+      data: buildTypeSpecificData(),
+
+      proof: {
+        proof_link_1: proofLink1,
+        proof_link_2: proofLink2,
+        files: uploadedFileUrls
       }
+    })
+  });
 
-      
+  const aiResult = await aiResponse.json();
+
+  console.log("AI Evaluation Result:", aiResult);
+
+  // حفظ نتيجة AI في قاعدة البيانات
+
+ await supabase
+  .from("applications")
+  .update({
+    ai_score: aiResult.score,
+    ai_recommendation: aiResult.recommendation,
+    ai_reason: aiResult.reason,
+    ai_checked: true
+  })
+.eq("user_id", userId);
+  
+} catch (error) {
+  console.error("AI Evaluation Failed:", error);
+}
 
       // توجيه لصفحة pending
       setTimeout(() => router.push("/pending"), 900);
