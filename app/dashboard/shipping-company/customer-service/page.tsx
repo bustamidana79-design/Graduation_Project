@@ -1,6 +1,6 @@
 "use client";
 
-export default function SupportPage() {
+export default function CustomerServicePage() {
   return (
     <div className="p-8" dir="rtl">
       <h1 className="text-2xl font-bold text-[#273347] mb-2">

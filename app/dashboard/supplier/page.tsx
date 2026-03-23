@@ -27,7 +27,7 @@ const navItems = [
   { label: "الطلبات", href: "/dashboard/supplier/orders", icon: "🧾" },
   { label: "المحادثات", href: "/dashboard/supplier/messages", icon: "💬" },
   { label: "لوحة التحكم", href: "/dashboard/supplier/analytics", icon: "📊" },
-  { label: "خدمة العملاء", href: "/dashboard/support", icon: "🎧" },
+  { label: "خدمة العملاء", href: "/dashboard/customer-service", icon: "🎧" },
   { label: "الملف الشخصي", href: "/dashboard/supplier/profile", icon: "👤" },
 ];
 

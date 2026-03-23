@@ -1,4 +1,3 @@
-// app/dashboard/admin/components/AdminSidebar.tsx
 "use client";
 
 import Link from "next/link";
@@ -6,18 +5,15 @@ import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "../../../../lib/supabase";
 
 const navItems = [
-
-  { label: "لوحة التحكم", href: "/dashboard/admin", icon: "⊞" },
-  { label: "الطلبات", href: "/dashboard/admin/applications", icon: "📋" },
-  { label: "طلبات الترقية", href: "/dashboard/admin/upgrade_requests", icon: "⬆️" },
-  { label: "المنتجات", href: "/dashboard/admin/products", icon: "📦" },
-  { label: "التقارير", href: "/dashboard/admin/reports", icon: "📊" },
-  { label: "الصلاحيات", href: "/dashboard/admin/permissions", icon: "🔐" },
-  { label: "المحادثات", href: "/dashboard/admin/messages", icon: "💬" },
-  { label: "الملف الشخصي", href: "/dashboard/admin/profile", icon: "👤" },
+  { label: "الرئيسية", href: "/dashboard/shipping-company", icon: "🏠" },
+  { label: "الطلبات", href: "/dashboard/shipping-company/orders", icon: "📦" },
+  { label: "المحادثات", href: "/dashboard/shipping-company/messages", icon: "💬" },
+  { label: "المساعد الذكي", href: "/dashboard/shipping-company/ai", icon: "🤖" },
+  { label: "خدمة العملاء", href: "/dashboard/shipping-company/customer-service", icon: "🎧" },
+  { label: "الملف الشخصي", href: "/dashboard/shipping-company/profile", icon: "👤" },
 ];
 
-export default function AdminSidebar() {
+export default function ShippingCompanySidebar() {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -29,8 +25,8 @@ export default function AdminSidebar() {
   return (
     <aside className="w-64 min-h-screen bg-[#273347] flex flex-col" dir="rtl">
       <div className="px-6 py-6 border-b border-white/10">
-        <span className="text-white text-xl font-bold">منصة الموردين</span>
-        <p className="text-white/40 text-xs mt-1">لوحة الإدارة</p>
+        <h1 className="text-xl font-bold text-white">منصة الموردين</h1>
+        <p className="text-xs text-white/40 mt-1">لوحة شركة الشحن</p>
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
@@ -61,7 +57,9 @@ export default function AdminSidebar() {
           <span>🚪</span>
           تسجيل الخروج
         </button>
+        
       </div>
     </aside>
+    
   );
 }

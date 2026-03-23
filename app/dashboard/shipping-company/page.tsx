@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
 
@@ -13,27 +13,25 @@ type Profile = {
 
 
 const mockAnalytics = [
-  { month: "يناير", investments: 2 },
-  { month: "فبراير", investments: 4 },
-  { month: "مارس", investments: 3 },
-  { month: "أبريل", investments: 6 },
-  { month: "مايو", investments: 5 },
-  { month: "يونيو", investments: 8 },
+  { month: "يناير", deliveries: 8 },
+  { month: "فبراير", deliveries: 15 },
+  { month: "مارس", deliveries: 12 },
+  { month: "أبريل", deliveries: 20 },
+  { month: "مايو", deliveries: 18 },
+  { month: "يونيو", deliveries: 25 },
 ];
 
-export default function SupporterDashboard() {
+export default function DeliveryDashboard() {
   const router = useRouter();
-  const pathname = usePathname();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const stats = {
-    investmentsCount: 6,
-    totalInvestments: 12500,
-    returns: 8.5,
-    activeChats: 3,
+    incoming: 5,
+    inProgress: 3,
+    completed: 42,
+    rating: 4.8,
   };
 
   useEffect(() => {
@@ -54,42 +52,27 @@ export default function SupporterDashboard() {
 
     if (data) {
       if (data.status !== "approved") { router.push("/pending"); return; }
-      if (data.account_type !== "supporter") { router.push("/"); return; }
+      if (data.account_type !== "delivery") { router.push("/"); return; }
       setProfile(data);
     }
 
     setLoading(false);
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/login");
-  };
+  const maxDeliveries = Math.max(...mockAnalytics.map((a) => a.deliveries));
 
   const statCards = [
-    { label: "عدد الاستثمارات", value: stats.investmentsCount, icon: "💼", color: "border-r-4 border-[#273347]" },
-    { label: "إجمالي المبلغ المستثمر", value: `${stats.totalInvestments} ₪`, icon: "💰", color: "border-r-4 border-blue-400" },
-    { label: "نسبة العائد", value: `${stats.returns}%`, icon: "📈", color: "border-r-4 border-green-400" },
-    { label: "محادثات نشطة", value: stats.activeChats, icon: "💬", color: "border-r-4 border-yellow-400" },
+    { label: "طلبات واردة", value: stats.incoming, icon: "📥", color: "border-r-4 border-[#273347]" },
+    { label: "قيد التوصيل", value: stats.inProgress, icon: "🚚", color: "border-r-4 border-blue-400" },
+    { label: "مكتملة", value: stats.completed, icon: "✅", color: "border-r-4 border-green-400" },
+    { label: "تقييم الخدمة", value: `${stats.rating} ⭐`, icon: "🏅", color: "border-r-4 border-yellow-400" },
   ];
 
-  const maxInvestments = Math.max(...mockAnalytics.map((a) => a.investments));
-
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex" dir="rtl">
-
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/30 z-20 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
+        <div className="p-8" dir="rtl">
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-h-screen">
 
-      
         <div className="flex-1 px-6 py-8 max-w-5xl w-full mx-auto">
 
           {/* Welcome Banner */}
@@ -97,7 +80,7 @@ export default function SupporterDashboard() {
             <h2 className="text-2xl font-bold">
               مرحباً، {loading ? "..." : profile?.full_name} 👋
             </h2>
-            <p className="text-white/60 text-sm mt-1">إليك ملخص استثماراتك على المنصة</p>
+            <p className="text-white/60 text-sm mt-1">إليك ملخص نشاط شركتك</p>
           </div>
 
           {loading ? (
@@ -117,14 +100,14 @@ export default function SupporterDashboard() {
 
               {/* التحليلات */}
               <div className="bg-white rounded-2xl border border-[#e6edf5] p-6 mb-6">
-                <h3 className="text-sm font-bold text-[#273347] mb-4">📊 تحليل الاستثمارات</h3>
+                <h3 className="text-sm font-bold text-[#273347] mb-4">📊 تحليل التوصيلات</h3>
                 <div className="flex items-end gap-2 h-36">
                   {mockAnalytics.map((item) => (
                     <div key={item.month} className="flex-1 flex flex-col items-center gap-1">
-                      <p className="text-xs font-bold text-[#273347]/50">{item.investments}</p>
+                      <p className="text-xs font-bold text-[#273347]/50">{item.deliveries}</p>
                       <div
                         className="w-full bg-[#bbd0e4] rounded-t-md hover:bg-[#273347] transition"
-                        style={{ height: `${(item.investments / maxInvestments) * 100}%` }}
+                        style={{ height: `${(item.deliveries / maxDeliveries) * 100}%` }}
                       />
                       <p className="text-[10px] text-[#273347]/50">{item.month.slice(0, 3)}</p>
                     </div>
@@ -132,11 +115,10 @@ export default function SupporterDashboard() {
                 </div>
               </div>
 
-           
+        
             </>
           )}
         </div>
-      </main>
-    </div>
+</div>
   );
 }
