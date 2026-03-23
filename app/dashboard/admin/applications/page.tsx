@@ -11,6 +11,11 @@ type Application = {
   account_type: string;
   status: ApplicationStatus;
   created_at: string;
+  ai_score?: number;
+  ai_recommendation?: "approve" | "review" | "reject";
+  ai_reason?: string;
+  ai_risk?: "low" | "medium" | "high";
+  ai_checked?: boolean;
   data_json: {
     basic: {
       full_name: string;
@@ -37,6 +42,7 @@ type AIReport = {
   reasons: string[];
   risks: string[];
   summary: string;
+  risk?: "low" | "medium" | "high";
 };
 
 const ITEMS_PER_PAGE = 8;
@@ -65,6 +71,12 @@ const recommendationConfig = {
   approve: { label: "يُنصح بالقبول", color: "bg-green-100 text-green-700 border-green-300" },
   reject: { label: "يُنصح بالرفض", color: "bg-red-100 text-red-700 border-red-300" },
   review: { label: "يحتاج مراجعة إضافية", color: "bg-yellow-100 text-yellow-700 border-yellow-300" },
+};
+
+const riskConfig = {
+  low: { label: "مخاطر منخفضة", color: "bg-green-50 text-green-700 border-green-200" },
+  medium: { label: "مخاطر متوسطة", color: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+  high: { label: "مخاطر عالية", color: "bg-red-50 text-red-700 border-red-200" },
 };
 
 export default function ApplicationsPage() {
@@ -100,46 +112,72 @@ export default function ApplicationsPage() {
     setAiError("");
     setAiLoading(true);
 
-    const prompt = `
-أنت محلل أعمال خبير. قم بتحليل طلب التسجيل التالي في منصة تجارية وأعطِ تقريراً تقييمياً.
+    // إذا عنده تحليل محفوظ، اعرضه مباشرة
+    if (app.ai_checked && app.ai_score !== undefined) {
+      setAiReport({
+        score: app.ai_score,
+        recommendation: app.ai_recommendation ?? "review",
+        summary: app.ai_reason || "—",
+        reasons: [],
+        risks: [],
+        risk: app.ai_risk,
+      });
+      setAiLoading(false);
+      return;
+    }
 
-معلومات المتقدم:
-- الاسم: ${app.data_json.basic.full_name}
-- نوع الحساب: ${accountTypeLabel[app.account_type]}
-- الدولة: ${app.data_json.basic.country}
-- المدينة: ${app.data_json.basic.city || "—"}
-- الهاتف: ${app.data_json.basic.phone}
-- النبذة: ${app.data_json.basic.bio || "لم يذكر"}
-- البيانات الإضافية: ${JSON.stringify(app.data_json.type_specific, null, 2)}
-- رابط إثبات 1: ${app.proof_json.proof_link_1 || "لم يذكر"}
-- رابط إثبات 2: ${app.proof_json.proof_link_2 || "لم يذكر"}
-- ملاحظة إضافية: ${app.proof_json.note || "لم تذكر"}
-
-أرجع JSON فقط بدون أي نص إضافي أو backticks بالشكل التالي:
-{
-  "score": <رقم من 0 إلى 100>,
-  "recommendation": <"approve" أو "reject" أو "review">,
-  "summary": "<جملة واحدة تلخص رأيك>",
-  "reasons": ["<سبب إيجابي 1>", "<سبب إيجابي 2>"],
-  "risks": ["<مخاطرة أو نقطة ضعف 1>"]
-}
-`;
-
+    // إذا ما عنده تحليل، اعمل تحليل جديد عبر Groq
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/ai/evaluate-application", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }],
+          full_name: app.data_json.basic.full_name,
+          email: app.data_json.basic.email,
+          bio: app.data_json.basic.bio,
+          account_type: app.account_type,
+          country: app.data_json.basic.country,
+          data: app.data_json.type_specific,
+          proof: {
+            proof_link_1: app.proof_json.proof_link_1,
+            proof_link_2: app.proof_json.proof_link_2,
+            files: app.proof_json.file_urls,
+          },
         }),
       });
-      const data = await res.json();
-      const text = data.content?.map((c: any) => c.text || "").join("") || "";
-      const clean = text.replace(/```json|```/g, "").trim();
-      const parsed: AIReport = JSON.parse(clean);
-      setAiReport(parsed);
+
+      const result = await res.json();
+
+      // حفظ النتيجة في Supabase
+      await supabase.from("applications").update({
+        ai_score: result.score,
+        ai_recommendation: result.decision,
+        ai_reason: result.reason,
+        ai_risk: result.risk,
+        ai_checked: true,
+      }).eq("id", app.id);
+
+      // تحديث الـ state محلياً
+      setApplications((prev) =>
+        prev.map((a) => a.id === app.id ? {
+          ...a,
+          ai_score: result.score,
+          ai_recommendation: result.decision,
+          ai_reason: result.reason,
+          ai_risk: result.risk,
+          ai_checked: true,
+        } : a)
+      );
+
+      setAiReport({
+        score: result.score,
+        recommendation: result.decision === "approve" ? "approve" : result.decision === "reject" ? "reject" : "review",
+        summary: result.reason || "—",
+        reasons: [],
+        risks: result.flags || [],
+        risk: result.risk,
+      });
+
     } catch {
       setAiError("حدث خطأ أثناء التحليل. حاولي مرة أخرى.");
     } finally {
@@ -274,7 +312,12 @@ export default function ApplicationsPage() {
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
                         <button onClick={() => { setSelectedApp(app); setAdminNote(""); setActionMsg(""); }} className="text-[#546a85] hover:text-[#273347] font-semibold text-xs underline underline-offset-2">التفاصيل</button>
-                        <button onClick={() => runAiAnalysis(app)} className="text-xs bg-[#273347] hover:bg-[#1e2a38] text-white px-3 py-1.5 rounded-lg transition font-medium">✨ AI</button>
+                        <button
+                          onClick={() => runAiAnalysis(app)}
+                          className={`text-xs px-3 py-1.5 rounded-lg transition font-medium ${app.ai_checked ? "bg-green-600 hover:bg-green-700 text-white" : "bg-[#273347] hover:bg-[#1e2a38] text-white"}`}
+                        >
+                          {app.ai_checked ? "✅ AI" : "✨ AI"}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -315,9 +358,13 @@ export default function ApplicationsPage() {
                     <div className="w-full bg-gray-200 rounded-full h-2 mt-3"><div className={`h-2 rounded-full transition-all ${scoreBarColor(aiReport.score)}`} style={{ width: `${aiReport.score}%` }} /></div>
                   </div>
                   <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center ${recommendationConfig[aiReport.recommendation].color}`}>{recommendationConfig[aiReport.recommendation].label}</div>
+                  {aiReport.risk && (
+                    <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center ${riskConfig[aiReport.risk].color}`}>{riskConfig[aiReport.risk].label}</div>
+                  )}
                   <div className="bg-[#f8fafc] rounded-xl p-4 text-sm text-[#273347]"><p className="text-xs text-[#273347]/50 mb-1 font-semibold">الملخص</p>{aiReport.summary}</div>
                   {aiReport.reasons.length > 0 && <div><p className="text-xs font-semibold text-[#273347]/50 mb-2">✅ نقاط إيجابية</p><ul className="space-y-2">{aiReport.reasons.map((r, i) => <li key={i} className="flex items-start gap-2 text-sm text-green-700 bg-green-50 rounded-xl px-4 py-2"><span>•</span>{r}</li>)}</ul></div>}
-                  {aiReport.risks.length > 0 && <div><p className="text-xs font-semibold text-[#273347]/50 mb-2">⚠️ مخاطر</p><ul className="space-y-2">{aiReport.risks.map((r, i) => <li key={i} className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-xl px-4 py-2"><span>•</span>{r}</li>)}</ul></div>}
+                  {aiReport.risks.length > 0 && <div><p className="text-xs font-semibold text-[#273347]/50 mb-2">⚠️ علامات مشبوهة</p><ul className="space-y-2">{aiReport.risks.map((r, i) => <li key={i} className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-xl px-4 py-2"><span>•</span>{r}</li>)}</ul></div>}
+                  {aiApp.ai_checked && <p className="text-xs text-green-600 text-center">✅ هذا التحليل محفوظ مسبقاً</p>}
                   <p className="text-xs text-[#273347]/30 text-center pt-2">هذا التحليل مساعد فقط — القرار النهائي للمدير</p>
                 </div>
               )}
