@@ -49,16 +49,17 @@ export default function SmallBusinessDashboardPage() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
             <div className="bg-white rounded-2xl border border-[#e6edf5] p-5">
-              <p className="text-sm text-[#273347]/60 mb-2">عدد المنتجات</p>
+              <p className="text-sm text-[#273347]/60 mb-2">نصيحة اليوم</p>
               <h3 className="text-2xl font-bold text-[#273347]">
-                {productsCount}
+        
               </h3>
             </div>
 
             <div className="bg-white rounded-2xl border border-[#e6edf5] p-5">
               <p className="text-sm text-[#273347]/60 mb-2">عدد الطلبات</p>
               <h3 className="text-2xl font-bold text-[#273347]">
-                {ordersCount}
+                                {ordersCount}
+
               </h3>
             </div>
           </div>
