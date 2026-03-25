@@ -11,7 +11,6 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [successMsg, setSuccessMsg] = useState<string>("");
@@ -24,6 +23,15 @@ export default function LoginPage() {
     if (m.includes("too many requests"))
       return "عدد كبير من المحاولات. يرجى الانتظار قليلًا ثم المحاولة مرة أخرى.";
     return "حدث خطأ. يرجى التحقق من البيانات ثم المحاولة مرة أخرى.";
+  };
+
+  const redirectByAccountType = (accountType: string) => {
+    if (accountType === "merchant") router.push("/dashboard/supplier");
+    else if (accountType === "small_business") router.push("/dashboard/small-business");
+    else if (accountType === "delivery") router.push("/dashboard/delivery");
+    else if (accountType === "supporter") router.push("/dashboard/supporter");
+    else if (accountType === "admin") router.push("/admin");
+    else router.push("/dashboard");
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -49,7 +57,6 @@ export default function LoginPage() {
 
     if (error) {
       if (error.message.toLowerCase().includes("email not confirmed")) {
-        // نفحص الـ status أولاً — لأن البريد غير مؤكد ممكن يكون حساب pending
         const { data: profileByEmail } = await supabase
           .from("profiles")
           .select("status")
@@ -61,7 +68,6 @@ export default function LoginPage() {
         } else if (profileByEmail?.status === "rejected") {
           setStatusMsg("rejected");
         } else {
-          // approved أو ما لقيناه → يفتح رابط التأكيد
           setStatusMsg("verify_email");
         }
         return;
@@ -76,10 +82,9 @@ export default function LoginPage() {
       return;
     }
 
-    // تسجيل ناجح — نفحص الـ profile
     const { data: profile } = await supabase
       .from("profiles")
-      .select("status, email_verified")
+      .select("status, account_type")
       .eq("id", data.user.id)
       .single();
 
@@ -96,19 +101,10 @@ export default function LoginPage() {
     }
 
     if (profile?.status === "approved") {
-      if (!profile.email_verified) {
-        await supabase.auth.signOut();
-        setStatusMsg("verify_email");
-        return;
-      }
       setSuccessMsg("تم تسجيل الدخول بنجاح ✅");
-      router.push("/dashboard");
+      redirectByAccountType(profile.account_type);
       return;
     }
-
-setSuccessMsg("تم تسجيل الدخول بنجاح ✅");
-router.push("/dashboard/small-business");
-return;
 
     await supabase.auth.signOut();
     setErrorMsg("حدث خطأ غير متوقع. يرجى التواصل مع الإدارة.");
@@ -195,7 +191,6 @@ return;
               {loading ? "جارٍ تسجيل الدخول..." : "دخول"}
             </button>
 
-            {/* طلب قيد المراجعة */}
             {statusMsg === "pending" && (
               <div className="bg-[#f1f5f9] border border-[#bbd0e4] rounded-xl p-4 text-sm text-[#273347] space-y-1">
                 <p className="font-semibold">طلبك لا يزال قيد المراجعة</p>
@@ -205,7 +200,6 @@ return;
               </div>
             )}
 
-            {/* يحتاج فتح رابط التأكيد */}
             {statusMsg === "verify_email" && (
               <div className="bg-[#f1f5f9] border border-[#bbd0e4] rounded-xl p-4 text-sm text-[#273347] space-y-1">
                 <p className="font-semibold">يرجى تفعيل حسابك</p>
@@ -216,7 +210,6 @@ return;
               </div>
             )}
 
-            {/* مرفوض */}
             {statusMsg === "rejected" && (
               <div className="bg-[#f1f5f9] border border-[#bbd0e4] rounded-xl p-4 text-sm text-[#273347] space-y-1">
                 <p className="font-semibold">تم الرد على طلبك</p>
@@ -226,14 +219,12 @@ return;
               </div>
             )}
 
-            {/* خطأ عادي */}
             {errorMsg && (
               <div className="bg-red-50 text-red-700 border border-red-200 rounded-xl p-3 text-sm">
                 {errorMsg}
               </div>
             )}
 
-            {/* نجاح */}
             {successMsg && (
               <div className="bg-green-50 text-green-700 border border-green-200 rounded-xl p-3 text-sm">
                 {successMsg}
