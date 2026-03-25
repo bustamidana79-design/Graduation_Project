@@ -5,12 +5,15 @@ export default function Hero() {
     <section className="bg-gradient-to-b from-[#546a85] to-[#273347] text-white">
       <div className="max-w-6xl mx-auto px-6 py-16 text-center animate-fade-in">
         <h1 className="text-3xl sm:text-5xl font-extrabold leading-tight drop-shadow">
-          منصة ربط المشاريع الصغيرة تجار الجملة
+منصة ربط المشاريع الصغيرة بتجار الجملة
         </h1>
 
-        <p className="mt-4 text-white/90 max-w-2xl mx-auto">
-          نربط أصحاب المشاريع الصغيرة مع تجار الجملة في مكان واحد لتسهيل التواصل والنمو
-        </p>
+      <p className="mt-4 text-white/90 max-w-2xl mx-auto">
+  منصة ذكية تربط المشاريع الصغيرة بالموردين
+  وشركات الشحن والمستثمرين
+  <br />
+  كل ما تحتاجه لإدارة وتنمية عملك في مكان واحد
+</p>
 
         <div className="mt-8 flex justify-center gap-4 flex-wrap">
           <Link

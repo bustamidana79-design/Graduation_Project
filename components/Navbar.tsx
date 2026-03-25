@@ -7,7 +7,7 @@ export default function Navbar() {
 
         {/* Brand */}
         <div className="flex items-center gap-2 font-bold text-2xl md:text-3xl tracking-wide">
-          منصة الموردين
+          <h1>منصة الأعمال الذكية</h1>
         </div>
 
         {/* Links */}

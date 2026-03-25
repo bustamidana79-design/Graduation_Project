@@ -89,23 +89,6 @@ export default function SmallBusinessDashboardPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-[#e6edf5] p-6 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-[#273347] mb-1">
-                الشاتبوت الذكي 🤖
-              </h3>
-              <p className="text-xs text-[#273347]/50">
-                ابدأ محادثة واحصل على مساعدة سريعة تناسب مشروعك
-              </p>
-            </div>
-
-            <Link
-              href="/chat"
-              className="bg-[#273347] hover:bg-[#1e2a3a] text-white text-sm font-semibold px-5 py-2 rounded-xl transition"
-            >
-              ابدأ المحادثة
-            </Link>
-          </div>
         </>
       )}
     </>

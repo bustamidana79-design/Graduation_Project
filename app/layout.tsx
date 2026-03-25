@@ -5,7 +5,7 @@ import "./globals.css";
 const cairo = Cairo({ subsets: ["arabic"] });
 
 export const metadata: Metadata = {
-  title: "منصة الموردين",
+  title: "منصة الأعمال الذكية",
   description: "منصة ربط المشاريع الصغيرة بتجار الجملة",
 };
 
