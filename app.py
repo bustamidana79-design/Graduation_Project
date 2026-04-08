@@ -1,9 +1,10 @@
 from flask import Flask, request, jsonify
 import joblib
+import os
 
 app = Flask(__name__)
 
-# تحميل الموديل والنماذج
+# تحميل الموديل والمترجم (العقل والنظارة)
 model = joblib.load('AI_Model/random_forest_model.pkl')
 vectorizer = joblib.load('AI_Model/tfidf_vectorizer.pkl')
 
@@ -11,14 +12,19 @@ vectorizer = joblib.load('AI_Model/tfidf_vectorizer.pkl')
 def predict():
     data = request.get_json()
     bio = data.get('bio', '')
-
-    # تحويل النص الجديد
+    
+    # تحويل النص الجديد ليفهمه الموديل
     text_vectorized = vectorizer.transform([bio]).toarray()
-
-    # التنبؤ
-    prediction = model.predict(text_vectorized)[0]
-
-    return jsonify({'prediction': str(prediction)})
+    
+    # طلب التوقع من الـ AI
+    prediction = model.predict(text_vectorized)
+    probability = model.predict_proba(text_vectorized)
+    
+    # إرجاع النتيجة للموقع
+    return jsonify({
+        'status': int(prediction[0]), # 1 مقبول، 0 مرفوض
+        'confidence': float(max(probability[0])) # نسبة التأكد
+    })
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(port=5000)
