@@ -210,7 +210,7 @@ if (countryCode === "PS") {
     if (!isValidPhoneNumber(phone))
   return "رقم الهاتف غير صحيح.";
     if (!country.trim()) return "يرجى إدخال الدولة.";
-    if (!bio.trim()) return "يرجى إدخال نبذة قصيرة.";
+if (bioWordCount < 20) return "يرجى كتابة نبذة تعريفية أكثر تفصيلاً (20 كلمة على الأقل)."  ;
     return "";
   };
 
@@ -486,7 +486,16 @@ try {
     { value: "funding", label: "تمويل" },
     { value: "partnerships", label: "شراكات" },
   ];
-
+// --- إضافة منطق قوة النبذة ---
+  const bioWordCount = bio.trim() ? bio.trim().split(/\s+/).length : 0;
+  const getBioStatus = () => {
+    if (bioWordCount === 0) return { color: "text-gray-400", label: "النبذة فارغة", width: "w-0" };
+    if (bioWordCount < 5) return { color: "text-red-500", label: "ضعيفة جداً", width: "w-1/4 bg-red-500" };
+    if (bioWordCount < 20) return { color: "text-yellow-600", label: "جيدة", width: "w-2/4 bg-yellow-500" };
+    return { color: "text-green-600", label: "احترافية وقوية", width: "w-full bg-green-500" };
+  };
+  const bioStatus = getBioStatus();
+  // -------------------------
   return (
     <main className="min-h-screen bg-[#f8fafc]">
       <Navbar />
@@ -655,18 +664,39 @@ try {
   </div>
 </div>
                   
-                  <div>
-                    <label className="block text-sm font-semibold text-[#273347] mb-2">
-                      نبذة قصيرة (سطران)
-                    </label>
-                    <textarea
-                      value={bio}
-                      onChange={(e) => setBio(e.target.value)}
-                      className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-                      rows={3}
-                      placeholder="عرّف بشكل مختصر عن نشاطك..."
-                    />
-                  </div>
+                 <div className="space-y-2">
+  <div className="flex justify-between items-center">
+    <label className="block text-sm font-semibold text-[#273347]">
+      النبذة التعريفية (عن نشاطك)
+    </label>
+    {/* عرض الحالة وعدد الكلمات */}
+    <span className={`text-xs font-bold transition-colors duration-300 ${bioStatus.color}`}>
+      {bioStatus.label} ({bioWordCount} كلمة)
+    </span>
+  </div>
+
+  <textarea
+    value={bio}
+    onChange={(e) => setBio(e.target.value)}
+    className={`w-full border rounded-xl p-3 focus:outline-none focus:ring-2 transition-all duration-300 ${
+      bioWordCount > 0 && bioWordCount < 5 ? "border-red-300 focus:ring-red-100" : "border-gray-300 focus:ring-[#bbd0e4]"
+    }`}
+    rows={3}
+    placeholder="مثال: متجر (اسم المتجر) لبيع الملابس بالجملة، نغطي منطقة نابلس ونوفر جودة عالية..."
+  />
+
+  {/* شريط القوة البصري */}
+  <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+    <div className={`h-full transition-all duration-500 ease-out ${bioStatus.width}`}></div>
+  </div>
+
+  {/* نصيحة ذكية تظهر أسفل الحقل */}
+  <div className="bg-[#f0f7ff] border border-[#d1e8ff] p-3 rounded-xl mt-2">
+    <p className="text-[11px] text-[#2c5282] leading-relaxed">
+      <strong>💡 نصيحة للقبول:</strong> النبذة الاحترافية تزيد من ثقة النظام في طلبك. اذكر (تخصصك، والمدن التي تغطيها). يفضل أن تكون أكثر من 20كلمة.
+    </p>
+  </div>
+</div>
 
                   <div className="flex items-center justify-between gap-3 pt-2">
                     <p className="text-sm text-[#273347]/70">
