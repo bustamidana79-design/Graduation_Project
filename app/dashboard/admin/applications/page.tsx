@@ -905,17 +905,35 @@ export default function ApplicationsPage() {
                   </div>
                 )}
               </section>
-              <section>
-                <h3 className="text-sm font-bold text-[#273347] mb-3 border-b border-[#e6edf5] pb-2">البيانات الإضافية</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  {Object.entries(selectedApp.data_json.type_specific).map(([key, val]) => (
-                    <div key={key} className="bg-[#f8fafc] rounded-xl p-3">
-                      <p className="text-[#273347]/50 text-xs mb-1">{key}</p>
-                      <p className="text-[#273347] font-medium break-all">{Array.isArray(val) ? val.join("، ") : String(val || "—")}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
+             <section>
+  <h3 className="text-sm font-bold text-[#273347] mb-3 border-b border-[#e6edf5] pb-2">البيانات الإضافية</h3>
+  <div className="grid grid-cols-2 gap-3 text-sm">
+    {Object.entries(selectedApp.data_json.type_specific).map(([key, val]) => {
+      // قائمة بأسماء الحقول التي تحتوي على روابط
+      const linkFields = ['social_link', 'professional_link', 'store_link', 'website', 'linkedin', 'facebook', 'instagram', 'twitter', 'tiktok', 'youtube', 'snapchat', 'whatsapp', 'store_link'];
+      const isLink = linkFields.includes(key) && typeof val === 'string' && (val.startsWith('http://') || val.startsWith('https://'));
+      const displayValue = Array.isArray(val) ? val.join("، ") : String(val || "—");
+      
+      return (
+        <div key={key} className="bg-[#f8fafc] rounded-xl p-3 break-all">
+          <p className="text-[#273347]/50 text-xs mb-1">{key}</p>
+          {isLink ? (
+            <a 
+              href={val} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-[#546a85] hover:text-[#273347] hover:underline flex items-center gap-1"
+            >
+              <span>🔗</span> {displayValue.length > 50 ? displayValue.substring(0, 50) + '...' : displayValue}
+            </a>
+          ) : (
+            <p className="text-[#273347] font-medium">{displayValue}</p>
+          )}
+        </div>
+      );
+    })}
+  </div>
+</section>
               <section>
                 <h3 className="text-sm font-bold text-[#273347] mb-3 border-b border-[#e6edf5] pb-2">الإثبات</h3>
                 <div className="space-y-2 text-sm">
@@ -928,9 +946,58 @@ export default function ApplicationsPage() {
                   {selectedApp.proof_json.note && (
                     <p className="text-[#273347]/70 bg-[#f8fafc] rounded-xl p-3">📝 {selectedApp.proof_json.note}</p>
                   )}
-                  {selectedApp.proof_json.file_urls?.map((url, i) => (
-                    <a key={i} href={url} target="_blank" rel="noreferrer" className="block text-[#546a85] hover:underline break-all text-xs">📎 ملف {i + 1}</a>
-                  ))}
+           {selectedApp.proof_json.file_urls?.map((url, i) => {
+  // استخراج امتداد الملف لتحديد إذا كان صورة
+  const ext = url.split('.').pop()?.toLowerCase();
+  const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext || '');
+  
+  return (
+    <div key={i} className="bg-[#f8fafc] rounded-xl p-3 border border-[#e6edf5]">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-[#273347]/60">📎 الملف {i + 1}</span>
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[#546a85] hover:text-[#273347] text-xs underline underline-offset-2"
+        >
+          فتح الرابط
+        </a>
+      </div>
+      
+      {isImage ? (
+        <div className="mt-2">
+          <img
+            src={url}
+            alt={`صورة مرفقة ${i + 1}`}
+            className="max-w-full h-auto max-h-48 rounded-lg border border-gray-200 object-contain cursor-pointer hover:opacity-90 transition"
+            onClick={() => window.open(url, '_blank')}
+            onError={(e) => {
+              // إخفاء الصورة وإظهار رسالة الخطأ
+              const imgElement = e.currentTarget;
+              imgElement.style.display = 'none';
+              const errorDiv = imgElement.nextElementSibling;
+              if (errorDiv && errorDiv instanceof HTMLElement) {
+                errorDiv.style.display = 'block';
+              }
+            }}
+          />
+          <div className="text-xs text-red-500 hidden mt-2">
+            تعذر عرض الصورة. <a href={url} target="_blank" className="underline">اضغط هنا لفتح الرابط</a>
+          </div>
+          <p className="text-[10px] text-[#273347]/40 mt-1 text-center">انقر على الصورة لتكبيرها</p>
+        </div>
+      ) : (
+        <div className="mt-2 text-sm text-[#273347]/70 break-all">
+          <span className="bg-gray-100 px-2 py-1 rounded text-xs">ملف من نوع {ext || 'غير معروف'}</span>
+          <a href={url} target="_blank" rel="noreferrer" className="block mt-2 text-[#546a85] hover:underline text-xs break-all">
+            {url}
+          </a>
+        </div>
+      )}
+    </div>
+  );
+})}
                 </div>
               </section>
               {selectedApp.status === "pending" && (
