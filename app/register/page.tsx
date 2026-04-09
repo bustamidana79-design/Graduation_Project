@@ -394,7 +394,50 @@ await supabase.auth.signUp({
 
         uploadedFileUrls.push(urlData.publicUrl);
       }
+// داخل دالة onSubmit في page.tsx، بعد رفع الملفات وقبل إدراج التطبيق
 
+try {
+  const aiResponse = await fetch("/api/ai/evaluate-application", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      app: {
+        data_json: {
+          basic: {
+            full_name: fullName.trim(),
+            email: cleanEmail,
+            phone: phone,
+            country: countryName,
+            bio: bio.trim(),
+          },
+          type_specific: buildTypeSpecificData(),
+        },
+        proof_json: {
+          proof_link_1: proofLink1.trim(),
+          proof_link_2: proofLink2.trim() || null,
+          note: proofNote.trim() || null,
+          file_urls: uploadedFileUrls, // ✅ هذه هي الصور المرفوعة
+        },
+        account_type: accountType,
+      },
+    }),
+  });
+
+  const aiResult = await aiResponse.json();
+  console.log("AI Evaluation Result:", aiResult);
+
+  await supabase
+    .from("applications")
+    .update({
+      ai_score: aiResult.score,
+      ai_recommendation: aiResult.recommendation,
+      ai_reason: aiResult.summary,
+      ai_checked: true,
+    })
+    .eq("user_id", userId);
+} catch (error) {
+  console.error("AI Evaluation Failed:", error);
+}
       // 4) Insert application (طلب إنشاء حساب)
       const dataJson = {
         basic: {

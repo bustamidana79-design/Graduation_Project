@@ -64,6 +64,15 @@ type AIReport = {
     link1: LinkMeta;
     link2: LinkMeta;
   };
+        image_analysis?: {
+  authenticity: string;
+  photoshop_detected: boolean;
+  document_type: string;
+  matches_business: boolean | null;
+  confidence: number;
+  description: string;
+  warnings: string[];
+}[];
 };
 
 const ITEMS_PER_PAGE = 8;
@@ -748,7 +757,32 @@ export default function ApplicationsPage() {
                       )}
                     </div>
                   </div>
-
+{/* Image Analysis */}
+{aiReport.image_analysis && aiReport.image_analysis.length > 0 && (
+  <div className="border border-[#e6edf5] rounded-xl overflow-hidden">
+    <div className="bg-[#f8fafc] px-4 py-2.5 border-b border-[#e6edf5]">
+      <p className="text-xs font-bold text-[#273347]/60 uppercase tracking-wider">🖼️ تحليل الصور</p>
+    </div>
+    <div className="p-4 space-y-3">
+      {aiReport.image_analysis.map((img, idx) => (
+        <div key={idx} className={`border rounded-xl p-3 ${img.authenticity === "real" ? "bg-green-50 border-green-200" : img.authenticity === "fake" ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200"}`}>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-bold text-[#273347]">صورة {idx + 1}</p>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${img.authenticity === "real" ? "bg-green-100 text-green-700" : img.authenticity === "fake" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}`}>
+                {img.authenticity === "real" ? "✅ أصلية" : img.authenticity === "fake" ? "❌ مزورة" : "⚠️ غير محدد"}
+              </span>
+              <span className="text-xs text-[#273347]/50">ثقة: {img.confidence}%</span>
+            </div>
+          </div>
+          <p className="text-xs text-[#273347]/70">{img.description}</p>
+          {img.photoshop_detected && <p className="text-xs text-red-600 mt-1">⚠️ تم كشف تعديلات على الصورة</p>}
+          {img.matches_business === false && <p className="text-xs text-orange-600 mt-1">⚠️ الصورة لا تطابق نوع العمل</p>}
+        </div>
+      ))}
+    </div>
+  </div>
+)}
                   {/* Link Analysis */}
                   <div className="border border-[#e6edf5] rounded-xl overflow-hidden">
                     <div className="bg-[#f8fafc] px-4 py-2.5 border-b border-[#e6edf5]">
@@ -828,9 +862,8 @@ export default function ApplicationsPage() {
                   )}
 
                   {aiApp.ai_checked && (
-                    <p className="text-xs text-emerald-600 text-center font-medium">✅ هذا التقرير محفوظ في قاعدة البيانات</p>
-                  )}
                   <p className="text-xs text-[#273347]/30 text-center pb-1">هذا التحليل مساعد فقط — القرار النهائي للمدير</p>
+                  )}
                 </div>
               )}
             </div>
