@@ -697,11 +697,11 @@ export default function ApplicationsPage() {
 
                   {/* Status Badges */}
                   <div className="grid grid-cols-2 gap-3">
-                    <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center ${recommendationConfig[aiReport.recommendation].color}`}>
-                      {recommendationConfig[aiReport.recommendation].label}
+                    <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center ${(recommendationConfig[aiReport.recommendation] ?? recommendationConfig["review"]).color}`}>
+                      {(recommendationConfig[aiReport.recommendation] ?? recommendationConfig["review"]).label}
                     </div>
-                    <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center ${riskConfig[aiReport.risk].color}`}>
-                      {riskConfig[aiReport.risk].label}
+                    <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center${(riskConfig[aiReport.risk] ?? riskConfig["medium"]).color}`}>
+                     {(riskConfig[aiReport.risk] ?? riskConfig["medium"]).label}
                     </div>
                   </div>
 
@@ -812,7 +812,7 @@ export default function ApplicationsPage() {
                   </div>
 
                   {/* Strengths */}
-                  {aiReport.strengths.length > 0 && (
+                 {(aiReport.strengths?.length ?? 0) > 0 && (
                     <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                       <p className="text-xs font-bold text-green-700 mb-2">✅ نقاط القوة</p>
                       <ul className="space-y-1.5">
@@ -826,7 +826,7 @@ export default function ApplicationsPage() {
                   )}
 
                   {/* Weaknesses */}
-                  {aiReport.weaknesses.length > 0 && (
+                  {(aiReport.weaknesses?.length ?? 0) > 0 && (
                     <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
                       <p className="text-xs font-bold text-orange-700 mb-2">⚠️ نقاط الضعف</p>
                       <ul className="space-y-1.5">
@@ -840,7 +840,7 @@ export default function ApplicationsPage() {
                   )}
 
                   {/* Flags */}
-                  {aiReport.flags.length > 0 && (
+                 {(aiReport.flags?.length ?? 0) > 0 && (
                     <div className="bg-red-50 border border-red-200 rounded-xl p-4">
                       <p className="text-xs font-bold text-red-700 mb-2">🚩 علامات تستحق الانتباه</p>
                       <ul className="space-y-1.5">
