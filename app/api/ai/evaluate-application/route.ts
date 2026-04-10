@@ -11,7 +11,29 @@ const accountTypeLabel: Record<string, string> = {
   delivery: "شركة توصيل",
   supporter: "داعم / مستثمر",
 };
-
+// دالة سريعة للترجمة باستخدام Groq لضمان توافق اللغة مع الموديل الإنجليزي
+async function translateToEnglish(text: string): Promise<string> {
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant", // موديل سريع ورخيص جداً للترجمة
+        messages: [
+          { role: "system", content: "Translate the following text to English. Output only the translation, no explanations." },
+          { role: "user", content: text },
+        ],
+      }),
+    });
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || text;
+  } catch {
+    return text; // في حال الفشل نرسل النص الأصلي
+  }
+}
 // ============================================================
 // AI Model Bridge (Random Forest)
 // ============================================================
@@ -157,7 +179,9 @@ export async function POST(req: NextRequest) {
     const proof = app.proof_json || {};
     const specific = app.data_json?.type_specific || {};
     const fileUrls: string[] = proof.file_urls || [];
-
+//  استخراج الـ bio وترجمته فوراً قبل البدء بالتحليلات المتوازية
+const userBio = basic.bio || "";
+const translatedBio = await translateToEnglish(userBio);
     // ── تنفيذ كل التحليلات بالتوازي بما فيها RF و Vision ──
     const [link1Result, link2Result, bioAnalysis, rfAiResult, imageAnalyses] = await Promise.all([
       proof.proof_link_1
