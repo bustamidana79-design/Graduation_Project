@@ -13,7 +13,7 @@ const navItems = [
   { label: "المنتجات", href: "/dashboard/admin/products", icon: "📦" },
   { label: "التقارير", href: "/dashboard/admin/reports", icon: "📊" },
   { label: "الصلاحيات", href: "/dashboard/admin/permissions", icon: "🔐" },
-  { label: "المحادثات", href: "/dashboard/admin/messages", icon: "💬" },
+  { label: "مركز الدعم ", href: "/dashboard/admin/customer-service", icon: "💬" },
   { label: "الملف الشخصي", href: "/dashboard/admin/profile", icon: "👤" },
 ];
 

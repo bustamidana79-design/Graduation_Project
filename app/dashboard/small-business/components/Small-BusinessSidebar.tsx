@@ -12,7 +12,7 @@ const navItems = [
   { label: "المحادثات", href: "/dashboard/small-business/messages", icon: "💬" },
   { label: "التحليلات", href: "/dashboard/small-business/analytics", icon: "📊" },
   { label: "المساعد الذكي", href: "/dashboard/small-business/ai", icon: "🤖" },
-  { label: "خدمة العملاء", href: "/dashboard/support", icon: "🎧" },
+  { label: "خدمة العملاء", href: "/dashboard/small-business/customer-service", icon: "🎧" },
   { label: "الملف الشخصي", href: "/dashboard/small-business/profile", icon: "👤" },
 ];
 
