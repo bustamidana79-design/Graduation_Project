@@ -1,30 +1,30 @@
-from flask import Flask, request, jsonify
-import joblib
-import os
-
-app = Flask(__name__)
-
-# تحميل الموديل والمترجم (العقل والنظارة)
-model = joblib.load('AI_Model/random_forest_model.pkl')
-vectorizer = joblib.load('AI_Model/tfidf_vectorizer.pkl')
-
 @app.route('/predict', methods=['POST'])
 def predict():
     data = request.get_json()
     bio = data.get('bio', '')
     
-    # تحويل النص الجديد ليفهمه الموديل
+    # --- الإضافة الجديدة لاستقبال البيانات الـ 6 ---
+    # ملاحظة: حتى لو ما غيرتي الكود في Next.js لسه، لازم تحطي قيم افتراضية هون
+    behavioral = [
+        data.get('link_reachable', 0),
+        data.get('platform_score', 0.5),
+        data.get('has_files', 0),
+        data.get('fields_complete', 0),
+        data.get('has_second_link', 0),
+        data.get('bio_word_count', len(bio.split()))
+    ]
+    
+    # تحويل النص (الـ 500 كلمة)
     text_vectorized = vectorizer.transform([bio]).toarray()
     
-    # طلب التوقع من الـ AI
-    prediction = model.predict(text_vectorized)
-    probability = model.predict_proba(text_vectorized)
+    # --- دمج النص مع السلوك (للوصول لرقم 506) ---
+    final_features = np.hstack([text_vectorized, [behavioral]])
     
-    # إرجاع النتيجة للموقع
+    # طلب التوقع باستخدام المصفوفة الجديدة
+    prediction = model.predict(final_features)
+    probability = model.predict_proba(final_features)
+    
     return jsonify({
-        'status': int(prediction[0]), # 1 مقبول، 0 مرفوض
-        'confidence': float(max(probability[0])) # نسبة التأكد
+        'status': int(prediction[0]),
+        'confidence': float(max(probability[0]))
     })
-
-if __name__ == '__main__':
-    app.run(port=5000)
