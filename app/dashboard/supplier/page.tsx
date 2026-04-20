@@ -110,15 +110,6 @@ export default function SupplierDashboardPage() {
             ))}
           </div>
 
-          <div className="mb-6">
-            <Link
-              href="/dashboard/supplier/products/new"
-              className="flex items-center gap-3 bg-white border border-[#e6edf5] hover:bg-[#eef3f8] transition rounded-2xl px-6 py-4 text-sm text-[#273347] font-medium w-fit"
-            >
-              <span>➕</span>
-              <span>إضافة منتج</span>
-            </Link>
-          </div>
 
           <div className="bg-white rounded-2xl border border-[#e6edf5] p-6 mb-6">
             <h3 className="text-sm font-bold text-[#273347] mb-4">
