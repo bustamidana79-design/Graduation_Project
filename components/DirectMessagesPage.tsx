@@ -58,8 +58,47 @@ const formatMessageTime = (value: string | null) => {
 const getConversationPeerId = (conversation: DirectConversation, currentUserId: string) =>
   conversation.user_one_id === currentUserId ? conversation.user_two_id : conversation.user_one_id;
 
+const isOutgoingMessage = (
+  message: DirectMessage,
+  conversation: DirectConversation | null,
+  currentUserId: string | null,
+  otherUserId: string | null
+) => {
+  if (!conversation) return false;
+
+  const effectiveCurrentUserId =
+    currentUserId ||
+    (otherUserId
+      ? conversation.user_one_id === otherUserId
+        ? conversation.user_two_id
+        : conversation.user_one_id
+      : null);
+
+  if (effectiveCurrentUserId) {
+    if (message.sender_id === effectiveCurrentUserId) return true;
+    if (message.receiver_id === effectiveCurrentUserId) return false;
+  }
+
+  const peerId =
+    otherUserId ||
+    (effectiveCurrentUserId ? getConversationPeerId(conversation, effectiveCurrentUserId) : null);
+
+  if (effectiveCurrentUserId && peerId) {
+    if (message.sender_id === effectiveCurrentUserId && message.receiver_id === peerId) return true;
+    if (message.sender_id === peerId && message.receiver_id === effectiveCurrentUserId) return false;
+  }
+
+  if (peerId) {
+    if (message.receiver_id === peerId) return true;
+    if (message.sender_id === peerId) return false;
+  }
+
+  return message.sender_id === conversation.last_sender_id;
+};
+
 export default function DirectMessagesPage() {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<EnrichedConversation[]>([]);
   const [availableUsers, setAvailableUsers] = useState<Profile[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -179,6 +218,8 @@ export default function DirectMessagesPage() {
           setError("انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى.");
           return;
         }
+
+        setCurrentUserId(user.id);
 
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
@@ -518,7 +559,7 @@ export default function DirectMessagesPage() {
                 </p>
               </div>
 
-              <div className="flex-1 space-y-4 overflow-y-auto bg-[#f6f9fc] px-4 py-5">
+              <div className="flex flex-1 flex-col gap-4 overflow-y-auto bg-[#f6f9fc] px-4 py-5" dir="ltr">
                 {messagesLoading ? (
                   <div className="py-12 text-center text-sm text-[#273347]/50">جاري تحميل الرسائل...</div>
                 ) : messages.length === 0 ? (
@@ -527,20 +568,41 @@ export default function DirectMessagesPage() {
                   </div>
                 ) : (
                   messages.map((message) => {
-                    const isMine = message.sender_id === currentUser?.id;
+                    const isMine = isOutgoingMessage(
+                      message,
+                      selectedConversation,
+                      currentUserId ?? currentUser?.id ?? null,
+                      selectedConversation?.otherUser?.id ?? null
+                    );
+                    const senderLabel = isMine
+                      ? "أنت"
+                      : selectedConversation?.otherUser?.full_name || "الطرف الآخر";
 
                     return (
                       <div
                         key={message.id}
-                        className={`flex ${isMine ? "justify-start" : "justify-end"}`}
+                        className="flex w-full"
+                        style={{ justifyContent: isMine ? "flex-end" : "flex-start" }}
                       >
                         <div
+                          dir="rtl"
                           className={`max-w-[80%] rounded-3xl px-4 py-3 text-sm shadow-sm ${
                             isMine
-                              ? "rounded-bl-md bg-[#273347] text-white"
-                              : "rounded-br-md border border-[#e2e8f0] bg-white text-[#273347]"
+                              ? "rounded-br-md"
+                              : "rounded-bl-md border border-[#e2e8f0]"
                           }`}
+                          style={{
+                            backgroundColor: isMine ? "#2563eb" : "#ffffff",
+                            color: isMine ? "#ffffff" : "#273347",
+                          }}
                         >
+                          <div
+                            className={`mb-1 text-[11px] font-medium ${
+                              isMine ? "text-blue-100" : "text-[#273347]/45"
+                            }`}
+                          >
+                            {senderLabel}
+                          </div>
                           <p className="leading-7">{message.content}</p>
                           <span
                             className={`mt-2 block text-[11px] ${
