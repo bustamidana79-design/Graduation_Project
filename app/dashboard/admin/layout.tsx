@@ -1,30 +1,40 @@
-// app/admin/layout.tsx
+"use client";
+
 import AdminSidebar from "./components/AdminSidebar";
+import { getProfileInitial, useDashboardAccess } from "@/hooks/useDashboardAccess";
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const { profile, loading } = useDashboardAccess({ requiredAccountType: "admin" });
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f8fafc] text-[#273347]/60" dir="rtl">
+        جاري تحميل لوحة الإدارة...
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-[#f8fafc]" dir="rtl">
       <AdminSidebar />
-      <div className="flex-1 flex flex-col">
-        <header className="bg-white border-b border-[#e6edf5] px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-          <div className="text-sm font-semibold text-[#273347]"> </div>
+      <div className="flex flex-1 flex-col">
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-[#e6edf5] bg-white px-6 py-4">
+          <div className="text-sm font-semibold text-[#273347]"></div>
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <p className="text-sm font-semibold text-[#273347]">المدير</p>
+              <p className="text-sm font-semibold text-[#273347]">{profile?.full_name || "المدير"}</p>
               <p className="text-xs text-[#273347]/50">مدير النظام</p>
             </div>
-            <div className="w-9 h-9 rounded-full bg-[#273347] text-white flex items-center justify-center text-sm font-bold">
-              م
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#273347] text-sm font-bold text-white">
+              {getProfileInitial(profile?.full_name, "م")}
             </div>
           </div>
         </header>
-        <main className="flex-1 overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 overflow-auto">{children}</main>
       </div>
     </div>
   );

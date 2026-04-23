@@ -1,12 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { supabase } from "../../../lib/supabase";
+import { useState } from "react";
 import SupplierSidebar from "./components/SupplierSidebar";
-
-type Profile = {
-  full_name: string;
-};
+import { getProfileInitial, useDashboardAccess } from "@/hooks/useDashboardAccess";
 
 export default function SupplierLayout({
   children,
@@ -14,61 +10,48 @@ export default function SupplierLayout({
   children: React.ReactNode;
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const { profile, loading } = useDashboardAccess({ requiredAccountType: "merchant" });
 
-  useEffect(() => {
-    const fetchProfile = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", user.id)
-        .single();
-      if (data) setProfile(data);
-    };
-    fetchProfile();
-  }, []);
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f8fafc] text-[#273347]/60" dir="rtl">
+        جاري تحميل لوحة التحكم...
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex" dir="rtl">
+    <div className="flex min-h-screen bg-[#f8fafc]" dir="rtl">
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/30 z-20 md:hidden"
+          className="fixed inset-0 z-20 bg-black/30 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      <SupplierSidebar
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
-      />
+      <SupplierSidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
       <button
-        className="md:hidden fixed top-4 left-4 z-40 bg-white border border-[#e6edf5] text-[#273347] px-3 py-2 rounded-xl shadow-sm"
+        className="fixed left-4 top-4 z-40 rounded-xl border border-[#e6edf5] bg-white px-3 py-2 text-[#273347] shadow-sm md:hidden"
         onClick={() => setSidebarOpen(true)}
       >
         ☰
       </button>
 
-      <main className="flex-1 flex flex-col min-h-screen">
-        <header className="bg-white border-b border-[#e6edf5] px-6 py-4 sticky top-0 z-10">
+      <main className="flex min-h-screen flex-1 flex-col">
+        <header className="sticky top-0 z-10 border-b border-[#e6edf5] bg-white px-6 py-4">
           <div className="flex items-center justify-end gap-3">
             <div className="text-sm">
-              <p className="font-semibold text-[#273347]">
-                {profile?.full_name || "اسم المستخدم"}
-              </p>
-              <p className="text-[#273347]/50 text-xs">مورد</p>
+              <p className="font-semibold text-[#273347]">{profile?.full_name || "المورد"}</p>
+              <p className="text-xs text-[#273347]/50">مورد</p>
             </div>
-            <div className="w-9 h-9 rounded-full bg-[#273347] text-white flex items-center justify-center text-sm font-bold">
-              {profile?.full_name?.charAt(0) || "م"}
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#273347] text-sm font-bold text-white">
+              {getProfileInitial(profile?.full_name, "م")}
             </div>
           </div>
         </header>
 
-        <div className="flex-1 px-6 py-8 max-w-5xl w-full mx-auto">
-          {children}
-        </div>
+        <div className="mx-auto flex-1 w-full max-w-5xl px-6 py-8">{children}</div>
       </main>
     </div>
   );
