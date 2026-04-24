@@ -1,28 +1,39 @@
+"use client";
+
 import SupporterSidebar from "./components/SupporterSidebar";
+import { getProfileInitial, useDashboardAccess } from "@/hooks/useDashboardAccess";
 
 export default function SupporterLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const { profile, loading } = useDashboardAccess({ requiredAccountType: "supporter" });
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f8fafc] text-[#273347]/60" dir="rtl">
+        جاري تحميل لوحة التحكم...
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-[#f8fafc]" dir="rtl">
       <SupporterSidebar />
-      <div className="flex-1 flex flex-col">
-        <header className="bg-white border-b border-[#e6edf5] px-6 py-4 flex items-center justify-end">
+      <div className="flex flex-1 flex-col">
+        <header className="flex items-center justify-end border-b border-[#e6edf5] bg-white px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#273347] text-white flex items-center justify-center text-sm font-bold">
-              د
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#273347] text-sm font-bold text-white">
+              {getProfileInitial(profile?.full_name, "د")}
             </div>
-            <div className="text-sm text-right">
-              <p className="font-semibold text-[#273347]">...</p>
-              <p className="text-[#273347]/50 text-xs">داعم / مستثمر</p>
+            <div className="text-right text-sm">
+              <p className="font-semibold text-[#273347]">{profile?.full_name || "الداعم"}</p>
+              <p className="text-xs text-[#273347]/50">داعم / مستثمر</p>
             </div>
           </div>
         </header>
-        <main className="flex-1 overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 overflow-auto">{children}</main>
       </div>
     </div>
   );
