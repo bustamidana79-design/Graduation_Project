@@ -31,47 +31,42 @@ export function useDashboardAccess({ requiredAccountType }: UseDashboardAccessOp
     let active = true;
 
     const loadProfile = async () => {
-      try {
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-        if (authError || !user) {
-          router.replace("/login");
-          return;
-        }
+      if (authError || !user) {
+        router.replace("/login");
+        return;
+      }
 
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("id, full_name, account_type, status")
-          .eq("id", user.id)
-          .single();
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, account_type, status")
+        .eq("id", user.id)
+        .single();
 
-        if (error || !data) {
-          router.replace("/login");
-          return;
-        }
+      if (error || !data) {
+        router.replace("/login");
+        return;
+      }
 
-        const nextProfile = data as DashboardProfile;
+      const nextProfile = data as DashboardProfile;
 
-        if (requiredAccountType !== "admin" && nextProfile.status !== "approved") {
-          router.replace("/pending");
-          return;
-        }
+      if (requiredAccountType !== "admin" && nextProfile.status !== "approved") {
+        router.replace("/pending");
+        return;
+      }
 
-        if (nextProfile.account_type !== requiredAccountType) {
-          router.replace("/");
-          return;
-        }
+      if (nextProfile.account_type !== requiredAccountType) {
+        router.replace("/");
+        return;
+      }
 
-        if (active) {
-          setProfile(nextProfile);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
+      if (active) {
+        setProfile(nextProfile);
+        setLoading(false);
       }
     };
 
