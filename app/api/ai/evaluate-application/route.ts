@@ -1,22 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import { groq } from "@/lib/groq";
 import { analyzeImage } from "@/lib/vision";
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
-const RF_AI_SERVER_URL = "http://127.0.0.1:5000/predict";
+const AI_SERVER_URL = process.env.AI_MODEL_API_URL || "http://127.0.0.1:8000/predict";
 
 type LinkAnalysisResult = {
   reachable: boolean;
-  title?: string;
-  description?: string;
-  contentSnippet?: string;
-  relevanceHint?: string;
   platform?: string;
+  relevanceHint?: string;
   error?: string;
 };
 
-type RfAiResponse = {
-  status: number;
+type PythonAiResponse = {
+  decision: "approve" | "reject" | "review";
+  score: number;
   confidence: number;
+  reasons: string[];
 };
 
 type ImageAnalysisResult = {
@@ -30,12 +29,15 @@ type ImageAnalysisResult = {
 };
 
 type ApplicationPayload = {
+  id?: string;
   account_type?: string;
   data_json?: {
     basic?: {
       full_name?: string;
       bio?: string;
+      email?: string;
     };
+    type_specific?: Record<string, unknown>;
   };
   proof_json?: {
     proof_link_1?: string;
@@ -58,6 +60,7 @@ type AIReport = {
   flags: string[];
   decision_hint: string;
   local_score?: number;
+  reasons: string[];
   _meta?: {
     bioQuality: "good" | "weak" | "suspicious";
     bioScore: number;
@@ -81,155 +84,166 @@ type AIReport = {
 
 const EMPTY_LINK: LinkAnalysisResult = {
   reachable: false,
-  error: "No link provided",
+  error: "لم يتم توفير رابط",
 };
 
-async function translateToEnglish(text: string): Promise<string> {
-  if (!text.trim() || !GROQ_API_KEY) return text;
+const DECISION_LABELS: Record<AIReport["recommendation"], string> = {
+  approve: "قبول",
+  reject: "رفض",
+  review: "مراجعة",
+};
 
-  try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        messages: [
-          {
-            role: "system",
-            content:
-              "Translate the following text to English. Output only the translation.",
+function detectPlatform(url: string): string {
+  const normalized = url.toLowerCase();
+  if (normalized.includes("instagram.com")) return "Instagram";
+  if (normalized.includes("facebook.com") || normalized.includes("fb.com")) return "Facebook";
+  if (normalized.includes("tiktok.com")) return "TikTok";
+  if (normalized.includes("twitter.com") || normalized.includes("x.com")) return "X";
+  if (normalized.includes("linkedin.com")) return "LinkedIn";
+  if (normalized.includes("youtube.com") || normalized.includes("youtu.be")) return "YouTube";
+  if (normalized.includes("snapchat.com")) return "Snapchat";
+  if (normalized.includes("wa.me") || normalized.includes("whatsapp")) return "WhatsApp";
+  return "Website";
+}
+
+function translateReason(reason: string) {
+  const normalized = reason.toLowerCase();
+  if (normalized.includes("bio too short")) return "النبذة قصيرة جدًا ولا تعطي صورة كافية عن النشاط.";
+  if (normalized.includes("no links provided")) return "لا توجد روابط داعمة لإثبات النشاط.";
+  if (normalized.includes("email domain does not match")) return "دومين البريد لا يبدو متوافقًا مع الروابط المرفقة.";
+  if (normalized.includes("suspicious email")) return "صيغة البريد الإلكتروني تبدو غير موثوقة.";
+  if (normalized.includes("project or store description is limited"))
+    return "وصف المشروع أو المتجر محدود جدًا.";
+  if (normalized.includes("bio and business description look sufficiently detailed"))
+    return "النبذة ووصف النشاط يحتويان على تفاصيل مقنعة مبدئيًا.";
+  if (normalized.includes("mixed signals require manual review"))
+    return "الإشارات الحالية متضاربة وتحتاج مراجعة بشرية.";
+  if (normalized.includes("uploaded images may be manipulated"))
+    return "بعض الصور المرفوعة قد تحتوي على تعديل أو تلاعب.";
+  if (normalized.includes("image analysis failed")) return "تعذر تحليل الصورة المرفوعة.";
+  if (normalized.includes("http ")) return `تعذر الوصول إلى الرابط (${reason}).`;
+  if (normalized.includes("link validation failed")) return "فشل التحقق من الرابط المرفق.";
+  return reason;
+}
+
+function containsArabic(text: string) {
+  return /[\u0600-\u06FF]/.test(text);
+}
+
+function looksMostlyEnglish(text: string) {
+  return /[A-Za-z]/.test(text) && !containsArabic(text);
+}
+
+function localizeLooseText(text: string) {
+  if (!text) return text;
+
+  const normalized = text.trim();
+  const mapped = translateReason(normalized);
+  if (mapped !== normalized) return mapped;
+
+  const lower = normalized.toLowerCase();
+  if (lower === "uncertain") return "غير مؤكد";
+  if (lower === "other") return "أخرى";
+  if (lower === "website") return "موقع إلكتروني";
+  if (lower === "instagram") return "إنستغرام";
+  if (lower === "facebook") return "فيسبوك";
+  if (lower === "linkedin") return "لينكدإن";
+  if (lower === "youtube") return "يوتيوب";
+  if (lower === "tiktok") return "تيك توك";
+  if (lower === "snapchat") return "سناب شات";
+  if (lower === "whatsapp") return "واتساب";
+  if (lower === "x") return "إكس";
+  if (lower.startsWith("reachable ")) return normalized.replace(/^Reachable\s+/i, "تم الوصول إلى ");
+  if (lower.startsWith("ai model request failed")) return "تعذر الاتصال بخدمة التحليل الذكية.";
+  if (lower.startsWith("python ai service unavailable")) return "خدمة التحليل الخارجية غير متاحة حاليًا.";
+  if (looksMostlyEnglish(normalized)) return `نص بحاجة لترجمة: ${normalized}`;
+  return normalized;
+}
+
+function normalizeArabicReport(report: AIReport): AIReport {
+  return {
+    ...report,
+    summary: localizeLooseText(report.summary),
+    project_summary: report.project_summary ? localizeLooseText(report.project_summary) : report.project_summary,
+    details: localizeLooseText(report.details),
+    bio_analysis: report.bio_analysis ? localizeLooseText(report.bio_analysis) : report.bio_analysis,
+    link_analysis: report.link_analysis ? localizeLooseText(report.link_analysis) : report.link_analysis,
+    strengths: report.strengths.map(localizeLooseText),
+    weaknesses: report.weaknesses.map(localizeLooseText),
+    flags: report.flags.map(localizeLooseText),
+    decision_hint: localizeLooseText(report.decision_hint),
+    reasons: report.reasons.map(localizeLooseText),
+    _meta: report._meta
+      ? {
+          ...report._meta,
+          link1: {
+            ...report._meta.link1,
+            platform: report._meta.link1.platform ? localizeLooseText(report._meta.link1.platform) : report._meta.link1.platform,
+            relevanceHint: report._meta.link1.relevanceHint
+              ? localizeLooseText(report._meta.link1.relevanceHint)
+              : report._meta.link1.relevanceHint,
+            error: report._meta.link1.error ? localizeLooseText(report._meta.link1.error) : report._meta.link1.error,
           },
-          { role: "user", content: text },
-        ],
-      }),
-    });
-
-    if (!res.ok) return text;
-
-    const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    return data.choices?.[0]?.message?.content?.trim() || text;
-  } catch {
-    return text;
-  }
+          link2: {
+            ...report._meta.link2,
+            platform: report._meta.link2.platform ? localizeLooseText(report._meta.link2.platform) : report._meta.link2.platform,
+            relevanceHint: report._meta.link2.relevanceHint
+              ? localizeLooseText(report._meta.link2.relevanceHint)
+              : report._meta.link2.relevanceHint,
+            error: report._meta.link2.error ? localizeLooseText(report._meta.link2.error) : report._meta.link2.error,
+          },
+        }
+      : report._meta,
+    image_analysis: report.image_analysis?.map((image) => ({
+      ...image,
+      authenticity: localizeLooseText(image.authenticity),
+      document_type: localizeLooseText(image.document_type),
+      description: localizeLooseText(image.description),
+      warnings: image.warnings?.map(localizeLooseText),
+    })),
+  };
 }
 
-async function getRfAiScore(features: Record<string, unknown>): Promise<RfAiResponse> {
-  try {
-    const res = await fetch(RF_AI_SERVER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(features),
-    });
-
-    if (!res.ok) throw new Error("RF Server Unreachable");
-
-    return (await res.json()) as RfAiResponse;
-  } catch (error) {
-    console.error("AI RF Bridge Error:", error);
-    return { status: 1, confidence: 0.5 };
-  }
+function parseGroqJson(raw: string) {
+  const cleaned = raw.trim().replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim();
+  return JSON.parse(cleaned);
 }
 
-async function analyzeLinkContent(
-  url: string,
-  accountType: string
-): Promise<LinkAnalysisResult> {
-  if (!url || url === "غير موجود") return { ...EMPTY_LINK };
+async function analyzeLink(url?: string | null): Promise<LinkAnalysisResult> {
+  if (!url) return { ...EMPTY_LINK };
 
-  let platform = "website";
-  if (url.includes("instagram.com")) platform = "instagram";
-  else if (url.includes("facebook.com") || url.includes("fb.com")) platform = "facebook";
-  else if (url.includes("tiktok.com")) platform = "tiktok";
-  else if (url.includes("twitter.com") || url.includes("x.com")) platform = "twitter/x";
-  else if (url.includes("linkedin.com")) platform = "linkedin";
-  else if (url.includes("youtube.com") || url.includes("youtu.be")) platform = "youtube";
-  else if (url.includes("snapchat.com")) platform = "snapchat";
-  else if (url.includes("wa.me") || url.includes("whatsapp")) platform = "whatsapp";
+  const platform = detectPlatform(url);
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-
-    const res = await fetch(url, {
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "User-Agent": "Mozilla/5.0",
         Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "ar,en;q=0.9",
       },
-      redirect: "follow",
     });
-
     clearTimeout(timeout);
 
-    if (!res.ok) {
-      return { reachable: false, platform, error: `HTTP ${res.status}` };
+    if (!response.ok) {
+      return { reachable: false, platform, error: `HTTP ${response.status}` };
     }
-
-    const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("text/html")) {
-      return { reachable: true, platform, relevanceHint: "Non-HTML content" };
-    }
-
-    const html = await res.text();
-    const titleMatch = html.match(/<title[^>]*>([^<]{1,200})<\/title>/i);
-    const title = titleMatch ? titleMatch[1].trim() : undefined;
-    const stripped = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-    const contentSnippet = stripped.slice(0, 600);
-
-    const accountKeywords: Record<string, string[]> = {
-      merchant: ["متجر", "بيع", "بضاعة", "جملة", "تجارة"],
-      delivery: ["توصيل", "شحن", "نقل"],
-      small_business: ["مشروع", "منتج", "خدمة", "متجر"],
-      supporter: ["استثمار", "دعم", "شراكة"],
-    };
-
-    const keywords = accountKeywords[accountType] || [];
-    const matched = keywords.filter((keyword) => html.includes(keyword));
 
     return {
       reachable: true,
       platform,
-      title,
-      contentSnippet,
-      relevanceHint:
-        matched.length > 0
-          ? `Relevant keywords: ${matched.join(", ")}`
-          : "No matching keywords found",
+      relevanceHint: `تم الوصول إلى رابط إثبات على ${platform}`,
     };
   } catch (error) {
     return {
       reachable: false,
       platform,
-      error: error instanceof Error ? error.message : "Unknown link analysis error",
+      error: error instanceof Error ? error.message : "فشل التحقق من الرابط",
     };
   }
-}
-
-function analyzeBio(
-  bio: string
-): { wordCount: number; score: number; flags: string[]; quality: "good" | "weak" } {
-  const words = bio.trim().split(/\s+/).filter(Boolean);
-  const wordCount = words.length;
-  const flags: string[] = [];
-
-  if (wordCount < 5) flags.push("Bio is too short");
-
-  const score = Math.min(100, (wordCount / 20) * 100);
-
-  return {
-    wordCount,
-    score,
-    flags,
-    quality: score > 60 ? "good" : "weak",
-  };
 }
 
 function normalizeImageError(error: unknown): ImageAnalysisResult {
@@ -239,145 +253,188 @@ function normalizeImageError(error: unknown): ImageAnalysisResult {
     document_type: "other",
     matches_business: null,
     confidence: 0,
-    description: "Image analysis failed",
+    description: "تعذر تحليل الصورة",
     warnings: [error instanceof Error ? error.message : "IMAGE_ERROR"],
   };
 }
 
-function parseModelJson(raw: string) {
-  const trimmed = raw.trim();
-  const withoutFences = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+function collectDescription(accountType: string, typeSpecific: Record<string, unknown>) {
+  const keyMap: Record<string, string[]> = {
+    merchant: ["store_name", "product_category"],
+    small_business: ["project_name", "project_field", "project_stage"],
+    delivery: ["company_name", "delivery_scope", "avg_delivery_time"],
+    supporter: ["support_type", "interests", "previous_experience"],
+  };
 
+  return (keyMap[accountType] || [])
+    .map((key) => {
+      const value = typeSpecific[key];
+      if (Array.isArray(value)) return value.join(" ");
+      return typeof value === "string" ? value : "";
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+async function getPythonDecision(payload: {
+  bio: string;
+  email: string;
+  links: string[];
+  account_type: string;
+  full_name: string;
+  description: string;
+}): Promise<PythonAiResponse> {
   try {
-    return JSON.parse(withoutFences);
-  } catch {
-    const jsonStart = withoutFences.indexOf("{");
-    const jsonEnd = withoutFences.lastIndexOf("}");
+    const response = await fetch(AI_SERVER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
-      throw new Error("Model did not return valid JSON");
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`AI model request failed: ${response.status} ${text}`);
     }
 
-    const jsonSlice = withoutFences.slice(jsonStart, jsonEnd + 1);
-    return JSON.parse(jsonSlice);
+    return (await response.json()) as PythonAiResponse;
+  } catch (error) {
+    console.error("Python AI service unavailable, using local fallback.", error);
+
+    const bioWordCount = payload.bio.trim() ? payload.bio.trim().split(/\s+/).length : 0;
+    const hasLinks = payload.links.length > 0;
+    const emailDigits = (payload.email.match(/\d/g) || []).length;
+    const hasSuspiciousEmail = emailDigits >= 4;
+    const descriptionWordCount = payload.description.trim()
+      ? payload.description.trim().split(/\s+/).length
+      : 0;
+
+    const reasons: string[] = [];
+    let score = 0.5;
+    let decision: PythonAiResponse["decision"] = "review";
+
+    if (bioWordCount < 8) reasons.push("bio too short");
+    if (!hasLinks) reasons.push("no links provided");
+    if (hasSuspiciousEmail) reasons.push("suspicious email");
+    if (descriptionWordCount < 4) reasons.push("project or store description is limited");
+
+    if (bioWordCount >= 20) score += 0.18;
+    if (hasLinks) score += 0.16;
+    if (descriptionWordCount >= 6) score += 0.1;
+    if (hasSuspiciousEmail) score -= 0.22;
+    if (bioWordCount < 8) score -= 0.16;
+    if (!hasLinks) score -= 0.14;
+
+    score = Math.max(0.05, Math.min(0.95, score));
+
+    if (score >= 0.72 && reasons.length <= 1) {
+      decision = "approve";
+    } else if (score <= 0.32 || reasons.length >= 3) {
+      decision = "reject";
+    }
+
+    if (reasons.length === 0) {
+      reasons.push(
+        decision === "approve"
+          ? "bio and business description look sufficiently detailed"
+          : "mixed signals require manual review"
+      );
+    }
+
+    return {
+      decision,
+      score,
+      confidence: score,
+      reasons,
+    };
   }
 }
 
-function clampScore(score: unknown, fallback: number) {
-  const parsed = typeof score === "number" ? score : Number(score);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(0, Math.min(100, Math.round(parsed)));
+function buildDecisionHint(recommendation: AIReport["recommendation"]) {
+  if (recommendation === "approve") return "يمكن اعتماد الطلب مبدئيًا ما لم تظهر ملاحظات يدوية معاكسة.";
+  if (recommendation === "reject") return "يفضل رفض الطلب ما لم تتوفر أدلة خارجية قوية تعالج نقاط الشك.";
+  return "يفضل إبقاء الطلب للمراجعة اليدوية قبل اتخاذ القرار النهائي.";
 }
 
-function normalizeRecommendation(value: unknown, score: number): AIReport["recommendation"] {
-  const normalized = String(value || "").toLowerCase();
-  if (["approve", "approved", "accept"].includes(normalized)) return "approve";
-  if (["reject", "rejected", "deny"].includes(normalized)) return "reject";
-  if (["review", "manual_review", "needs_review", "pending"].includes(normalized)) return "review";
-  if (score >= 75) return "approve";
-  if (score <= 39) return "reject";
-  return "review";
-}
-
-function normalizeRisk(value: unknown, score: number): AIReport["risk"] {
-  const normalized = String(value || "").toLowerCase();
-  if (normalized === "low" || normalized === "medium" || normalized === "high") return normalized;
-  if (score >= 75) return "low";
-  if (score <= 39) return "high";
-  return "medium";
-}
-
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => (typeof item === "string" ? item.trim() : String(item ?? "").trim()))
-    .filter(Boolean);
-}
-
-function buildFallbackReport(params: {
-  localScore: number;
-  bioAnalysis: ReturnType<typeof analyzeBio>;
+function buildArabicFallbackReport(params: {
+  app: ApplicationPayload;
+  python: PythonAiResponse;
+  bioWordCount: number;
   link1Result: LinkAnalysisResult;
   link2Result: LinkAnalysisResult;
-  proof: ApplicationPayload["proof_json"];
   imageAnalyses: ImageAnalysisResult[];
-  rfAiResult: RfAiResponse;
 }): AIReport {
-  const { localScore, bioAnalysis, link1Result, link2Result, proof, imageAnalyses, rfAiResult } = params;
+  const { app, python, bioWordCount, link1Result, link2Result, imageAnalyses } = params;
+  const proof = app.proof_json || {};
+  const reachableLinks = [link1Result, link2Result].filter((item) => item.reachable).length;
+  const baseScore = Math.round(python.score * 100);
+  const adjustedScore = Math.max(
+    0,
+    Math.min(100, baseScore + (reachableLinks > 0 ? 6 : -8) + (bioWordCount >= 20 ? 4 : -6))
+  );
 
-  const recommendation = normalizeRecommendation(undefined, localScore);
-  const risk = normalizeRisk(undefined, localScore);
-  const bioQuality: NonNullable<AIReport["_meta"]>["bioQuality"] =
-    bioAnalysis.score < 30 ? "suspicious" : bioAnalysis.quality;
+  const recommendation = python.decision;
+  const risk: AIReport["risk"] =
+    recommendation === "reject" ? "high" : recommendation === "approve" ? "low" : "medium";
+
   const strengths: string[] = [];
   const weaknesses: string[] = [];
-  const flags = [...bioAnalysis.flags];
+  const flags = python.reasons.map(translateReason);
 
-  if (bioAnalysis.score >= 60) strengths.push("The bio contains enough detail to support the application.");
-  else weaknesses.push("The bio is brief and gives limited evidence about the business.");
+  if (bioWordCount >= 20) strengths.push("النبذة تحتوي على قدر جيد من التفاصيل الأولية.");
+  else weaknesses.push("النبذة قصيرة ولا توضح النشاط بشكل كاف.");
 
-  if (link1Result.reachable || link2Result.reachable) {
-    strengths.push("At least one proof link is reachable.");
-  } else {
-    weaknesses.push("No reachable proof links were found.");
-    flags.push("Proof links could not be verified.");
-  }
+  if (reachableLinks > 0) strengths.push("يوجد رابط إثبات واحد على الأقل يمكن الوصول إليه.");
+  else weaknesses.push("لم يتم العثور على رابط إثبات صالح يمكن الوصول إليه.");
 
-  if (rfAiResult.status === 1) strengths.push("The Random Forest model rated the application as likely valid.");
-  else {
-    weaknesses.push("The Random Forest model marked the application as suspicious.");
-    flags.push("Random Forest model raised a suspicion signal.");
+  if (python.reasons.some((reason) => reason.includes("suspicious email"))) {
+    weaknesses.push("صيغة البريد الإلكتروني تثير الشك.");
   }
 
   if (imageAnalyses.some((img) => img.authenticity === "fake" || img.photoshop_detected)) {
-    flags.push("At least one uploaded image may be manipulated or suspicious.");
+    flags.push("بعض الصور المرفوعة تبدو غير موثوقة أو معدلة.");
   }
 
+  const bioQuality: NonNullable<AIReport["_meta"]>["bioQuality"] =
+    bioWordCount >= 20 ? "good" : bioWordCount >= 8 ? "weak" : "suspicious";
+  const bioScore = Math.max(0, Math.min(100, Math.round((bioWordCount / 30) * 100)));
+
   return {
-    score: localScore,
+    score: adjustedScore,
     recommendation,
     risk,
     summary:
       recommendation === "approve"
-        ? "The application looks generally credible based on the available signals."
+        ? "الطلب يبدو موثوقًا مبدئيًا استنادًا إلى النصوص وروابط الإثبات."
         : recommendation === "reject"
-          ? "The application contains enough risk signals to justify rejection."
-          : "The application is mixed and would benefit from manual review.",
-    project_summary: "Automated summary generated from bio, links, images, and RF score.",
-    details:
-      `Bio score: ${bioAnalysis.score}/100. ` +
-      `Link 1 reachable: ${link1Result.reachable ? "yes" : "no"}. ` +
-      `Link 2 reachable: ${link2Result.reachable ? "yes" : "no"}. ` +
-      `RF status: ${rfAiResult.status === 1 ? "likely valid" : "suspicious"}.`,
+          ? "الطلب يحتوي على مؤشرات شك واضحة ولا يوصى باعتماده تلقائيًا."
+          : "الطلب يحتوي على إشارات متباينة ويحتاج مراجعة بشرية.",
+    project_summary: `تم تحليل بيانات الحساب من خلال النظام الهجين للنصوص والروابط والملفات المرفوعة لنوع الحساب ${app.account_type || "غير المحدد"}.`,
+    details: `القرار المبدئي: ${DECISION_LABELS[recommendation]}. نسبة الثقة: ${Math.round(
+      python.confidence * 100
+    )}%. الأسباب الأساسية: ${python.reasons.map(translateReason).join(" ")}`,
     bio_analysis:
-      bioAnalysis.score >= 60
-        ? "The bio has a reasonable amount of detail and supports the business identity."
-        : "The bio is weak or too short and does not provide enough confidence.",
-    link_analysis:
-      [link1Result.relevanceHint, link2Result.relevanceHint].filter(Boolean).join(" | ") ||
-      "No strong evidence from proof links.",
+      bioWordCount >= 20
+        ? "النبذة تعطي وصفًا مقبولًا للنشاط ويمكن البناء عليها في المراجعة."
+        : "النبذة ضعيفة وتحتاج تفاصيل أوضح عن النشاط والخبرة أو طبيعة العمل.",
+    link_analysis: [link1Result.relevanceHint, link2Result.relevanceHint].filter(Boolean).join(" | ") || "لا توجد إفادة قوية من الروابط المرفقة.",
     strengths,
     weaknesses,
     flags,
-    decision_hint:
-      recommendation === "approve"
-        ? "Approve if the manual documents also look consistent."
-        : recommendation === "reject"
-          ? "Reject unless there is strong external verification."
-          : "Keep this request for manual review before making a final decision.",
-    local_score: localScore,
+    decision_hint: buildDecisionHint(recommendation),
+    local_score: adjustedScore,
+    reasons: python.reasons.map(translateReason),
     _meta: {
       bioQuality,
-      bioScore: Math.round(bioAnalysis.score),
+      bioScore,
       link1: {
-        url: proof?.proof_link_1 || null,
+        url: proof.proof_link_1 || null,
         reachable: link1Result.reachable,
         platform: link1Result.platform,
         relevanceHint: link1Result.relevanceHint,
         error: link1Result.error,
       },
       link2: {
-        url: proof?.proof_link_2 || null,
+        url: proof.proof_link_2 || null,
         reachable: link2Result.reachable,
         platform: link2Result.platform,
         relevanceHint: link2Result.relevanceHint,
@@ -388,80 +445,117 @@ function buildFallbackReport(params: {
   };
 }
 
-function normalizeAiReport(raw: unknown, fallback: AIReport): AIReport {
-  const parsed = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const score = clampScore(parsed.score, fallback.score);
-  const recommendation = normalizeRecommendation(
-    parsed.recommendation ?? parsed.recommended_action ?? parsed.verdict,
-    score
-  );
-  const risk = normalizeRisk(parsed.risk, score);
+async function humanizeWithGroq(report: AIReport, context: {
+  fullName: string;
+  accountType: string;
+  bio: string;
+  description: string;
+}) {
+  if (!process.env.GROQ_API_KEY) return report;
 
-  return {
-    score,
-    recommendation,
-    risk,
-    summary: typeof parsed.summary === "string" ? parsed.summary : fallback.summary,
-    project_summary:
-      typeof parsed.project_summary === "string" ? parsed.project_summary : fallback.project_summary,
-    details: typeof parsed.details === "string" ? parsed.details : fallback.details,
-    bio_analysis:
-      typeof parsed.bio_analysis === "string" ? parsed.bio_analysis : fallback.bio_analysis,
-    link_analysis:
-      typeof parsed.link_analysis === "string" ? parsed.link_analysis : fallback.link_analysis,
-    strengths: asStringArray(parsed.strengths).length ? asStringArray(parsed.strengths) : fallback.strengths,
-    weaknesses:
-      asStringArray(parsed.weaknesses).length ? asStringArray(parsed.weaknesses) : fallback.weaknesses,
-    flags: asStringArray(parsed.flags).length ? asStringArray(parsed.flags) : fallback.flags,
-    decision_hint:
-      typeof parsed.decision_hint === "string" ? parsed.decision_hint : fallback.decision_hint,
-    local_score: fallback.local_score,
-    _meta: fallback._meta,
-    image_analysis: fallback.image_analysis,
-  };
+  try {
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      temperature: 0.4,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "أنت محلل طلبات احترافي. أعد صياغة التقرير التالي بالعربية الطبيعية وبأسلوب بشري واضح ومهني. " +
+            "أعد JSON فقط بنفس المفاتيح التالية: summary, project_summary, details, bio_analysis, link_analysis, strengths, weaknesses, flags, decision_hint, reasons. " +
+            "اجعل الجمل طبيعية وغير روبوتية، قصيرة نسبيًا، وواضحة لمدير منصة عربي. " +
+            "ممنوع استخدام اللغة الإنجليزية إلا لأسماء المنصات أو القيم التقنية الضرورية جدًا.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            applicant: context.fullName,
+            account_type: context.accountType,
+            bio: context.bio,
+            description: context.description,
+            recommendation: report.recommendation,
+            risk: report.risk,
+            score: report.score,
+            raw_report: {
+              summary: report.summary,
+              project_summary: report.project_summary,
+              details: report.details,
+              bio_analysis: report.bio_analysis,
+              link_analysis: report.link_analysis,
+              strengths: report.strengths,
+              weaknesses: report.weaknesses,
+              flags: report.flags,
+              decision_hint: report.decision_hint,
+              reasons: report.reasons,
+            },
+          }),
+        },
+      ],
+    });
+
+    const content = completion.choices[0]?.message?.content;
+    if (!content) return report;
+
+    const parsed = parseGroqJson(content) as Partial<AIReport>;
+    return normalizeArabicReport({
+      ...report,
+      summary: typeof parsed.summary === "string" ? parsed.summary : report.summary,
+      project_summary:
+        typeof parsed.project_summary === "string" ? parsed.project_summary : report.project_summary,
+      details: typeof parsed.details === "string" ? parsed.details : report.details,
+      bio_analysis: typeof parsed.bio_analysis === "string" ? parsed.bio_analysis : report.bio_analysis,
+      link_analysis:
+        typeof parsed.link_analysis === "string" ? parsed.link_analysis : report.link_analysis,
+      strengths: Array.isArray(parsed.strengths) ? parsed.strengths.map(String) : report.strengths,
+      weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses.map(String) : report.weaknesses,
+      flags: Array.isArray(parsed.flags) ? parsed.flags.map(String) : report.flags,
+      decision_hint:
+        typeof parsed.decision_hint === "string" ? parsed.decision_hint : report.decision_hint,
+      reasons: Array.isArray(parsed.reasons) ? parsed.reasons.map(String) : report.reasons,
+    });
+  } catch (error) {
+    console.error("Groq humanization failed, using Arabic fallback.", error);
+    return normalizeArabicReport(report);
+  }
 }
 
 export async function POST(req: NextRequest) {
   try {
     const { app } = (await req.json()) as { app?: ApplicationPayload };
-
     if (!app) {
-      return NextResponse.json({ error: "No data" }, { status: 400 });
+      return NextResponse.json({ error: "لم يتم إرسال بيانات الطلب." }, { status: 400 });
     }
 
     const basic = app.data_json?.basic || {};
+    const typeSpecific = app.data_json?.type_specific || {};
     const proof = app.proof_json || {};
-    const fileUrls: string[] = Array.isArray(proof.file_urls) ? proof.file_urls : [];
-    const userBio = typeof basic.bio === "string" ? basic.bio : "";
+    const bio = typeof basic.bio === "string" ? basic.bio : "";
+    const email = typeof basic.email === "string" ? basic.email : "";
+    const fullName = typeof basic.full_name === "string" ? basic.full_name : "";
+    const accountType = typeof app.account_type === "string" ? app.account_type : "";
+    const description = collectDescription(accountType, typeSpecific);
+    const links = [proof.proof_link_1, proof.proof_link_2].filter(
+      (value): value is string => typeof value === "string" && value.length > 0
+    );
+    const bioWordCount = bio.trim() ? bio.trim().split(/\s+/).length : 0;
+    const fileUrls = Array.isArray(proof.file_urls) ? proof.file_urls : [];
 
-    const translatedBio = await translateToEnglish(userBio);
-
-    const rfFeatures = {
-      bio: translatedBio,
-      link_reachable: proof.proof_link_1 || proof.proof_link_2 ? 1 : 0,
-      platform_score:
-        proof.proof_link_1?.includes("linkedin") || proof.proof_link_2?.includes("linkedin")
-          ? 1
-          : 0.5,
-      has_files: fileUrls.length > 0 ? 1 : 0,
-      fields_complete: basic.full_name && userBio.length > 20 ? 1 : 0,
-      has_second_link: proof.proof_link_1 && proof.proof_link_2 ? 1 : 0,
-      bio_word_count: userBio.trim() ? userBio.trim().split(/\s+/).length : 0,
-    };
-
-    const [link1Result, link2Result, bioAnalysis, rfAiResult, imageAnalyses] = await Promise.all([
-      proof.proof_link_1
-        ? analyzeLinkContent(proof.proof_link_1, app.account_type || "")
-        : Promise.resolve({ ...EMPTY_LINK }),
-      proof.proof_link_2
-        ? analyzeLinkContent(proof.proof_link_2, app.account_type || "")
-        : Promise.resolve({ ...EMPTY_LINK }),
-      Promise.resolve(analyzeBio(userBio)),
-      getRfAiScore(rfFeatures),
+    const [python, link1Result, link2Result, imageAnalyses] = await Promise.all([
+      getPythonDecision({
+        bio,
+        email,
+        links,
+        account_type: accountType,
+        full_name: fullName,
+        description,
+      }),
+      analyzeLink(proof.proof_link_1),
+      analyzeLink(proof.proof_link_2),
       Promise.all(
         fileUrls.map(async (url) => {
           try {
-            return await analyzeImage(url, basic.full_name || app.account_type);
+            return await analyzeImage(url, fullName || accountType);
           } catch (error) {
             return normalizeImageError(error);
           }
@@ -469,105 +563,26 @@ export async function POST(req: NextRequest) {
       ),
     ]);
 
-    const localScore = Math.round(
-      bioAnalysis.score * 0.3 +
-        (link1Result.reachable ? 30 : 0) +
-        (link2Result.reachable ? 15 : 0) +
-        (rfAiResult.status === 1 ? 40 : 0)
-    );
-
-    const imageContext =
-      imageAnalyses.length > 0
-        ? imageAnalyses
-            .map(
-              (img, index) =>
-                `Image ${index + 1}: authenticity=${img.authenticity}, photoshop=${
-                  img.photoshop_detected
-                }, description=${img.description}`
-            )
-            .join("\n")
-        : "No images provided";
-
-    const appContext = `
-Application analysis:
-- Applicant: ${basic.full_name || "Unknown"}
-- Account type: ${app.account_type || "Unknown"}
-- Bio: ${userBio || "No bio"}
-- Link 1: ${proof.proof_link_1 || "Not provided"} (${link1Result.relevanceHint || "No analysis"})
-- Link 2: ${proof.proof_link_2 || "Not provided"} (${link2Result.relevanceHint || "No analysis"})
-- RF AI Result: ${rfAiResult.status === 1 ? "Likely valid" : "Suspicious"} (confidence: ${Math.round(
-      rfAiResult.confidence * 100
-    )}%)
-- Images:
-${imageContext}
-- Local score: ${localScore}/100
-`;
-
-    const fallbackReport = buildFallbackReport({
-      localScore,
-      bioAnalysis,
+    const fallbackReport = buildArabicFallbackReport({
+      app,
+      python,
+      bioWordCount,
       link1Result,
       link2Result,
-      proof,
       imageAnalyses,
-      rfAiResult,
     });
 
-    if (!GROQ_API_KEY) {
-      return NextResponse.json(fallbackReport);
-    }
-
-    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        temperature: 0.3,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are an expert application reviewer. Return valid JSON only. " +
-              "Use exactly these keys: score, recommendation, risk, summary, project_summary, details, bio_analysis, link_analysis, strengths, weaknesses, flags, decision_hint. " +
-              'recommendation must be one of: "approve", "review", "reject". ' +
-              'risk must be one of: "low", "medium", "high". ' +
-              "strengths, weaknesses, and flags must be arrays of strings.",
-          },
-          {
-            role: "user",
-            content:
-              `Analyze this application and return JSON only.\n${appContext}\n` +
-              "If the evidence is mixed, use recommendation=review.",
-          },
-        ],
-      }),
+    const report = await humanizeWithGroq(normalizeArabicReport(fallbackReport), {
+      fullName,
+      accountType,
+      bio,
+      description,
     });
 
-    if (!groqResponse.ok) {
-      const errorText = await groqResponse.text();
-      throw new Error(`Groq request failed: ${groqResponse.status} ${errorText}`);
-    }
-
-    const groqData = (await groqResponse.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    const content = groqData.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error("Groq returned an empty response");
-    }
-
-    return NextResponse.json(normalizeAiReport(parseModelJson(content), fallbackReport));
+    return NextResponse.json(report);
   } catch (error) {
-    console.error("Evaluation error:", error);
-
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unknown evaluation error",
-      },
+      { error: error instanceof Error ? error.message : "فشل تحليل الطلب." },
       { status: 500 }
     );
   }

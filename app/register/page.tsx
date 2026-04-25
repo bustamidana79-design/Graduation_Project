@@ -321,7 +321,6 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
     setErrorMsg("");
     setSuccessMsg("");
 
-    // تأكيد صحة Step 2
     const err = validateStep2();
     if (err) {
       setErrorMsg(err);
@@ -331,15 +330,13 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
     setLoading(true);
 
     try {
-     // 1) Create Auth user
-const { data: signUpData, error: signUpError } =
-await supabase.auth.signUp({
-  email: cleanEmail,
-  password,
-  options: {
-    emailRedirectTo: "http://localhost:3000/auth/callback",
-  },
-});
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: {
+          emailRedirectTo: "http://localhost:3000/auth/callback",
+        },
+      });
 
       if (signUpError) {
         setErrorMsg(signUpError.message);
@@ -349,33 +346,28 @@ await supabase.auth.signUp({
 
       const userId = signUpData.user?.id;
       if (!userId) {
-        setErrorMsg("تعذر إنشاء المستخدم. يرجى المحاولة مرة أخرى.");
+        setErrorMsg("Unable to create the user. Please try again.");
         setLoading(false);
         return;
       }
 
-      // 2) Insert profile
       const { error: profileError } = await supabase.from("profiles").insert({
         id: userId,
         full_name: fullName.trim(),
-         email: cleanEmail,   
+        email: cleanEmail,
         phone: phone,
         country: countryName,
         account_type: accountType,
         status: "pending",
-        // بإمكانك إضافة bio للجدول إذا حابة (إذا عندك عمود لها)
-        // bio: bio.trim(),
       });
 
       if (profileError) {
-        setErrorMsg(`تعذر حفظ بيانات الملف الشخصي: ${profileError.message}`);
+        setErrorMsg(`Failed to save profile data: ${profileError.message}`);
         setLoading(false);
         return;
       }
 
-      // 3) رفع الملفات على Supabase Storage
       const uploadedFileUrls: string[] = [];
-
       for (const file of proofFiles) {
         const filePath = `${userId}/${Date.now()}_${file.name}`;
         const { error: uploadError } = await supabase.storage
@@ -383,62 +375,16 @@ await supabase.auth.signUp({
           .upload(filePath, file);
 
         if (uploadError) {
-          setErrorMsg(`تعذر رفع الملف ${file.name}: ${uploadError.message}`);
+          setErrorMsg(`Failed to upload ${file.name}: ${uploadError.message}`);
           setLoading(false);
           return;
         }
 
-        const { data: urlData } = supabase.storage
-          .from("documents")
-          .getPublicUrl(filePath);
-
+        const { data: urlData } = supabase.storage.from("documents").getPublicUrl(filePath);
         uploadedFileUrls.push(urlData.publicUrl);
       }
-// داخل دالة onSubmit في page.tsx، بعد رفع الملفات وقبل إدراج التطبيق
 
-try {
-  const aiResponse = await fetch("/api/ai/evaluate-application", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      app: {
-        data_json: {
-          basic: {
-            full_name: fullName.trim(),
-            email: cleanEmail,
-            phone: phone,
-            country: countryName,
-            bio: bio.trim(),
-          },
-          type_specific: buildTypeSpecificData(),
-        },
-        proof_json: {
-          proof_link_1: proofLink1.trim(),
-          proof_link_2: proofLink2.trim() || null,
-          note: proofNote.trim() || null,
-          file_urls: uploadedFileUrls, // ✅ هذه هي الصور المرفوعة
-        },
-        account_type: accountType,
-      },
-    }),
-  });
-
-  const aiResult = await aiResponse.json();
-  console.log("AI Evaluation Result:", aiResult);
-
-  await supabase
-    .from("applications")
-    .update({
-      ai_score: aiResult.score,
-      ai_recommendation: aiResult.recommendation,
-      ai_reason: aiResult.summary,
-      ai_checked: true,
-    })
-    .eq("user_id", userId);
-} catch (error) {
-  console.error("AI Evaluation Failed:", error);
-}
-      // 4) Insert application (طلب إنشاء حساب)
+      const typeSpecificData = buildTypeSpecificData();
       const dataJson = {
         basic: {
           full_name: fullName.trim(),
@@ -448,7 +394,7 @@ try {
           account_type: accountType,
           bio: bio.trim(),
         },
-        type_specific: buildTypeSpecificData(),
+        type_specific: typeSpecificData,
       };
 
       const proofJson = {
@@ -458,69 +404,77 @@ try {
         file_urls: uploadedFileUrls.length > 0 ? uploadedFileUrls : null,
       };
 
-      const { error: appError } = await supabase.from("applications").insert({
-        user_id: userId,
-        account_type: accountType,
-        data_json: dataJson,
-        proof_json: proofJson,
-        status: "pending",
-      });
-/* ===============================
-   AI Evaluation
-================================ */
+      const { data: insertedApplication, error: appError } = await supabase
+        .from("applications")
+        .insert({
+          user_id: userId,
+          account_type: accountType,
+          data_json: dataJson,
+          proof_json: proofJson,
+          status: "pending",
+        })
+        .select("id")
+        .single();
 
-try {
-
-  const aiResponse = await fetch("/api/ai/evaluate-application", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      full_name: fullName,
-      email: cleanEmail,
-      bio: bio,
-      account_type: accountType,
-      country: countryName,
-
-      data: buildTypeSpecificData(),
-
-      proof: {
-        proof_link_1: proofLink1,
-        proof_link_2: proofLink2,
-        files: uploadedFileUrls
+      if (appError || !insertedApplication?.id) {
+        throw new Error(appError?.message || "Failed to save the application.");
       }
-    })
-  });
 
-  const aiResult = await aiResponse.json();
+      try {
+        const aiResponse = await fetch("/api/ai/evaluate-application", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            app: {
+              id: insertedApplication.id,
+              account_type: accountType,
+              data_json: dataJson,
+              proof_json: proofJson,
+            },
+          }),
+        });
 
-  console.log("AI Evaluation Result:", aiResult);
+        const aiResult = await aiResponse.json();
+        if (!aiResponse.ok) {
+          throw new Error(aiResult.error || "AI evaluation failed");
+        }
 
-  // حفظ نتيجة AI في قاعدة البيانات
+        const reasonJson = JSON.stringify(aiResult);
 
- await supabase
-  .from("applications")
-  .update({
-    ai_score: aiResult.score,
-    ai_recommendation: aiResult.recommendation,
-    ai_reason: aiResult.reason,
-    ai_checked: true
-  })
-.eq("user_id", userId);
-  
-} catch (error) {
-  console.error("AI Evaluation Failed:", error);
-}
+        await supabase.from("ai_recommendation").upsert(
+          {
+            application_id: insertedApplication.id,
+            score: aiResult.score,
+            recommendation: aiResult.recommendation,
+            reason: reasonJson,
+            risk: aiResult.risk,
+            checked_at: new Date().toISOString(),
+          },
+          { onConflict: "application_id" }
+        );
 
-      // توجيه لصفحة pending
+        await supabase
+          .from("applications")
+          .update({
+            ai_score: aiResult.score,
+            ai_recommendation: aiResult.recommendation,
+            ai_reason: reasonJson,
+            ai_risk: aiResult.risk,
+            ai_checked: true,
+          })
+          .eq("id", insertedApplication.id);
+      } catch (error) {
+        console.error("AI Evaluation Failed:", error);
+      }
+
       setTimeout(() => router.push("/pending"), 900);
-    } catch (errAny: any) {
-      setErrorMsg("حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.");
+    } catch {
+      setErrorMsg("An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
   };
+
 
   // خيارات
   const needOptions = [
