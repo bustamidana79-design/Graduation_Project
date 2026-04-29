@@ -30,11 +30,19 @@ create table if not exists public.direct_messages (
   sender_id uuid not null references public.profiles(id) on delete cascade,
   receiver_id uuid not null references public.profiles(id) on delete cascade,
   content text not null,
-  created_at timestamptz not null default timezone('utc'::text, now())
+  created_at timestamptz not null default timezone('utc'::text, now()),
+  read_at timestamptz
 );
+
+alter table public.direct_messages
+  add column if not exists read_at timestamptz;
 
 create index if not exists direct_messages_conversation_idx
   on public.direct_messages (conversation_id, created_at);
+
+create index if not exists direct_messages_unread_receiver_idx
+  on public.direct_messages (receiver_id, conversation_id)
+  where read_at is null;
 
 alter table public.direct_conversations enable row level security;
 alter table public.direct_messages enable row level security;
@@ -90,3 +98,10 @@ create policy "participants can send messages"
         )
     )
   );
+
+drop policy if exists "receivers can mark messages as read" on public.direct_messages;
+create policy "receivers can mark messages as read"
+  on public.direct_messages
+  for update
+  using (auth.uid() = receiver_id)
+  with check (auth.uid() = receiver_id);

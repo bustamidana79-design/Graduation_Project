@@ -1,8 +1,7 @@
 // app/dashboard/admin/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 
 type Stats = {
@@ -17,18 +16,6 @@ type Stats = {
   pendingUpgrades: number;
 };
 
-type UpgradeRequest = {
-  id: string;
-  user_id: string;
-  requested_type: string;
-  status: string;
-  created_at: string;
-  profiles?: {
-    full_name: string;
-    email: string;
-  };
-};
-
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<Stats>({
     totalUsers: 0,
@@ -41,16 +28,9 @@ export default function AdminDashboardPage() {
     rejectedApplications: 0,
     pendingUpgrades: 0,
   });
-  const [pendingUpgrades, setPendingUpgrades] = useState<UpgradeRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchStats();
-  }, []);
-
-  const fetchStats = async () => {
-    setLoading(true);
-
+  const fetchStats = useCallback(async () => {
     const [
       { count: totalUsers },
       { count: merchants },
@@ -60,7 +40,7 @@ export default function AdminDashboardPage() {
       { count: pendingCount },
       { count: approvedCount },
       { count: rejectedCount },
-      { data: upgradesData, count: upgradesCount },
+      { count: upgradesCount },
     ] = await Promise.all([
       supabase.from("profiles").select("*", { count: "exact", head: true }),
       supabase.from("profiles").select("*", { count: "exact", head: true }).eq("account_type", "merchant"),
@@ -70,7 +50,7 @@ export default function AdminDashboardPage() {
       supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "approved"),
       supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "rejected"),
-      supabase.from("upgrade_requests").select("*, profiles(full_name, email)", { count: "exact" }).eq("status", "pending").order("created_at", { ascending: false }).limit(5),
+      supabase.from("upgrade_requests").select("*", { count: "exact", head: true }).eq("status", "pending"),
     ]);
 
     setStats({
@@ -85,9 +65,12 @@ export default function AdminDashboardPage() {
       pendingUpgrades: upgradesCount || 0,
     });
 
-    setPendingUpgrades((upgradesData as UpgradeRequest[]) || []);
     setLoading(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    void Promise.resolve().then(fetchStats);
+  }, [fetchStats]);
 
   // الصف الأول — أنواع المستخدمين
   const userTypeCards = [

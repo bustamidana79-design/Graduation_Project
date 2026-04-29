@@ -25,12 +25,17 @@ export default function LoginPage() {
     return "حدث خطأ. يرجى التحقق من البيانات ثم المحاولة مرة أخرى.";
   };
 
-  const redirectByAccountType = (accountType: string) => {
-    if (accountType === "merchant") router.push("/dashboard/supplier");
-    else if (accountType === "small_business") router.push("/dashboard/small-business");
-    else if (accountType === "delivery") router.push("/dashboard/delivery");
-    else if (accountType === "supporter") router.push("/dashboard/supporter");
-    else if (accountType === "admin") router.push("/admin");
+  const normalizeAccountType = (accountType: string | null | undefined) =>
+    accountType?.trim().toLowerCase();
+
+  const redirectByAccountType = (accountType: string | null | undefined) => {
+    const normalizedAccountType = normalizeAccountType(accountType);
+
+    if (normalizedAccountType === "merchant") router.push("/dashboard/supplier");
+    else if (normalizedAccountType === "small_business") router.push("/dashboard/small-business");
+    else if (normalizedAccountType === "delivery") router.push("/dashboard/delivery");
+    else if (normalizedAccountType === "supporter") router.push("/dashboard/supporter");
+    else if (normalizedAccountType === "admin") router.push("/dashboard/admin");
     else router.push("/dashboard");
   };
 
@@ -82,27 +87,39 @@ export default function LoginPage() {
       return;
     }
 
-    const { data: profile } = await supabase
+    const { data: profileById, error: profileByIdError } = await supabase
       .from("profiles")
       .select("status, account_type")
       .eq("id", data.user.id)
-      .single();
+      .maybeSingle();
 
-    if (profile?.status === "pending") {
+    const { data: profileByEmail } = profileById || profileByIdError
+      ? { data: null }
+      : await supabase
+          .from("profiles")
+          .select("status, account_type")
+          .ilike("email", cleanEmail)
+          .maybeSingle();
+
+    const profile = profileById || profileByEmail;
+    const accountType = normalizeAccountType(profile?.account_type);
+    const status = profile?.status?.trim().toLowerCase();
+
+    if (status === "pending") {
       await supabase.auth.signOut();
       setStatusMsg("pending");
       return;
     }
 
-    if (profile?.status === "rejected") {
+    if (status === "rejected") {
       await supabase.auth.signOut();
       setStatusMsg("rejected");
       return;
     }
 
-    if (profile?.status === "approved") {
+    if (status === "approved") {
       setSuccessMsg("تم تسجيل الدخول بنجاح ✅");
-      redirectByAccountType(profile.account_type);
+      redirectByAccountType(accountType);
       return;
     }
 

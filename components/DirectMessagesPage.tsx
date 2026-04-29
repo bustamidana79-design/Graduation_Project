@@ -32,10 +32,12 @@ type DirectMessage = {
   receiver_id: string;
   content: string;
   created_at: string;
+  read_at?: string | null;
 };
 
 type EnrichedConversation = DirectConversation & {
   otherUser: Profile | null;
+  unreadCount: number;
 };
 
 const accountTypeLabels: Record<AccountType, string> = {
@@ -159,9 +161,11 @@ export default function DirectMessagesPage() {
     }
 
     const rawConversations = (data || []) as DirectConversation[];
+    const conversationIds = rawConversations.map((conversation) => conversation.id);
     const peerIds = [...new Set(rawConversations.map((item) => getConversationPeerId(item, user.id)))];
 
     let profilesById = new Map<string, Profile>();
+    const unreadCountsByConversationId = new Map<string, number>();
 
     if (peerIds.length > 0) {
       const { data: peers, error: peersError } = await supabase
@@ -176,9 +180,31 @@ export default function DirectMessagesPage() {
       profilesById = new Map((peers || []).map((profile) => [profile.id, profile as Profile]));
     }
 
+    if (conversationIds.length > 0) {
+      const { data: unreadMessages, error: unreadError } = await supabase
+        .from("direct_messages")
+        .select("conversation_id")
+        .in("conversation_id", conversationIds)
+        .eq("receiver_id", user.id)
+        .is("read_at", null);
+
+      if (unreadError) {
+        throw unreadError;
+      }
+
+      for (const message of unreadMessages || []) {
+        const conversationId = (message as Pick<DirectMessage, "conversation_id">).conversation_id;
+        unreadCountsByConversationId.set(
+          conversationId,
+          (unreadCountsByConversationId.get(conversationId) || 0) + 1
+        );
+      }
+    }
+
     const nextConversations = rawConversations.map((conversation) => ({
       ...conversation,
       otherUser: profilesById.get(getConversationPeerId(conversation, user.id)) || null,
+      unreadCount: unreadCountsByConversationId.get(conversation.id) || 0,
     }));
 
     setConversations(nextConversations);
@@ -188,7 +214,7 @@ export default function DirectMessagesPage() {
         return currentSelected;
       }
 
-      return nextConversations[0]?.id ?? null;
+      return null;
     });
   };
 
@@ -209,6 +235,39 @@ export default function DirectMessagesPage() {
 
     setMessages((data || []) as DirectMessage[]);
   };
+
+  const markConversationAsRead = useCallback(
+    async (conversationId: string) => {
+      if (!currentUser) return;
+
+      const readAt = new Date().toISOString();
+      const { error: markReadError } = await supabase
+        .from("direct_messages")
+        .update({ read_at: readAt })
+        .eq("conversation_id", conversationId)
+        .eq("receiver_id", currentUser.id)
+        .is("read_at", null);
+
+      if (markReadError) {
+        throw markReadError;
+      }
+
+      setConversations((currentConversations) =>
+        currentConversations.map((conversation) =>
+          conversation.id === conversationId ? { ...conversation, unreadCount: 0 } : conversation
+        )
+      );
+
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.conversation_id === conversationId && message.receiver_id === currentUser.id && !message.read_at
+            ? { ...message, read_at: readAt }
+            : message
+        )
+      );
+    },
+    [currentUser]
+  );
 
   const startConversationWithUser = useCallback(
     async (targetUserId: string, clearSelection = true) => {
@@ -295,14 +354,28 @@ export default function DirectMessagesPage() {
 
         setCurrentUserId(user.id);
 
-        const { data: profile, error: profileError } = await supabase
+        const { data: profileById, error: profileByIdError } = await supabase
           .from("profiles")
           .select("id, full_name, account_type, status")
           .eq("id", user.id)
-          .single();
+          .maybeSingle();
 
-        if (profileError) {
-          throw profileError;
+        const { data: profileByEmail, error: profileByEmailError } = profileById || profileByIdError
+          ? { data: null, error: null }
+          : await supabase
+              .from("profiles")
+              .select("id, full_name, account_type, status")
+              .ilike("email", user.email || "")
+              .maybeSingle();
+
+        if (profileByIdError || profileByEmailError) {
+          throw profileByIdError || profileByEmailError;
+        }
+
+        const profile = profileById || profileByEmail;
+
+        if (!profile) {
+          throw new Error("تعذر العثور على ملف المستخدم. يرجى التواصل مع الإدارة.");
         }
 
         const typedProfile = profile as Profile;
@@ -338,11 +411,18 @@ export default function DirectMessagesPage() {
       return;
     }
 
-    fetchMessages(selectedConversationId).catch((err) => {
-      const message = err instanceof Error ? err.message : "تعذر تحميل الرسائل.";
-      setError(message);
-    });
-  }, [selectedConversationId]);
+    const loadSelectedConversation = async () => {
+      try {
+        await fetchMessages(selectedConversationId);
+        await markConversationAsRead(selectedConversationId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "تعذر تحميل الرسائل.";
+        setError(message);
+      }
+    };
+
+    loadSelectedConversation();
+  }, [markConversationAsRead, selectedConversationId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -377,6 +457,10 @@ export default function DirectMessagesPage() {
 
               return [...currentMessages, nextMessage];
             });
+
+            if (nextMessage.receiver_id === currentUser.id) {
+              markConversationAsRead(nextMessage.conversation_id).catch(() => undefined);
+            }
           }
         }
       )
@@ -396,7 +480,7 @@ export default function DirectMessagesPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentUser, selectedConversationId]);
+  }, [currentUser, markConversationAsRead, selectedConversationId]);
 
   useEffect(() => {
     if (!requestedUserId) {
@@ -589,6 +673,7 @@ export default function DirectMessagesPage() {
               ) : (
                 conversations.map((conversation) => {
                   const isActive = conversation.id === selectedConversationId;
+                  const unreadCount = conversation.unreadCount || 0;
 
                   return (
                     <button
@@ -611,12 +696,23 @@ export default function DirectMessagesPage() {
                               : "حساب على المنصة"}
                           </p>
                         </div>
-                        <span className="text-[11px] text-[#273347]/40">
-                          {formatMessageTime(conversation.last_message_at || conversation.created_at)}
-                        </span>
+                        <div className="flex flex-col items-end gap-2">
+                          <span className="text-[11px] text-[#273347]/40">
+                            {formatMessageTime(conversation.last_message_at || conversation.created_at)}
+                          </span>
+                          {unreadCount > 0 && !isActive && (
+                            <span className="flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white">
+                              {unreadCount > 99 ? "99+" : unreadCount}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
-                      <p className="mt-3 line-clamp-2 text-sm text-[#273347]/65">
+                      <p
+                        className={`mt-3 line-clamp-2 text-sm ${
+                          unreadCount > 0 && !isActive ? "font-semibold text-[#273347]" : "text-[#273347]/65"
+                        }`}
+                      >
                         {conversation.last_message || "لا توجد رسائل بعد. ابدأ المحادثة الآن."}
                       </p>
                     </button>

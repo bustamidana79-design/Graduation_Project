@@ -22,6 +22,10 @@ type UseDashboardAccessOptions = {
   requiredAccountType: DashboardAccountType;
 };
 
+function normalizeAccountType(accountType: string | null | undefined) {
+  return accountType?.trim().toLowerCase() as DashboardAccountType | undefined;
+}
+
 export function useDashboardAccess({ requiredAccountType }: UseDashboardAccessOptions) {
   const router = useRouter();
   const [profile, setProfile] = useState<DashboardProfile | null>(null);
@@ -41,18 +45,32 @@ export function useDashboardAccess({ requiredAccountType }: UseDashboardAccessOp
         return;
       }
 
-      const { data, error } = await supabase
+      const { data: profileById, error: profileByIdError } = await supabase
         .from("profiles")
         .select("id, full_name, account_type, status")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
+      const { data: profileByEmail, error: profileByEmailError } = profileById || profileByIdError
+        ? { data: null, error: null }
+        : await supabase
+            .from("profiles")
+            .select("id, full_name, account_type, status")
+            .ilike("email", user.email || "")
+            .maybeSingle();
+
+      const data = profileById || profileByEmail;
+
+      if (profileByIdError || profileByEmailError || !data) {
         router.replace("/login");
         return;
       }
 
-      const nextProfile = data as DashboardProfile;
+      const nextProfile = {
+        ...(data as DashboardProfile),
+        account_type: normalizeAccountType(data.account_type) || (data.account_type as DashboardAccountType),
+        status: data.status?.trim().toLowerCase() || null,
+      };
 
       if (requiredAccountType !== "admin" && nextProfile.status !== "approved") {
         router.replace("/pending");
