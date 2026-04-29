@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../../../../lib/supabase";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { supabase } from "../../../../lib/supabase";
 
 type Profile = {
   full_name: string;
@@ -11,6 +11,7 @@ type Profile = {
 
 const navItems = [
   { label: "الرئيسية", href: "/dashboard/supplier", icon: "🏠" },
+  { label: "المستخدمون", href: "/dashboard/supplier/users", icon: "👥" },
   { label: "المنتجات", href: "/dashboard/supplier/products", icon: "📦" },
   { label: "الطلبات", href: "/dashboard/supplier/orders", icon: "🧾" },
   { label: "المحادثات", href: "/dashboard/supplier/messages", icon: "💬" },
@@ -33,15 +34,15 @@ export default function SupplierSidebar({
 
   useEffect(() => {
     const fetchProfile = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", user.id)
-        .single();
+
+      const { data } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
       if (data) setProfile(data);
     };
+
     fetchProfile();
   }, []);
 
@@ -58,26 +59,26 @@ export default function SupplierSidebar({
   return (
     <aside
       className={`
-        fixed top-0 right-0 h-full w-64 bg-[#273347] text-white z-30 flex flex-col
+        fixed top-0 right-0 z-30 flex h-full w-64 flex-col bg-[#273347] text-white
         transform transition-transform duration-300
         ${sidebarOpen ? "translate-x-0" : "translate-x-full"}
-        md:translate-x-0 md:static md:h-screen
+        md:static md:h-screen md:translate-x-0
       `}
     >
-      <div className="px-6 py-6 border-b border-white/10">
+      <div className="border-b border-white/10 px-6 py-6">
         <h1 className="text-xl font-bold">منصة الموردين</h1>
-        <p className="text-xs text-white/50 mt-1">لوحة المورد</p>
+        <p className="mt-1 text-xs text-white/50">لوحة المورد</p>
       </div>
 
-      <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-6">
         {navItems.map((item) => (
           <Link
             key={item.href}
             href={item.href}
             onClick={() => setSidebarOpen(false)}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition-all ${
+            className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all ${
               isActive(item.href)
-                ? "bg-white/15 text-white font-semibold"
+                ? "bg-white/15 font-semibold text-white"
                 : "text-white/70 hover:bg-white/10 hover:text-white"
             }`}
           >
@@ -87,10 +88,11 @@ export default function SupplierSidebar({
         ))}
       </nav>
 
-      <div className="px-4 py-6 border-t border-white/10">
+      <div className="border-t border-white/10 px-4 py-6">
+        <div className="mb-3 px-4 text-xs text-white/45">{profile?.full_name || "المورد"}</div>
         <button
           onClick={handleSignOut}
-          className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-white/70 hover:bg-white/10 hover:text-white transition-all w-full"
+          className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-white/70 transition-all hover:bg-white/10 hover:text-white"
         >
           <span className="text-lg">🚪</span>
           <span>تسجيل الخروج</span>
