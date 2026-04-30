@@ -1,104 +1,109 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState } from "react";
 
-export default function ProductForm({ initialData, onSubmit }: any) {
-  const [categories, setCategories] = useState<any[]>([]);
-  const [image, setImage] = useState<File | null>(null);
+type ProductFormValues = {
+  name: string;
+  description: string;
+  wholesale_price: number;
+  min_order_quantity: number;
+  stock_quantity: number;
+  category_id?: string | null;
+};
 
-  const [form, setForm] = useState({
-    name: initialData?.name || "",
-    description: initialData?.description || "",
-    wholesale_price: initialData?.wholesale_price || 0,
-    min_order_quantity: initialData?.min_order_quantity || 1,
-    stock_quantity: initialData?.stock_quantity || 0,
-    category_id: initialData?.category_id || "",
+export default function ProductForm({
+  initialData,
+  onSubmit,
+}: {
+  initialData: ProductFormValues;
+  onSubmit: (values: ProductFormValues) => Promise<void>;
+}) {
+  const [form, setForm] = useState<ProductFormValues>({
+    name: initialData.name || "",
+    description: initialData.description || "",
+    wholesale_price: initialData.wholesale_price || 0,
+    min_order_quantity: initialData.min_order_quantity || 1,
+    stock_quantity: initialData.stock_quantity || 0,
+    category_id: initialData.category_id || "",
   });
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from("categories").select("*");
-      setCategories(data || []);
-    })();
-  }, []);
-
-  const handleSubmit = async () => {
-    let imageUrl = null;
-
-    // رفع الصورة
-    if (image) {
-      const fileName = `${Date.now()}-${image.name}`;
-
-      const { data, error } = await supabase.storage
-        .from("products")
-        .upload(fileName, image);
-
-      if (!error) {
-        imageUrl = data.path;
-      }
-    }
-
-    await onSubmit({ ...form, imageUrl });
+  const handleSave = async () => {
+    setSaving(true);
+    await onSubmit(form);
+    setSaving(false);
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-
-      <input
-        placeholder="اسم المنتج"
-        value={form.name}
-        onChange={e => setForm({ ...form, name: e.target.value })}
-      />
-
-      <textarea
-        placeholder="الوصف"
-        value={form.description}
-        onChange={e => setForm({ ...form, description: e.target.value })}
-      />
-
-      <input
-        type="number"
-        placeholder="السعر"
-        value={form.wholesale_price}
-        onChange={e => setForm({ ...form, wholesale_price: +e.target.value })}
-      />
-
-      <input
-        type="number"
-        placeholder="الحد الأدنى"
-        value={form.min_order_quantity}
-        onChange={e => setForm({ ...form, min_order_quantity: +e.target.value })}
-      />
-
-      <input
-        type="number"
-        placeholder="المخزون"
-        value={form.stock_quantity}
-        onChange={e => setForm({ ...form, stock_quantity: +e.target.value })}
-      />
-
-      {/* categories */}
-      <select
-        value={form.category_id}
-        onChange={e => setForm({ ...form, category_id: e.target.value })}
+    <div className="grid gap-4 rounded-3xl border border-[#e6edf5] bg-white p-6">
+      <div className="grid gap-2">
+        <label className="text-sm font-semibold text-[#273347]">اسم المنتج</label>
+        <input
+          className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
+          placeholder="اسم المنتج"
+          value={form.name}
+          onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+        />
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-semibold text-[#273347]">وصف المنتج</label>
+        <textarea
+          className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
+          rows={4}
+          placeholder="وصف المنتج"
+          value={form.description}
+          onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
+        />
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-2">
+          <label className="text-sm font-semibold text-[#273347]">سعر الجملة</label>
+          <input
+            className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
+            type="number"
+            min="1"
+            value={form.wholesale_price}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, wholesale_price: Number(event.target.value) }))
+            }
+          />
+          <p className="text-xs text-[#546a85]">السعر المعتمد للبيع بالجملة.</p>
+        </div>
+        <div className="grid gap-2">
+          <label className="text-sm font-semibold text-[#273347]">الحد الأدنى للطلب</label>
+          <input
+            className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
+            type="number"
+            min="1"
+            value={form.min_order_quantity}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, min_order_quantity: Number(event.target.value) }))
+            }
+          />
+          <p className="text-xs text-[#546a85]">أقل كمية يسمح بطلبها من المنتج.</p>
+        </div>
+        <div className="grid gap-2">
+          <label className="text-sm font-semibold text-[#273347]">المخزون المتوفر</label>
+          <input
+            className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
+            type="number"
+            min="0"
+            value={form.stock_quantity}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, stock_quantity: Number(event.target.value) }))
+            }
+          />
+          <p className="text-xs text-[#546a85]">عدد الوحدات الجاهزة للبيع.</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => void handleSave()}
+        disabled={saving}
+        className="rounded-2xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
       >
-        <option value="">اختر فئة</option>
-        {categories.map(c => (
-          <option key={c.id} value={c.id}>{c.name}</option>
-        ))}
-      </select>
-
-      {/* image */}
-      <input
-        type="file"
-        onChange={e => setImage(e.target.files?.[0] || null)}
-      />
-
-      <button onClick={handleSubmit}>
-        💾 حفظ المنتج
+        {saving ? "جارٍ الحفظ..." : "حفظ التعديلات"}
       </button>
-
     </div>
   );
 }

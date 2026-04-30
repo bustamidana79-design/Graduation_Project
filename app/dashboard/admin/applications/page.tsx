@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
+import { provisionApprovedAccount } from "@/lib/account-provisioning";
 
 type ApplicationStatus = "pending" | "approved" | "rejected";
 
@@ -322,49 +323,14 @@ export default function ApplicationsPage() {
         if (profileError) throw new Error(profileError.message);
 
         // 4. insert في الجدول المخصص حسب نوع الحساب
-        if (accountType === "merchant") {
-          const { error } = await supabase.from("supplier_profiles").upsert({
-            user_id: selectedApp.user_id,
-            store_name: specific.store_name || selectedApp.data_json.basic.full_name,
-            product_category: specific.product_category || specific.product_type || "—",
-            store_link: selectedApp.proof_json.proof_link_1 || "—",
-            commercial_reg_no: specific.commercial_reg_no || null,
-          }, { onConflict: "user_id" });
-          if (error) throw new Error(error.message);
-
-        } else if (accountType === "small_business") {
-          const { error } = await supabase.from("small_business_profiles").upsert({
-            user_id: selectedApp.user_id,
-            project_name: specific.project_name || selectedApp.data_json.basic.full_name,
-            project_field: specific.project_field || specific.business_field || "—",
-            project_stage: specific.project_stage || "running",
-            needs: Array.isArray(specific.needs) ? specific.needs : [],
-            social_link: selectedApp.proof_json.proof_link_1 || "—",
-          }, { onConflict: "user_id" });
-          if (error) throw new Error(error.message);
-
-        } else if (accountType === "delivery") {
-          const { error } = await supabase.from("shipping_company_profiles").upsert({
-            user_id: selectedApp.user_id,
-            company_name: specific.company_name || selectedApp.data_json.basic.full_name,
-            delivery_scope: specific.delivery_scope || "local",
-            delivery_cities: Array.isArray(specific.delivery_cities) ? specific.delivery_cities : [],
-            avg_delivery_time: specific.avg_delivery_time || "—",
-            license_no: specific.license_no || specific.commercial_reg_no || "—",
-          }, { onConflict: "user_id" });
-          if (error) throw new Error(error.message);
-
-        } else if (accountType === "supporter") {
-          const { error } = await supabase.from("supporter_profiles").upsert({
-            user_id: selectedApp.user_id,
-            support_type: specific.support_type || "financial",
-            funding_range: specific.funding_range || null,
-            interests: specific.interests || "—",
-            professional_link: selectedApp.proof_json.proof_link_1 || "—",
-            previous_experience: specific.previous_experience || "—",
-          }, { onConflict: "user_id" });
-          if (error) throw new Error(error.message);
-        }
+        await provisionApprovedAccount({
+          supabase,
+          userId: selectedApp.user_id,
+          accountType,
+          basic: selectedApp.data_json.basic,
+          typeSpecific: specific,
+          proofJson: selectedApp.proof_json,
+        });
 
       } else {
         // rejected → فقط update الـ status بـ profiles إذا موجود

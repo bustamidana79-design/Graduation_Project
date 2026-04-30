@@ -33,7 +33,7 @@ export default function LoginPage() {
 
     if (normalizedAccountType === "merchant") router.push("/dashboard/supplier");
     else if (normalizedAccountType === "small_business") router.push("/dashboard/small-business");
-    else if (normalizedAccountType === "delivery") router.push("/dashboard/delivery");
+    else if (normalizedAccountType === "delivery") router.push("/dashboard/shipping-company");
     else if (normalizedAccountType === "supporter") router.push("/dashboard/supporter");
     else if (normalizedAccountType === "admin") router.push("/dashboard/admin");
     else router.push("/dashboard");
@@ -119,7 +119,10 @@ export default function LoginPage() {
 
     if (status === "approved") {
       setSuccessMsg("تم تسجيل الدخول بنجاح ✅");
-      redirectByAccountType(accountType);
+      // إضافة تأخير صغير لعرض رسالة النجاح قبل التوجيه
+      setTimeout(() => {
+        redirectByAccountType(profile?.account_type);
+      }, 500);
       return;
     }
 
