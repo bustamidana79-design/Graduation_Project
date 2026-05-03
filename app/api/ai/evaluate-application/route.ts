@@ -16,6 +16,7 @@ type PythonAiResponse = {
   score: number;
   confidence: number;
   reasons: string[];
+  source?: "random_forest" | "fallback";
 };
 
 type ImageAnalysisResult = {
@@ -62,6 +63,7 @@ type AIReport = {
   local_score?: number;
   reasons: string[];
   _meta?: {
+    aiSource?: "random_forest" | "fallback";
     bioQuality: "good" | "weak" | "suspicious";
     bioScore: number;
     link1: {
@@ -296,56 +298,12 @@ async function getPythonDecision(payload: {
       throw new Error(`AI model request failed: ${response.status} ${text}`);
     }
 
-    return (await response.json()) as PythonAiResponse;
+    const result = (await response.json()) as PythonAiResponse;
+    console.log("AI Source = random_forest");
+    return { ...result, source: "random_forest" };
   } catch (error) {
-    console.error("Python AI service unavailable, using local fallback.", error);
-
-    const bioWordCount = payload.bio.trim() ? payload.bio.trim().split(/\s+/).length : 0;
-    const hasLinks = payload.links.length > 0;
-    const emailDigits = (payload.email.match(/\d/g) || []).length;
-    const hasSuspiciousEmail = emailDigits >= 4;
-    const descriptionWordCount = payload.description.trim()
-      ? payload.description.trim().split(/\s+/).length
-      : 0;
-
-    const reasons: string[] = [];
-    let score = 0.5;
-    let decision: PythonAiResponse["decision"] = "review";
-
-    if (bioWordCount < 8) reasons.push("bio too short");
-    if (!hasLinks) reasons.push("no links provided");
-    if (hasSuspiciousEmail) reasons.push("suspicious email");
-    if (descriptionWordCount < 4) reasons.push("project or store description is limited");
-
-    if (bioWordCount >= 20) score += 0.18;
-    if (hasLinks) score += 0.16;
-    if (descriptionWordCount >= 6) score += 0.1;
-    if (hasSuspiciousEmail) score -= 0.22;
-    if (bioWordCount < 8) score -= 0.16;
-    if (!hasLinks) score -= 0.14;
-
-    score = Math.max(0.05, Math.min(0.95, score));
-
-    if (score >= 0.72 && reasons.length <= 1) {
-      decision = "approve";
-    } else if (score <= 0.32 || reasons.length >= 3) {
-      decision = "reject";
-    }
-
-    if (reasons.length === 0) {
-      reasons.push(
-        decision === "approve"
-          ? "bio and business description look sufficiently detailed"
-          : "mixed signals require manual review"
-      );
-    }
-
-    return {
-      decision,
-      score,
-      confidence: score,
-      reasons,
-    };
+    console.error("Python AI service unavailable; fallback is disabled.", error);
+    throw error;
   }
 }
 
@@ -424,6 +382,7 @@ function buildArabicFallbackReport(params: {
     local_score: adjustedScore,
     reasons: python.reasons.map(translateReason),
     _meta: {
+      aiSource: python.source ?? "random_forest",
       bioQuality,
       bioScore,
       link1: {

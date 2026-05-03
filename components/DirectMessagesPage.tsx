@@ -354,25 +354,15 @@ export default function DirectMessagesPage() {
 
         setCurrentUserId(user.id);
 
-        const { data: profileById, error: profileByIdError } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("id, full_name, account_type, status")
           .eq("id", user.id)
           .maybeSingle();
 
-        const { data: profileByEmail, error: profileByEmailError } = profileById || profileByIdError
-          ? { data: null, error: null }
-          : await supabase
-              .from("profiles")
-              .select("id, full_name, account_type, status")
-              .ilike("email", user.email || "")
-              .maybeSingle();
-
-        if (profileByIdError || profileByEmailError) {
-          throw profileByIdError || profileByEmailError;
+        if (profileError) {
+          throw profileError;
         }
-
-        const profile = profileById || profileByEmail;
 
         if (!profile) {
           throw new Error("تعذر العثور على ملف المستخدم. يرجى التواصل مع الإدارة.");

@@ -351,18 +351,28 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
         return;
       }
 
-      const { error: profileError } = await supabase.from("profiles").insert({
-        id: userId,
-        full_name: fullName.trim(),
-        email: cleanEmail,
-        phone: phone,
-        country: countryName,
-        account_type: accountType,
-        status: "pending",
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      console.log("Session after signUp:", {
+        session: sessionData.session,
+        error: sessionError,
       });
 
-      if (profileError) {
-        setErrorMsg(`Failed to save profile data: ${profileError.message}`);
+      const profileResponse = await fetch("/api/register/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          fullName: fullName.trim(),
+          email: cleanEmail,
+          phone,
+          country: countryName,
+          accountType,
+        }),
+      });
+
+      const profileResult = await profileResponse.json();
+      if (!profileResponse.ok || profileResult.error) {
+        setErrorMsg(`Failed to save profile data: ${profileResult.error || "Unknown error"}`);
         setLoading(false);
         return;
       }

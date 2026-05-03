@@ -45,23 +45,13 @@ export function useDashboardAccess({ requiredAccountType }: UseDashboardAccessOp
         return;
       }
 
-      const { data: profileById, error: profileByIdError } = await supabase
+      const { data, error: profileError } = await supabase
         .from("profiles")
         .select("id, full_name, account_type, status")
         .eq("id", user.id)
         .maybeSingle();
 
-      const { data: profileByEmail, error: profileByEmailError } = profileById || profileByIdError
-        ? { data: null, error: null }
-        : await supabase
-            .from("profiles")
-            .select("id, full_name, account_type, status")
-            .ilike("email", user.email || "")
-            .maybeSingle();
-
-      const data = profileById || profileByEmail;
-
-      if (profileByIdError || profileByEmailError || !data) {
+      if (profileError || !data) {
         router.replace("/login");
         return;
       }

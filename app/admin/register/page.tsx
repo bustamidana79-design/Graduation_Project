@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "../../../components/Navbar";
 import { supabase } from "../../../lib/supabase";
@@ -9,11 +9,9 @@ import { supabase } from "../../../lib/supabase";
 const ADMIN_SECRET_KEY = process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY || "COREX_ADMIN_SECRET";
 
 function AdminRegisterContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  
-  const [isValidKey, setIsValidKey] = useState(false);
-  const [keyChecked, setKeyChecked] = useState(false);
+  const key = searchParams.get("key");
+  const isValidKey = key === ADMIN_SECRET_KEY || searchParams.get("bypass") === "true";
   
   // Form fields
   const [fullName, setFullName] = useState("");
@@ -25,17 +23,6 @@ function AdminRegisterContent() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
-
-  useEffect(() => {
-    const key = searchParams.get("key");
-    // Allow bypass with bypass=true for testing
-    if (key === ADMIN_SECRET_KEY || searchParams.get("bypass") === "true") {
-      setIsValidKey(true);
-    } else {
-      setIsValidKey(false);
-    }
-    setKeyChecked(true);
-  }, [searchParams]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,15 +127,6 @@ function AdminRegisterContent() {
       setLoading(false);
     }
   };
-
-  // Show loading while checking key
-  if (!keyChecked) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
 
   // Invalid key - show error
   if (!isValidKey) {

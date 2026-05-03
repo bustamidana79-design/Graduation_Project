@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parent
 MODEL_PATH = ROOT / "rf_model.pkl"
 VECTORIZER_PATH = ROOT / "tfidf.pkl"
 METRICS_PATH = ROOT / "training_metrics.json"
+SEED_DATA_PATH = ROOT / "seed_training_data.json"
 
 
 def _rest_request(path: str, query: dict[str, str] | None = None) -> list[dict[str, Any]]:
@@ -67,7 +68,7 @@ def fetch_training_rows() -> list[dict[str, Any]]:
             "order": "created_at.desc",
         },
     )
-    profiles = _rest_request("profiles", {"select": "id,full_name,email,account_type,bio"})
+    profiles = _rest_request("profiles", {"select": "id,full_name,email,account_type"})
     profile_map = {profile["id"]: profile for profile in profiles if profile.get("id")}
 
     merged_rows: list[dict[str, Any]] = []
@@ -75,6 +76,12 @@ def fetch_training_rows() -> list[dict[str, Any]]:
         application["profile"] = profile_map.get(application.get("user_id")) or {}
         merged_rows.append(application)
     return merged_rows
+
+
+def load_seed_training_rows() -> list[dict[str, Any]]:
+    if not SEED_DATA_PATH.exists():
+        return []
+    return json.loads(SEED_DATA_PATH.read_text(encoding="utf-8"))
 
 
 def derive_label(row: dict[str, Any]) -> str:
@@ -92,6 +99,11 @@ def derive_label(row: dict[str, Any]) -> str:
 
 def train_and_save() -> dict[str, Any]:
     rows = fetch_training_rows()
+    seed_rows = load_seed_training_rows()
+    if len(rows) < 6 and seed_rows:
+        print(f"Supabase returned {len(rows)} training rows; using {len(seed_rows)} local seed rows.")
+        rows = seed_rows
+
     normalized_records = [normalize_application_record(row) for row in rows]
     labels = [derive_label(row) for row in rows]
 
@@ -126,7 +138,7 @@ def train_and_save() -> dict[str, Any]:
         n_estimators=300,
         class_weight="balanced",
         random_state=42,
-        n_jobs=-1,
+        n_jobs=1,
     )
     model.fit(x_train, y_train)
 

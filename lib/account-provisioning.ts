@@ -1,9 +1,5 @@
 type SupabaseLikeClient = {
-  from: (table: string) => {
-    upsert: (values: Record<string, unknown>, options?: { onConflict?: string }) => {
-      error?: { message?: string } | null;
-    } | Promise<{ error?: { message?: string } | null }>;
-  };
+  from: (table: string) => any;
 };
 
 type BasicInfo = {

@@ -87,22 +87,18 @@ export default function LoginPage() {
       return;
     }
 
-    const { data: profileById, error: profileByIdError } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("status, account_type")
       .eq("id", data.user.id)
       .maybeSingle();
 
-    const { data: profileByEmail } = profileById || profileByIdError
-      ? { data: null }
-      : await supabase
-          .from("profiles")
-          .select("status, account_type")
-          .ilike("email", cleanEmail)
-          .maybeSingle();
+    if (profileError || !profile) {
+      await supabase.auth.signOut();
+      setErrorMsg("لم يتم العثور على ملف المستخدم. يرجى التواصل مع الإدارة.");
+      return;
+    }
 
-    const profile = profileById || profileByEmail;
-    const accountType = normalizeAccountType(profile?.account_type);
     const status = profile?.status?.trim().toLowerCase();
 
     if (status === "pending") {

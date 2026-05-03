@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
+  const response = NextResponse.next({
     request: {
       headers: request.headers,
     },
@@ -78,7 +78,12 @@ export async function middleware(request: NextRequest) {
           `)
           .eq("user_id", session.user.id);
 
-        isAdmin = roleData?.some((r: any) => r.roles?.name === "admin") || false;
+        isAdmin =
+          roleData?.some((r: any) =>
+            Array.isArray(r.roles)
+              ? r.roles.some((role: { name?: string }) => role.name === "admin")
+              : r.roles?.name === "admin"
+          ) || false;
       }
 
       if (!isAdmin) {
@@ -113,7 +118,7 @@ export async function middleware(request: NextRequest) {
 
         const accountTypeRedirects: Record<string, string> = {
           admin: "/dashboard/admin",
-          merchant: "/dashboard/merchant",
+          merchant: "/dashboard/supplier",
           small_business: "/dashboard/small-business",
           delivery: "/dashboard/shipping-company",
           supporter: "/dashboard/supporter",
