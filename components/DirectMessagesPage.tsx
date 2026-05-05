@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type AccountType = "merchant" | "small_business" | "delivery" | "supporter" | "admin";
@@ -32,12 +30,10 @@ type DirectMessage = {
   receiver_id: string;
   content: string;
   created_at: string;
-  read_at?: string | null;
 };
 
 type EnrichedConversation = DirectConversation & {
   otherUser: Profile | null;
-  unreadCount: number;
 };
 
 const accountTypeLabels: Record<AccountType, string> = {
@@ -62,51 +58,8 @@ const formatMessageTime = (value: string | null) => {
 const getConversationPeerId = (conversation: DirectConversation, currentUserId: string) =>
   conversation.user_one_id === currentUserId ? conversation.user_two_id : conversation.user_one_id;
 
-const isOutgoingMessage = (
-  message: DirectMessage,
-  conversation: DirectConversation | null,
-  currentUserId: string | null,
-  otherUserId: string | null
-) => {
-  if (!conversation) return false;
-
-  const effectiveCurrentUserId =
-    currentUserId ||
-    (otherUserId
-      ? conversation.user_one_id === otherUserId
-        ? conversation.user_two_id
-        : conversation.user_one_id
-      : null);
-
-  if (effectiveCurrentUserId) {
-    if (message.sender_id === effectiveCurrentUserId) return true;
-    if (message.receiver_id === effectiveCurrentUserId) return false;
-  }
-
-  const peerId =
-    otherUserId ||
-    (effectiveCurrentUserId ? getConversationPeerId(conversation, effectiveCurrentUserId) : null);
-
-  if (effectiveCurrentUserId && peerId) {
-    if (message.sender_id === effectiveCurrentUserId && message.receiver_id === peerId) return true;
-    if (message.sender_id === peerId && message.receiver_id === effectiveCurrentUserId) return false;
-  }
-
-  if (peerId) {
-    if (message.receiver_id === peerId) return true;
-    if (message.sender_id === peerId) return false;
-  }
-
-  return message.sender_id === conversation.last_sender_id;
-};
-
 export default function DirectMessagesPage() {
-  const pathname = usePathname();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<EnrichedConversation[]>([]);
   const [availableUsers, setAvailableUsers] = useState<Profile[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -120,17 +73,11 @@ export default function DirectMessagesPage() {
   const [error, setError] = useState<string | null>(null);
   const [schemaHint, setSchemaHint] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const autoStartedUserRef = useRef<string | null>(null);
-  const requestedUserId = searchParams.get("user")?.trim() || "";
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   );
-  const dashboardBasePath = useMemo(() => pathname.replace(/\/messages$/, ""), [pathname]);
-  const selectedUserProfileHref = selectedConversation?.otherUser
-    ? `${dashboardBasePath}/users/${selectedConversation.otherUser.id}`
-    : null;
 
   const fetchAvailableUsers = async (userId: string) => {
     const { data, error: profilesError } = await supabase
@@ -161,11 +108,9 @@ export default function DirectMessagesPage() {
     }
 
     const rawConversations = (data || []) as DirectConversation[];
-    const conversationIds = rawConversations.map((conversation) => conversation.id);
     const peerIds = [...new Set(rawConversations.map((item) => getConversationPeerId(item, user.id)))];
 
     let profilesById = new Map<string, Profile>();
-    const unreadCountsByConversationId = new Map<string, number>();
 
     if (peerIds.length > 0) {
       const { data: peers, error: peersError } = await supabase
@@ -180,31 +125,9 @@ export default function DirectMessagesPage() {
       profilesById = new Map((peers || []).map((profile) => [profile.id, profile as Profile]));
     }
 
-    if (conversationIds.length > 0) {
-      const { data: unreadMessages, error: unreadError } = await supabase
-        .from("direct_messages")
-        .select("conversation_id")
-        .in("conversation_id", conversationIds)
-        .eq("receiver_id", user.id)
-        .is("read_at", null);
-
-      if (unreadError) {
-        throw unreadError;
-      }
-
-      for (const message of unreadMessages || []) {
-        const conversationId = (message as Pick<DirectMessage, "conversation_id">).conversation_id;
-        unreadCountsByConversationId.set(
-          conversationId,
-          (unreadCountsByConversationId.get(conversationId) || 0) + 1
-        );
-      }
-    }
-
     const nextConversations = rawConversations.map((conversation) => ({
       ...conversation,
       otherUser: profilesById.get(getConversationPeerId(conversation, user.id)) || null,
-      unreadCount: unreadCountsByConversationId.get(conversation.id) || 0,
     }));
 
     setConversations(nextConversations);
@@ -214,7 +137,7 @@ export default function DirectMessagesPage() {
         return currentSelected;
       }
 
-      return null;
+      return nextConversations[0]?.id ?? null;
     });
   };
 
@@ -235,101 +158,6 @@ export default function DirectMessagesPage() {
 
     setMessages((data || []) as DirectMessage[]);
   };
-
-  const markConversationAsRead = useCallback(
-    async (conversationId: string) => {
-      if (!currentUser) return;
-
-      const readAt = new Date().toISOString();
-      const { error: markReadError } = await supabase
-        .from("direct_messages")
-        .update({ read_at: readAt })
-        .eq("conversation_id", conversationId)
-        .eq("receiver_id", currentUser.id)
-        .is("read_at", null);
-
-      if (markReadError) {
-        throw markReadError;
-      }
-
-      setConversations((currentConversations) =>
-        currentConversations.map((conversation) =>
-          conversation.id === conversationId ? { ...conversation, unreadCount: 0 } : conversation
-        )
-      );
-
-      setMessages((currentMessages) =>
-        currentMessages.map((message) =>
-          message.conversation_id === conversationId && message.receiver_id === currentUser.id && !message.read_at
-            ? { ...message, read_at: readAt }
-            : message
-        )
-      );
-    },
-    [currentUser]
-  );
-
-  const startConversationWithUser = useCallback(
-    async (targetUserId: string, clearSelection = true) => {
-      if (!currentUser || !targetUserId || startingConversation) return null;
-
-      setStartingConversation(true);
-      setError(null);
-
-      try {
-        const existingFilter =
-          `and(user_one_id.eq.${currentUser.id},user_two_id.eq.${targetUserId}),` +
-          `and(user_one_id.eq.${targetUserId},user_two_id.eq.${currentUser.id})`;
-
-        const { data: existingConversation, error: existingError } = await supabase
-          .from("direct_conversations")
-          .select("*")
-          .or(existingFilter)
-          .maybeSingle();
-
-        if (existingError) {
-          throw existingError;
-        }
-
-        let conversationId = (existingConversation as DirectConversation | null)?.id ?? null;
-
-        if (!conversationId) {
-          const { data: createdConversation, error: createError } = await supabase
-            .from("direct_conversations")
-            .insert([
-              {
-                user_one_id: currentUser.id,
-                user_two_id: targetUserId,
-              },
-            ])
-            .select("*")
-            .single();
-
-          if (createError) {
-            throw createError;
-          }
-
-          conversationId = (createdConversation as DirectConversation).id;
-        }
-
-        await fetchConversations(currentUser);
-        setSelectedConversationId(conversationId);
-
-        if (clearSelection) {
-          setStartingChatUserId("");
-        }
-
-        return conversationId;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "تعذر بدء المحادثة.";
-        setError(message);
-        return null;
-      } finally {
-        setStartingConversation(false);
-      }
-    },
-    [currentUser, startingConversation]
-  );
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -352,30 +180,14 @@ export default function DirectMessagesPage() {
           return;
         }
 
-        setCurrentUserId(user.id);
-
-        const { data: profileById, error: profileByIdError } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("id, full_name, account_type, status")
           .eq("id", user.id)
-          .maybeSingle();
+          .single();
 
-        const { data: profileByEmail, error: profileByEmailError } = profileById || profileByIdError
-          ? { data: null, error: null }
-          : await supabase
-              .from("profiles")
-              .select("id, full_name, account_type, status")
-              .ilike("email", user.email || "")
-              .maybeSingle();
-
-        if (profileByIdError || profileByEmailError) {
-          throw profileByIdError || profileByEmailError;
-        }
-
-        const profile = profileById || profileByEmail;
-
-        if (!profile) {
-          throw new Error("تعذر العثور على ملف المستخدم. يرجى التواصل مع الإدارة.");
+        if (profileError) {
+          throw profileError;
         }
 
         const typedProfile = profile as Profile;
@@ -393,7 +205,7 @@ export default function DirectMessagesPage() {
           normalized.includes("schema cache")
         ) {
           setSchemaHint(true);
-          setError("جداول المحادثات المباشرة غير جاهزة بعد. نفّذ ملف SQL المرفق أولًا.");
+          setError("جداول المحادثات المباشرة غير جاهزة بعد. نفّذ ملف SQL المرفق أولاً.");
         } else {
           setError(message);
         }
@@ -411,18 +223,11 @@ export default function DirectMessagesPage() {
       return;
     }
 
-    const loadSelectedConversation = async () => {
-      try {
-        await fetchMessages(selectedConversationId);
-        await markConversationAsRead(selectedConversationId);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "تعذر تحميل الرسائل.";
-        setError(message);
-      }
-    };
-
-    loadSelectedConversation();
-  }, [markConversationAsRead, selectedConversationId]);
+    fetchMessages(selectedConversationId).catch((err) => {
+      const message = err instanceof Error ? err.message : "تعذر تحميل الرسائل.";
+      setError(message);
+    });
+  }, [selectedConversationId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -457,10 +262,6 @@ export default function DirectMessagesPage() {
 
               return [...currentMessages, nextMessage];
             });
-
-            if (nextMessage.receiver_id === currentUser.id) {
-              markConversationAsRead(nextMessage.conversation_id).catch(() => undefined);
-            }
           }
         }
       )
@@ -480,69 +281,59 @@ export default function DirectMessagesPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentUser, markConversationAsRead, selectedConversationId]);
-
-  useEffect(() => {
-    if (!requestedUserId) {
-      autoStartedUserRef.current = null;
-      return;
-    }
-
-    if (!currentUser || loading || startingConversation) return;
-
-    if (requestedUserId === currentUser.id) {
-      setError("لا يمكنك بدء محادثة مع نفسك.");
-      autoStartedUserRef.current = requestedUserId;
-      router.replace(pathname);
-      return;
-    }
-
-    if (autoStartedUserRef.current === requestedUserId) return;
-
-    const existingConversation = conversations.find(
-      (conversation) => getConversationPeerId(conversation, currentUser.id) === requestedUserId
-    );
-
-    if (existingConversation) {
-      setSelectedConversationId(existingConversation.id);
-      setStartingChatUserId("");
-      autoStartedUserRef.current = requestedUserId;
-      router.replace(pathname);
-      return;
-    }
-
-    if (availableUsers.length > 0 && !availableUsers.some((user) => user.id === requestedUserId)) {
-      setError("هذا المستخدم غير متاح لبدء محادثة حالياً.");
-      autoStartedUserRef.current = requestedUserId;
-      router.replace(pathname);
-      return;
-    }
-
-    autoStartedUserRef.current = requestedUserId;
-    setStartingChatUserId(requestedUserId);
-
-    startConversationWithUser(requestedUserId, false).then((conversationId) => {
-      if (conversationId) {
-        router.replace(pathname);
-      } else {
-        autoStartedUserRef.current = null;
-      }
-    });
-  }, [
-    availableUsers,
-    conversations,
-    currentUser,
-    loading,
-    pathname,
-    requestedUserId,
-    router,
-    startConversationWithUser,
-    startingConversation,
-  ]);
+  }, [currentUser, selectedConversationId]);
 
   const handleStartConversation = async () => {
-    if (!startingChatUserId) return;
-    await startConversationWithUser(startingChatUserId);
+    if (!currentUser || !startingChatUserId || startingConversation) return;
+
+    setStartingConversation(true);
+    setError(null);
+
+    try {
+      const existingFilter =
+        `and(user_one_id.eq.${currentUser.id},user_two_id.eq.${startingChatUserId}),` +
+        `and(user_one_id.eq.${startingChatUserId},user_two_id.eq.${currentUser.id})`;
+
+      const { data: existingConversation, error: existingError } = await supabase
+        .from("direct_conversations")
+        .select("*")
+        .or(existingFilter)
+        .maybeSingle();
+
+      if (existingError) {
+        throw existingError;
+      }
+
+      let conversationId = (existingConversation as DirectConversation | null)?.id ?? null;
+
+      if (!conversationId) {
+        const { data: createdConversation, error: createError } = await supabase
+          .from("direct_conversations")
+          .insert([
+            {
+              user_one_id: currentUser.id,
+              user_two_id: startingChatUserId,
+            },
+          ])
+          .select("*")
+          .single();
+
+        if (createError) {
+          throw createError;
+        }
+
+        conversationId = (createdConversation as DirectConversation).id;
+      }
+
+      await fetchConversations(currentUser);
+      setSelectedConversationId(conversationId);
+      setStartingChatUserId("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر بدء المحادثة.";
+      setError(message);
+    } finally {
+      setStartingConversation(false);
+    }
   };
 
   const handleSend = async () => {
@@ -611,7 +402,9 @@ export default function DirectMessagesPage() {
     <div className="space-y-6" dir="rtl">
       <div className="rounded-3xl bg-[#273347] px-6 py-6 text-white">
         <h1 className="text-2xl font-bold">المحادثات المباشرة</h1>
-        <p className="mt-2 text-sm text-white/70">تواصل مباشرة مع بقية المستخدمين على المنصة من مكان واحد.</p>
+        <p className="mt-2 text-sm text-white/70">
+          تواصل مباشرة مع بقية المستخدمين على المنصة من مكان واحد.
+        </p>
       </div>
 
       {error && (
@@ -673,7 +466,6 @@ export default function DirectMessagesPage() {
               ) : (
                 conversations.map((conversation) => {
                   const isActive = conversation.id === selectedConversationId;
-                  const unreadCount = conversation.unreadCount || 0;
 
                   return (
                     <button
@@ -696,23 +488,12 @@ export default function DirectMessagesPage() {
                               : "حساب على المنصة"}
                           </p>
                         </div>
-                        <div className="flex flex-col items-end gap-2">
-                          <span className="text-[11px] text-[#273347]/40">
-                            {formatMessageTime(conversation.last_message_at || conversation.created_at)}
-                          </span>
-                          {unreadCount > 0 && !isActive && (
-                            <span className="flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white">
-                              {unreadCount > 99 ? "99+" : unreadCount}
-                            </span>
-                          )}
-                        </div>
+                        <span className="text-[11px] text-[#273347]/40">
+                          {formatMessageTime(conversation.last_message_at || conversation.created_at)}
+                        </span>
                       </div>
 
-                      <p
-                        className={`mt-3 line-clamp-2 text-sm ${
-                          unreadCount > 0 && !isActive ? "font-semibold text-[#273347]" : "text-[#273347]/65"
-                        }`}
-                      >
+                      <p className="mt-3 line-clamp-2 text-sm text-[#273347]/65">
                         {conversation.last_message || "لا توجد رسائل بعد. ابدأ المحادثة الآن."}
                       </p>
                     </button>
@@ -727,30 +508,17 @@ export default function DirectMessagesPage() {
           {selectedConversation ? (
             <>
               <div className="border-b border-[#eef3f8] bg-[#fcfdff] px-6 py-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-xl font-bold text-[#273347]">
-                      {selectedConversation.otherUser?.full_name || "المحادثة"}
-                    </h2>
-                    <p className="mt-1 text-sm text-[#273347]/55">
-                      {selectedConversation.otherUser
-                        ? accountTypeLabels[selectedConversation.otherUser.account_type]
-                        : "مستخدم على المنصة"}
-                    </p>
-                  </div>
-
-                  {selectedUserProfileHref && (
-                    <Link
-                      href={selectedUserProfileHref}
-                      className="inline-flex items-center justify-center rounded-2xl border border-[#d9e3ee] bg-white px-4 py-2.5 text-sm font-semibold text-[#273347] transition hover:bg-[#f4f8fc]"
-                    >
-                      عرض الملف الشخصي
-                    </Link>
-                  )}
-                </div>
+                <h2 className="text-xl font-bold text-[#273347]">
+                  {selectedConversation.otherUser?.full_name || "المحادثة"}
+                </h2>
+                <p className="mt-1 text-sm text-[#273347]/55">
+                  {selectedConversation.otherUser
+                    ? accountTypeLabels[selectedConversation.otherUser.account_type]
+                    : "مستخدم على المنصة"}
+                </p>
               </div>
 
-              <div className="flex flex-1 flex-col gap-4 overflow-y-auto bg-[#f6f9fc] px-4 py-5" dir="ltr">
+              <div className="flex-1 space-y-4 overflow-y-auto bg-[#f6f9fc] px-4 py-5">
                 {messagesLoading ? (
                   <div className="py-12 text-center text-sm text-[#273347]/50">جاري تحميل الرسائل...</div>
                 ) : messages.length === 0 ? (
@@ -759,39 +527,20 @@ export default function DirectMessagesPage() {
                   </div>
                 ) : (
                   messages.map((message) => {
-                    const isMine = isOutgoingMessage(
-                      message,
-                      selectedConversation,
-                      currentUserId ?? currentUser?.id ?? null,
-                      selectedConversation.otherUser?.id ?? null
-                    );
-                    const senderLabel = isMine
-                      ? "أنت"
-                      : selectedConversation.otherUser?.full_name || "الطرف الآخر";
+                    const isMine = message.sender_id === currentUser?.id;
 
                     return (
                       <div
                         key={message.id}
-                        className="flex w-full"
-                        style={{ justifyContent: isMine ? "flex-end" : "flex-start" }}
+                        className={`flex ${isMine ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          dir="rtl"
                           className={`max-w-[80%] rounded-3xl px-4 py-3 text-sm shadow-sm ${
-                            isMine ? "rounded-br-md" : "rounded-bl-md border border-[#e2e8f0]"
+                            isMine
+                              ? "rounded-br-md bg-blue-600 text-white"
+                              : "rounded-bl-md border border-[#e2e8f0] bg-white text-[#273347]"
                           }`}
-                          style={{
-                            backgroundColor: isMine ? "#2563eb" : "#ffffff",
-                            color: isMine ? "#ffffff" : "#273347",
-                          }}
                         >
-                          <div
-                            className={`mb-1 text-[11px] font-medium ${
-                              isMine ? "text-blue-100" : "text-[#273347]/45"
-                            }`}
-                          >
-                            {senderLabel}
-                          </div>
                           <p className="leading-7">{message.content}</p>
                           <span
                             className={`mt-2 block text-[11px] ${

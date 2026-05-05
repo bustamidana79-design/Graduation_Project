@@ -330,11 +330,40 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
     setLoading(true);
 
     try {
+      const typeSpecificData = buildTypeSpecificData();
+      const dataJson = {
+        basic: {
+          full_name: fullName.trim(),
+          email: cleanEmail,
+          phone: phone,
+          country: countryName,
+          account_type: accountType,
+          bio: bio.trim(),
+        },
+        type_specific: typeSpecificData,
+      };
+
+      const proofJsonWithoutFiles = {
+        proof_link_1: proofLink1.trim(),
+        proof_link_2: proofLink2.trim() || null,
+        note: proofNote.trim() || null,
+        file_urls: null,
+      };
+
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
         options: {
           emailRedirectTo: "http://localhost:3000/auth/callback",
+          data: {
+            full_name: fullName.trim(),
+            email: cleanEmail,
+            phone,
+            country: countryName,
+            account_type: accountType,
+            application_data_json: dataJson,
+            application_proof_json: proofJsonWithoutFiles,
+          },
         },
       });
 
@@ -351,19 +380,35 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
         return;
       }
 
-      const { error: profileError } = await supabase.from("profiles").insert({
-        id: userId,
-        full_name: fullName.trim(),
-        email: cleanEmail,
-        phone: phone,
-        country: countryName,
-        account_type: accountType,
-        status: "pending",
-      });
+      if (signUpData.session) {
+        const { error: profileError } = await supabase.from("profiles").upsert(
+          {
+            id: userId,
+            full_name: fullName.trim(),
+            email: cleanEmail,
+            phone,
+            country: countryName,
+            account_type: accountType,
+            status: "pending",
+          },
+          { onConflict: "id" }
+        );
 
-      if (profileError) {
-        setErrorMsg(`Failed to save profile data: ${profileError.message}`);
-        setLoading(false);
+        if (profileError) {
+          setErrorMsg(`Failed to save profile data: ${profileError.message}`);
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (!signUpData.session) {
+        const fileNote =
+          proofFiles.length > 0
+            ? " لم يتم رفع الملفات الآن لأن الحساب يحتاج تأكيد البريد أولًا، لكن روابط الإثبات والمعلومات تم إرسالها."
+            : "";
+
+        setSuccessMsg(`تم إنشاء الحساب. يرجى تأكيد البريد الإلكتروني لإكمال الدخول.${fileNote}`);
+        setTimeout(() => router.push("/pending"), 1500);
         return;
       }
 
@@ -384,19 +429,6 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
         uploadedFileUrls.push(urlData.publicUrl);
       }
 
-      const typeSpecificData = buildTypeSpecificData();
-      const dataJson = {
-        basic: {
-          full_name: fullName.trim(),
-          email: cleanEmail,
-          phone: phone,
-          country: countryName,
-          account_type: accountType,
-          bio: bio.trim(),
-        },
-        type_specific: typeSpecificData,
-      };
-
       const proofJson = {
         proof_link_1: proofLink1.trim(),
         proof_link_2: proofLink2.trim() || null,
@@ -404,17 +436,41 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
         file_urls: uploadedFileUrls.length > 0 ? uploadedFileUrls : null,
       };
 
-      const { data: insertedApplication, error: appError } = await supabase
+      const { data: existingApplication, error: existingAppError } = await supabase
         .from("applications")
-        .insert({
-          user_id: userId,
-          account_type: accountType,
-          data_json: dataJson,
-          proof_json: proofJson,
-          status: "pending",
-        })
         .select("id")
-        .single();
+        .eq("user_id", userId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingAppError) {
+        throw new Error(existingAppError.message);
+      }
+
+      const { data: insertedApplication, error: appError } = existingApplication?.id
+        ? await supabase
+            .from("applications")
+            .update({
+              account_type: accountType,
+              data_json: dataJson,
+              proof_json: proofJson,
+            })
+            .eq("id", existingApplication.id)
+            .select("id")
+            .single()
+        : await supabase
+            .from("applications")
+            .insert({
+              user_id: userId,
+              account_type: accountType,
+              data_json: dataJson,
+              proof_json: proofJson,
+              status: "pending",
+            })
+            .select("id")
+            .single();
 
       if (appError || !insertedApplication?.id) {
         throw new Error(appError?.message || "Failed to save the application.");
@@ -468,8 +524,8 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
       }
 
       setTimeout(() => router.push("/pending"), 900);
-    } catch {
-      setErrorMsg("An unexpected error occurred. Please try again.");
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
     }

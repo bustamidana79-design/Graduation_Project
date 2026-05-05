@@ -147,6 +147,7 @@ export default function ApplicationsPage() {
   const [actionMsg, setActionMsg]         = useState("");
   const [searchQuery, setSearchQuery]     = useState("");
   const [currentPage, setCurrentPage]     = useState(1);
+  const [fetchError, setFetchError]       = useState("");
 
   const [aiApp, setAiApp]                 = useState<Application | null>(null);
   const [aiReport, setAiReport]           = useState<AIReport | null>(null);
@@ -172,11 +173,17 @@ export default function ApplicationsPage() {
 
   const fetchApplications = async () => {
     setLoading(true);
+    setFetchError("");
     const { data, error } = await supabase
       .from("applications")
       .select("*")
       .order("created_at", { ascending: false });
-    if (!error && data) setApplications(data as Application[]);
+    if (error) {
+      setFetchError(error.message);
+      setApplications([]);
+    } else if (data) {
+      setApplications(data as Application[]);
+    }
     setLoading(false);
   };
 
@@ -519,6 +526,10 @@ export default function ApplicationsPage() {
       <div className="bg-white rounded-2xl border border-[#e6edf5] overflow-hidden">
         {loading ? (
           <div className="p-10 text-center text-[#273347]/50 text-sm">جارٍ التحميل...</div>
+        ) : fetchError ? (
+          <div className="p-10 text-center text-sm text-red-600">
+            تعذر تحميل الطلبات: {fetchError}
+          </div>
         ) : filtered.length === 0 ? (
           <div className="p-10 text-center text-[#273347]/50 text-sm">لا توجد طلبات.</div>
         ) : (
