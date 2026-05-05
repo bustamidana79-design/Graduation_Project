@@ -33,7 +33,7 @@ export default function LoginPage() {
 
     if (normalizedAccountType === "merchant") router.push("/dashboard/supplier");
     else if (normalizedAccountType === "small_business") router.push("/dashboard/small-business");
-    else if (normalizedAccountType === "delivery") router.push("/dashboard/delivery");
+    else if (normalizedAccountType === "delivery") router.push("/dashboard/shipping-company");
     else if (normalizedAccountType === "supporter") router.push("/dashboard/supporter");
     else if (normalizedAccountType === "admin") router.push("/dashboard/admin");
     else router.push("/dashboard");
@@ -87,22 +87,18 @@ export default function LoginPage() {
       return;
     }
 
-    const { data: profileById, error: profileByIdError } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("status, account_type")
       .eq("id", data.user.id)
       .maybeSingle();
 
-    const { data: profileByEmail } = profileById || profileByIdError
-      ? { data: null }
-      : await supabase
-          .from("profiles")
-          .select("status, account_type")
-          .ilike("email", cleanEmail)
-          .maybeSingle();
+    if (profileError || !profile) {
+      await supabase.auth.signOut();
+      setErrorMsg("لم يتم العثور على ملف المستخدم. يرجى التواصل مع الإدارة.");
+      return;
+    }
 
-    const profile = profileById || profileByEmail;
-    const accountType = normalizeAccountType(profile?.account_type);
     const status = profile?.status?.trim().toLowerCase();
 
     if (status === "pending") {
@@ -119,7 +115,10 @@ export default function LoginPage() {
 
     if (status === "approved") {
       setSuccessMsg("تم تسجيل الدخول بنجاح ✅");
-      redirectByAccountType(accountType);
+      // إضافة تأخير صغير لعرض رسالة النجاح قبل التوجيه
+      setTimeout(() => {
+        redirectByAccountType(profile?.account_type);
+      }, 500);
       return;
     }
 

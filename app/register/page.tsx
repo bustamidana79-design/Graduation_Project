@@ -409,6 +409,7 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
 
         setSuccessMsg(`تم إنشاء الحساب. يرجى تأكيد البريد الإلكتروني لإكمال الدخول.${fileNote}`);
         setTimeout(() => router.push("/pending"), 1500);
+
         return;
       }
 

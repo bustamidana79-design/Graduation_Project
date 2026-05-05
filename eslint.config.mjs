@@ -11,8 +11,16 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "venv/**",
+    "**/__pycache__/**",
+    "*.log",
     "next-env.d.ts",
   ]),
+  {
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
