@@ -592,6 +592,31 @@ async function saveMessage(params: {
   return error?.message || null;
 }
 
+async function fetchChatHistory(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  sessionId: string,
+  limit = 10
+) {
+  const { data, error } = await supabase
+    .from("ai_chat_messages")
+    .select("role, message")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    return [];
+  }
+
+  return [...(data || [])]
+    .reverse()
+    .filter((item) => item.role === "user" || item.role === "assistant")
+    .map((item) => ({
+      role: item.role as "user" | "assistant",
+      content: String(item.message || ""),
+    }));
+}
+
 async function createChatSession(
   supabase: ReturnType<typeof createSupabaseAdmin>,
   userId: string,
@@ -780,6 +805,8 @@ export async function POST(req: NextRequest) {
       payload: { session_id: currentSessionId, role: "user", message },
     });
 
+    const chatHistory = await fetchChatHistory(supabase, currentSessionId);
+
     if (conversationId) {
       await saveMessage({
         supabase,
@@ -813,7 +840,7 @@ ${JSON.stringify(analysisResult)}
 - لا تستخدم رموزا غريبة أو زخارف أو أحرفا غير عربية.
           `.trim(),
         },
-        { role: "user", content: message },
+        ...chatHistory,
       ],
       max_tokens: 1200,
       temperature: 0.4,
