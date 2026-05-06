@@ -180,11 +180,6 @@ export default function DirectMessagesPage() {
           return;
         }
 
-<<<<<<< HEAD
-=======
-        setCurrentUserId(user.id);
-
->>>>>>> 2aebb4364fea5a43bc74bfe029a65aabf0a26899
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("id, full_name, account_type, status")
@@ -193,13 +188,10 @@ export default function DirectMessagesPage() {
 
         if (profileError) {
           throw profileError;
-<<<<<<< HEAD
-=======
         }
 
         if (!profile) {
           throw new Error("تعذر العثور على ملف المستخدم. يرجى التواصل مع الإدارة.");
->>>>>>> 2aebb4364fea5a43bc74bfe029a65aabf0a26899
         }
 
         const typedProfile = profile as Profile;
