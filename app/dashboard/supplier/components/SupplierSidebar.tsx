@@ -16,7 +16,7 @@ const navItems = [
   { label: "الطلبات", href: "/dashboard/supplier/orders", icon: "🧾" },
   { label: "المحادثات", href: "/dashboard/supplier/messages", icon: "💬" },
   { label: "التحليلات", href: "/dashboard/supplier/analytics", icon: "📊" },
-  { label: "المساعد الذكي", href: "/dashboard/supplier/ai", icon: "🤖" },
+  { label: "المساعد الذكي", href: "/dashboard/supplier/assistant", icon: "AI" },
   { label: "خدمة العملاء", href: "/dashboard/supplier/customer-service", icon: "🎧" },
   { label: "الملف الشخصي", href: "/dashboard/supplier/profile", icon: "👤" },
 ];

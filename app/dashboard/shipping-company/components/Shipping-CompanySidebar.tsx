@@ -9,7 +9,7 @@ const navItems = [
   { label: "المستخدمون", href: "/dashboard/shipping-company/users", icon: "👥" },
   { label: "الطلبات", href: "/dashboard/shipping-company/orders", icon: "📦" },
   { label: "المحادثات", href: "/dashboard/shipping-company/messages", icon: "💬" },
-  { label: "المساعد الذكي", href: "/dashboard/shipping-company/ai", icon: "🤖" },
+  { label: "المساعد الذكي", href: "/dashboard/shipping-company/assistant", icon: "AI" },
   { label: "خدمة العملاء", href: "/dashboard/shipping-company/customer-service", icon: "🎧" },
   { label: "الملف الشخصي", href: "/dashboard/shipping-company/profile", icon: "👤" },
 ];

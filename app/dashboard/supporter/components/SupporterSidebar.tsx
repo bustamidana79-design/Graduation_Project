@@ -10,7 +10,7 @@ const navItems = [
   { label: "استعراض المشاريع", href: "/dashboard/supporter/projects", icon: "🏢" },
   { label: "استثماراتي", href: "/dashboard/supporter/investments", icon: "💼" },
   { label: "المحادثات", href: "/dashboard/supporter/messages", icon: "💬" },
-  { label: "المساعد الذكي", href: "/dashboard/supporter/ai", icon: "🤖" },
+  { label: "المساعد الذكي", href: "/dashboard/supporter/assistant", icon: "AI" },
   { label: "خدمة العملاء", href: "/dashboard/supporter/customer-service", icon: "🎧" },
   { label: "الملف الشخصي", href: "/dashboard/supporter/profile", icon: "👤" },
 ];

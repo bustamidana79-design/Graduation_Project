@@ -12,6 +12,7 @@ const navItems = [
   { label: "طلبات الترقية", href: "/dashboard/admin/upgrade_requests", icon: "⬆️" },
   { label: "المنتجات", href: "/dashboard/admin/products", icon: "📦" },
   { label: "التقارير", href: "/dashboard/admin/reports", icon: "📊" },
+  { label: "المساعد الذكي", href: "/dashboard/admin/assistant", icon: "AI" },
   { label: "الصلاحيات", href: "/dashboard/admin/permissions", icon: "🔐" },
   { label: "المساعد الذكي", href: "/dashboard/admin/ai", icon: "🤖" },
   { label: "مركز الدعم ", href: "/dashboard/admin/customer-service", icon: "💬" },

@@ -110,6 +110,37 @@ create table if not exists public.upgrade_requests (
 );
 
 -- ---------------------------------------------------------------------------
+-- AI chatbot sessions/messages.
+-- Each user type gets its own assistant memory stream.
+-- ---------------------------------------------------------------------------
+create table if not exists public.ai_chat_sessions (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid references auth.users(id) on delete cascade,
+  user_type text default 'supplier' check (user_type in ('supplier', 'merchant', 'delivery', 'supporter', 'admin')),
+  title text,
+  created_at timestamp default now(),
+  updated_at timestamp default now()
+);
+
+create table if not exists public.ai_chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid references public.ai_chat_sessions(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant', 'system')),
+  message text not null,
+  created_at timestamp default now()
+);
+
+alter table public.ai_chat_sessions add column if not exists user_type text default 'supplier';
+alter table public.ai_chat_sessions add column if not exists title text;
+alter table public.ai_chat_sessions add column if not exists updated_at timestamp default now();
+
+create index if not exists ai_chat_sessions_profile_type_created_idx
+on public.ai_chat_sessions (profile_id, user_type, created_at desc);
+
+create index if not exists ai_chat_messages_session_created_idx
+on public.ai_chat_messages (session_id, created_at);
+
+-- ---------------------------------------------------------------------------
 -- Helper for RLS policies.
 -- ---------------------------------------------------------------------------
 create or replace function public.is_admin()
@@ -143,6 +174,8 @@ alter table public.verification_files enable row level security;
 alter table public.admin_reviews enable row level security;
 alter table public.profile_roles enable row level security;
 alter table public.upgrade_requests enable row level security;
+alter table public.ai_chat_sessions enable row level security;
+alter table public.ai_chat_messages enable row level security;
 
 drop policy if exists profiles_select_own_public_or_admin on public.profiles;
 create policy profiles_select_own_public_or_admin
@@ -270,3 +303,41 @@ create policy upgrade_requests_admin_update
 on public.upgrade_requests for update
 using (public.is_admin())
 with check (public.is_admin());
+
+drop policy if exists ai_chat_sessions_select_own_or_admin on public.ai_chat_sessions;
+create policy ai_chat_sessions_select_own_or_admin
+on public.ai_chat_sessions for select
+using (auth.uid() = profile_id or public.is_admin());
+
+drop policy if exists ai_chat_sessions_insert_own_or_admin on public.ai_chat_sessions;
+create policy ai_chat_sessions_insert_own_or_admin
+on public.ai_chat_sessions for insert
+with check (auth.uid() = profile_id or public.is_admin());
+
+drop policy if exists ai_chat_sessions_update_own_or_admin on public.ai_chat_sessions;
+create policy ai_chat_sessions_update_own_or_admin
+on public.ai_chat_sessions for update
+using (auth.uid() = profile_id or public.is_admin())
+with check (auth.uid() = profile_id or public.is_admin());
+
+drop policy if exists ai_chat_messages_select_own_or_admin on public.ai_chat_messages;
+create policy ai_chat_messages_select_own_or_admin
+on public.ai_chat_messages for select
+using (
+  public.is_admin()
+  or exists (
+    select 1 from public.ai_chat_sessions s
+    where s.id = session_id and s.profile_id = auth.uid()
+  )
+);
+
+drop policy if exists ai_chat_messages_insert_own_or_admin on public.ai_chat_messages;
+create policy ai_chat_messages_insert_own_or_admin
+on public.ai_chat_messages for insert
+with check (
+  public.is_admin()
+  or exists (
+    select 1 from public.ai_chat_sessions s
+    where s.id = session_id and s.profile_id = auth.uid()
+  )
+);
