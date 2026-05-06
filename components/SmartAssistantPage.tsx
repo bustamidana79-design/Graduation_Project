@@ -14,6 +14,12 @@ type Message = {
   rating?: 1 | -1 | null;
 };
 
+type ChatSession = {
+  id: string;
+  created_at: string;
+  preview: string;
+};
+
 const assistantConfig: Record<
   AccountType,
   {
@@ -99,11 +105,21 @@ const analyticsUserTypeByAccount: Record<AccountType, "supplier" | "merchant" | 
   admin: "admin",
 };
 
+const formatSessionTime = (value: string) =>
+  new Date(value).toLocaleString("ar-EG", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 export default function SmartAssistantPage({ accountType }: { accountType: AccountType }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
@@ -131,6 +147,63 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
     return data.id as string;
   }, []);
 
+  const fetchSessionMessages = useCallback(
+    async (nextSessionId: string) => {
+      const { data: history, error: historyError } = await supabase
+        .from("ai_chat_messages")
+        .select("id, role, message, rating")
+        .eq("session_id", nextSessionId)
+        .order("created_at", { ascending: true });
+
+      if (historyError) throw historyError;
+      setMessages(history && history.length > 0 ? (history as Message[]) : initialMessages);
+    },
+    [initialMessages]
+  );
+
+  const fetchChatSessions = useCallback(async (profileIdValue: string) => {
+    setSessionsLoading(true);
+
+    const { data: sessionRows, error: sessionsError } = await supabase
+      .from("ai_chat_sessions")
+      .select("id, created_at")
+      .eq("profile_id", profileIdValue)
+      .order("created_at", { ascending: false })
+      .limit(30);
+
+    setSessionsLoading(false);
+
+    if (sessionsError) throw sessionsError;
+
+    const rows = (sessionRows || []) as Array<{ id: string; created_at: string }>;
+    const ids = rows.map((item) => item.id);
+    const previewsBySession = new Map<string, string>();
+
+    if (ids.length > 0) {
+      const { data: recentMessages } = await supabase
+        .from("ai_chat_messages")
+        .select("session_id, message, created_at")
+        .in("session_id", ids)
+        .order("created_at", { ascending: false });
+
+      for (const item of recentMessages || []) {
+        const row = item as { session_id: string; message: string };
+        if (!previewsBySession.has(row.session_id)) {
+          previewsBySession.set(row.session_id, row.message);
+        }
+      }
+    }
+
+    const nextSessions = rows.map((item, index) => ({
+      id: item.id,
+      created_at: item.created_at,
+      preview: previewsBySession.get(item.id) || `محادثة ${rows.length - index}`,
+    }));
+
+    setChatSessions(nextSessions);
+    return nextSessions;
+  }, []);
+
   const loadChat = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -149,28 +222,15 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
 
       setProfileId(user.id);
 
-      const { data: sessions, error: sessionsError } = await supabase
-        .from("ai_chat_sessions")
-        .select("id")
-        .eq("profile_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (sessionsError) throw sessionsError;
-
+      let sessions = await fetchChatSessions(user.id);
       let nextSessionId = sessions?.[0]?.id as string | undefined;
-      if (!nextSessionId) nextSessionId = await createSession(user.id);
+      if (!nextSessionId) {
+        nextSessionId = await createSession(user.id);
+        sessions = await fetchChatSessions(user.id);
+      }
 
       setSessionId(nextSessionId);
-
-      const { data: history, error: historyError } = await supabase
-        .from("ai_chat_messages")
-        .select("id, role, message, rating")
-        .eq("session_id", nextSessionId)
-        .order("created_at", { ascending: true });
-
-      if (historyError) throw historyError;
-      setMessages(history && history.length > 0 ? (history as Message[]) : initialMessages);
+      await fetchSessionMessages(nextSessionId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تحميل المساعد الذكي.";
       setError(message);
@@ -178,7 +238,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
     } finally {
       setLoading(false);
     }
-  }, [createSession, initialMessages, router]);
+  }, [createSession, fetchChatSessions, fetchSessionMessages, initialMessages, router]);
 
   useEffect(() => {
     void loadChat();
@@ -193,9 +253,28 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
       setSessionId(nextSessionId);
       setMessages(initialMessages);
       setInput("");
+      await fetchChatSessions(profileId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر إنشاء محادثة جديدة.";
       setError(message);
+    }
+  };
+
+  const openChatSession = async (nextSessionId: string) => {
+    if (nextSessionId === sessionId || sending) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      setSessionId(nextSessionId);
+      await fetchSessionMessages(nextSessionId);
+      setInput("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر فتح المحادثة.";
+      setError(message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -222,6 +301,11 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
     setError(null);
     setSending(true);
     setMessages((current) => [...current, { role: "user", message: text }]);
+    setChatSessions((current) => {
+      const active = current.find((item) => item.id === sessionId);
+      const rest = current.filter((item) => item.id !== sessionId);
+      return active ? [{ ...active, preview: text }, ...rest] : current;
+    });
 
     try {
       const {
@@ -293,6 +377,50 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
 
       <div className="grid flex-1 gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="space-y-3">
+          <div className="rounded-lg border border-[#e6edf5] bg-white p-3 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-[#273347]/50">المحادثات السابقة</p>
+              <button
+                onClick={newChat}
+                disabled={!profileId || sending}
+                className="rounded-md bg-[#273347] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#1e2735] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                جديدة
+              </button>
+            </div>
+
+            <div className="max-h-[260px] space-y-2 overflow-y-auto">
+              {sessionsLoading ? (
+                <div className="rounded-lg bg-[#f6f9fc] px-3 py-4 text-center text-xs text-[#273347]/50">
+                  جاري تحميل المحادثات...
+                </div>
+              ) : chatSessions.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[#d9e3ee] px-3 py-4 text-center text-xs text-[#273347]/50">
+                  لا توجد محادثات بعد.
+                </div>
+              ) : (
+                chatSessions.map((item) => {
+                  const isActive = item.id === sessionId;
+
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => openChatSession(item.id)}
+                      disabled={sending}
+                      className={`w-full rounded-lg border px-3 py-2 text-right transition ${
+                        isActive
+                          ? "border-[#bbd0e4] bg-[#f4f8fc]"
+                          : "border-transparent bg-white hover:border-[#e6edf5] hover:bg-[#fafcff]"
+                      }`}
+                    >
+                      <p className="line-clamp-1 text-sm font-semibold text-[#273347]">{item.preview}</p>
+                      <p className="mt-1 text-[11px] text-[#273347]/45">{formatSessionTime(item.created_at)}</p>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
           <p className="text-xs font-semibold text-[#273347]/50">اقتراحات سريعة</p>
           <div className="grid gap-2">
             {config.quickPrompts.map((prompt) => (
