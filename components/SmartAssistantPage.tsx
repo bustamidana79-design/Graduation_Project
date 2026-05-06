@@ -91,6 +91,14 @@ const assistantConfig: Record<
   },
 };
 
+const analyticsUserTypeByAccount: Record<AccountType, "supplier" | "merchant" | "delivery" | "supporter" | "admin"> = {
+  merchant: "supplier",
+  small_business: "merchant",
+  delivery: "delivery",
+  supporter: "supporter",
+  admin: "admin",
+};
+
 export default function SmartAssistantPage({ accountType }: { accountType: AccountType }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -220,7 +228,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
         data: { session },
       } = await supabase.auth.getSession();
 
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -230,7 +238,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
           message: text,
           sessionId,
           profileId,
-          accountType,
+          requestedUserType: analyticsUserTypeByAccount[accountType],
         }),
       });
 
