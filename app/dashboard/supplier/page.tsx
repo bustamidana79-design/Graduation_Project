@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 
 const mockAnalytics = [
@@ -32,9 +33,17 @@ export default function SupplierDashboardPage() {
 
   return (
     <>
-      <div className="mb-8 rounded-2xl bg-[#273347] px-8 py-6 text-white">
-        <h2 className="text-2xl font-bold">مرحباً، {loading ? "..." : profile?.full_name || "المورد"} 👋</h2>
-        <p className="mt-1 text-sm text-white/60">مورد</p>
+      <div className="mb-8 flex flex-col gap-4 rounded-2xl bg-[#273347] px-8 py-6 text-white md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">مرحباً، {loading ? "..." : profile?.full_name || "المورد"} 👋</h2>
+          <p className="mt-1 text-sm text-white/60">مورد</p>
+        </div>
+        <Link
+          href="/dashboard/supplier/assistant"
+          className="inline-flex items-center justify-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#273347] transition hover:bg-[#eef4fa]"
+        >
+          AI Assistant
+        </Link>
       </div>
 
       {loading ? (
