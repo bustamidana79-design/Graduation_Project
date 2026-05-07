@@ -99,6 +99,7 @@ export default function RegisterPage() {
   // Proof (ضمن Step 2)
   const [proofLink1, setProofLink1] = useState("");
   const [proofLink2, setProofLink2] = useState("");
+  const [proofUsername, setProofUsername] = useState("");
   const [proofNote, setProofNote] = useState("");
   const [proofFiles, setProofFiles] = useState<File[]>([]);
 
@@ -346,15 +347,18 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
       const proofJsonWithoutFiles = {
         proof_link_1: proofLink1.trim(),
         proof_link_2: proofLink2.trim() || null,
+        page_username: proofUsername.trim() || null,
         note: proofNote.trim() || null,
         file_urls: null,
       };
+
+      await supabase.auth.signOut();
 
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
         options: {
-          emailRedirectTo: "http://localhost:3000/auth/callback",
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
           data: {
             full_name: fullName.trim(),
             email: cleanEmail,
@@ -433,6 +437,7 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
       const proofJson = {
         proof_link_1: proofLink1.trim(),
         proof_link_2: proofLink2.trim() || null,
+        page_username: proofUsername.trim() || null,
         note: proofNote.trim() || null,
         file_urls: uploadedFileUrls.length > 0 ? uploadedFileUrls : null,
       };
@@ -1230,6 +1235,21 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
                         placeholder="https://..."
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-[#273347] mb-2">
+                      اسم الصفحة / اليوزرنيم (اختياري)
+                    </label>
+                    <input
+                      value={proofUsername}
+                      onChange={(e) => setProofUsername(e.target.value)}
+                      className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+                      placeholder="مثلاً: skin_store أو @skin_store"
+                    />
+                    <p className="mt-1 text-xs text-[#273347]/50">
+                      يساعدنا على مقارنة اسم الصفحة مع اسم المشروع أو المتجر حتى لو لم نتمكن من قراءة محتوى الرابط.
+                    </p>
                   </div>
 
                   <div>

@@ -167,18 +167,10 @@ def _link_domains(links: Iterable[str]) -> list[str]:
 def build_structured_features(record: NormalizedApplication) -> dict[str, float]:
     bio_words = re.findall(r"\w+", record.bio, flags=re.UNICODE)
     description_words = re.findall(r"\w+", record.description, flags=re.UNICODE)
-    email_domain = _email_domain(record.email)
     email_local = _email_local_part(record.email)
     link_domains = _link_domains(record.links)
     digit_count = sum(char.isdigit() for char in email_local)
     unique_link_domains = sorted(set(link_domains))
-
-    has_email_match = 0.0
-    if email_domain:
-        for domain in unique_link_domains:
-            if email_domain in domain or domain in email_domain:
-                has_email_match = 1.0
-                break
 
     return {
         "bio_length": float(len(record.bio)),
@@ -189,10 +181,10 @@ def build_structured_features(record: NormalizedApplication) -> dict[str, float]
         "has_links": float(bool(record.links or "http" in record.bio.lower())),
         "link_count": float(len(record.links)),
         "unique_link_domains": float(len(unique_link_domains)),
-        "has_email_match": has_email_match,
+        "has_email_match": 1.0,
         "has_random_numbers": float(digit_count >= RANDOM_NUMBER_THRESHOLD),
         "email_digit_count": float(digit_count),
-        "email_domain_is_free": float(email_domain in FREE_EMAIL_DOMAINS),
+        "email_domain_is_free": 0.0,
         "bio_has_http": float("http" in record.bio.lower()),
         "bio_has_contact_hint": float(
             any(token in record.bio.lower() for token in ["@", "whatsapp", "instagram", "facebook", "linkedin"])
@@ -230,8 +222,6 @@ def reasons_from_record(record: NormalizedApplication, decision: str, confidence
         reasons.append("bio too short")
     if not features["has_links"]:
         reasons.append("no links provided")
-    if features["has_links"] and not features["has_email_match"]:
-        reasons.append("email domain does not match provided links")
     if features["has_random_numbers"]:
         reasons.append("suspicious email")
     if features["description_word_count"] < 4:

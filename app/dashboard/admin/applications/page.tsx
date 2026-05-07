@@ -32,6 +32,7 @@ type Application = {
   proof_json: {
     proof_link_1: string;
     proof_link_2?: string;
+    page_username?: string | null;
     note?: string;
     file_urls?: string[];
   };
@@ -42,6 +43,10 @@ type LinkMeta = {
   reachable: boolean;
   platform?: string;
   relevanceHint?: string;
+  relevanceScore?: number;
+  relevanceStatus?: "matched" | "weak" | "unknown";
+  pageTitle?: string;
+  pageDescription?: string;
   error?: string;
 };
 
@@ -60,6 +65,7 @@ type AIReport = {
   decision_hint: string;
   local_score?: number;
   _meta?: {
+    aiSource?: "random_forest" | "fallback";
     bioQuality: "good" | "weak" | "suspicious";
     bioScore: number;
     link1: LinkMeta;
@@ -189,14 +195,14 @@ export default function ApplicationsPage() {
   };
 
   // ── AI Analysis ──
-  const handleAiAnalysis = async (app: Application) => {
+  const handleAiAnalysis = async (app: Application, force = false) => {
     setAiApp(app);
     setAiReport(null);
     setAiError("");
     setAiLoading(true);
 
     try {
-      if (app.ai_checked && app.ai_score !== undefined && app.ai_reason) {
+      if (!force && app.ai_checked && app.ai_score !== undefined && app.ai_reason) {
         let cached: AIReport;
         try {
           cached = JSON.parse(app.ai_reason);
@@ -255,6 +261,18 @@ export default function ApplicationsPage() {
           ai_risk: result.risk,
           ai_checked: true,
         } : a)
+      );
+      setAiApp((current) =>
+        current?.id === app.id
+          ? {
+              ...current,
+              ai_score: result.score,
+              ai_recommendation: result.recommendation,
+              ai_reason: reasonJson,
+              ai_risk: result.risk,
+              ai_checked: true,
+            }
+          : current
       );
 
       setAiReport(result);
@@ -406,8 +424,19 @@ export default function ApplicationsPage() {
     const icon = platformIcons[meta.platform || "website"] || "🌐";
     const isGood = meta.reachable && !meta.relevanceHint?.includes("لم يُرصد");
 
+    const relevanceStatus = meta.relevanceStatus || "unknown";
+    const isWeak = meta.reachable && relevanceStatus === "weak";
+    const relevanceBadge =
+      relevanceStatus === "matched"
+        ? { label: "مطابق للنشاط", color: "bg-green-100 text-green-700" }
+        : relevanceStatus === "weak"
+          ? { label: "تطابق ضعيف", color: "bg-yellow-100 text-yellow-700" }
+          : { label: "غير مؤكد", color: "bg-gray-100 text-gray-600" };
+
+    const cardIsGood = meta.relevanceStatus ? meta.relevanceStatus === "matched" : isGood;
+
     return (
-      <div className={`border rounded-xl p-3 ${meta.reachable ? (isGood ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200") : "bg-red-50 border-red-200"}`}>
+      <div className={`border rounded-xl p-3 ${meta.reachable ? (cardIsGood ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200") : "bg-red-50 border-red-200"}`}>
         <div className="flex items-center gap-2 mb-1.5">
           <span className="text-lg">{icon}</span>
           <div className="flex-1 min-w-0">
@@ -419,6 +448,11 @@ export default function ApplicationsPage() {
               {meta.platform && (
                 <span className="text-xs px-1.5 py-0.5 rounded bg-white/60 text-[#273347]/60 border border-current/10">
                   {meta.platform}
+                </span>
+              )}
+              {meta.reachable && (
+                <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${relevanceBadge.color}`}>
+                  {relevanceBadge.label}
                 </span>
               )}
             </div>
@@ -435,6 +469,23 @@ export default function ApplicationsPage() {
           <p className={`text-xs mt-1 ${isGood ? "text-green-700" : "text-yellow-700"}`}>
             {isGood ? "✓" : "⚠️"} {meta.relevanceHint}
           </p>
+        )}
+        {meta.reachable && typeof meta.relevanceScore === "number" && (
+          <div className="mt-2 flex items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/70">
+              <div
+                className={`h-1.5 rounded-full ${meta.relevanceScore >= 50 ? "bg-green-500" : meta.relevanceScore >= 25 ? "bg-yellow-500" : "bg-gray-400"}`}
+                style={{ width: `${Math.max(4, Math.min(100, meta.relevanceScore))}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-bold text-[#273347]/50">{meta.relevanceScore}%</span>
+          </div>
+        )}
+        {meta.pageTitle && (
+          <p className="mt-2 line-clamp-1 text-[11px] font-semibold text-[#273347]/70">{meta.pageTitle}</p>
+        )}
+        {meta.pageDescription && (
+          <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-[#273347]/55">{meta.pageDescription}</p>
         )}
       </div>
     );
@@ -652,6 +703,20 @@ export default function ApplicationsPage() {
 
               {aiReport && !aiLoading && (
                 <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-[#e6edf5] bg-[#f8fafc] p-3">
+                    <div>
+                      <p className="text-sm font-bold text-[#273347]">إعادة تشغيل التحليل</p>
+                      <p className="mt-0.5 text-xs text-[#273347]/50">استخدمها بعد تعديل الخوارزمية أو عند الحاجة لتحديث النتيجة.</p>
+                    </div>
+                    <button
+                      onClick={() => handleAiAnalysis(aiApp, true)}
+                      disabled={aiLoading}
+                      className="shrink-0 rounded-lg bg-[#273347] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#1e2a38] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      إعادة تحليل
+                    </button>
+                  </div>
+
                   {/* Score Card */}
                   <div className={`rounded-2xl p-6 text-center border ${scoreBg(aiReport.score)}`}>
                     <p className="text-xs text-[#273347]/50 font-medium mb-2 uppercase tracking-widest">التقييم العام</p>
@@ -671,6 +736,16 @@ export default function ApplicationsPage() {
                       </p>
                     )}
                   </div>
+
+                    {aiReport._meta?.aiSource && (
+                      <p className={`mx-auto mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                        aiReport._meta.aiSource === "random_forest"
+                          ? "bg-green-100 text-green-700"
+                          : "bg-yellow-100 text-yellow-700"
+                      }`}>
+                        {aiReport._meta.aiSource === "random_forest" ? "Random Forest" : "تقييم احتياطي"}
+                      </p>
+                    )}
 
                   {/* Status Badges */}
                   <div className="grid grid-cols-2 gap-3">
@@ -919,6 +994,11 @@ export default function ApplicationsPage() {
                   )}
                   {selectedApp.proof_json.proof_link_2 && (
                     <a href={selectedApp.proof_json.proof_link_2} target="_blank" rel="noreferrer" className="block text-[#546a85] hover:underline break-all">🔗 {selectedApp.proof_json.proof_link_2}</a>
+                  )}
+                  {selectedApp.proof_json.page_username && (
+                    <p className="text-[#273347]/70 bg-[#f8fafc] rounded-xl p-3">
+                      اسم الصفحة / اليوزرنيم: {selectedApp.proof_json.page_username}
+                    </p>
                   )}
                   {selectedApp.proof_json.note && (
                     <p className="text-[#273347]/70 bg-[#f8fafc] rounded-xl p-3">📝 {selectedApp.proof_json.note}</p>

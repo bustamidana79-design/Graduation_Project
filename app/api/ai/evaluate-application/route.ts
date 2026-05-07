@@ -47,6 +47,7 @@ type ApplicationPayload = {
   proof_json?: {
     proof_link_1?: string;
     proof_link_2?: string;
+    page_username?: string | null;
     file_urls?: string[];
   };
 };
@@ -130,8 +131,16 @@ function translateReason(reason: string) {
     return "وصف المشروع أو المتجر محدود جدًا.";
   if (normalized.includes("bio and business description look sufficiently detailed"))
     return "النبذة ووصف النشاط يحتويان على تفاصيل مقنعة مبدئيًا.";
+  if (normalized.includes("multiple weak trust signals"))
+    return "توجد عدة مؤشرات ثقة ضعيفة في الطلب وتحتاج مراجعة دقيقة.";
+  if (normalized.includes("model confidence is moderate"))
+    return "ثقة النموذج متوسطة، لذلك يفضّل مراجعة الطلب يدوياً قبل القرار النهائي.";
+  if (normalized.includes("ai model request failed"))
+    return "تعذر تشغيل نموذج التقييم الخارجي، وتم الاعتماد على تقييم احتياطي.";
+  if (normalized.includes("python ai service unavailable"))
+    return "خدمة نموذج الراندوم فورست غير متاحة حالياً، وتم الاعتماد على تقييم احتياطي.";
   if (normalized.includes("mixed signals require manual review"))
-    return "الإشارات الحالية متضاربة وتحتاج مراجعة بشرية.";
+    return "الطلب يحتاج مراجعة إدارية نهائية قبل اتخاذ القرار.";
   if (normalized.includes("uploaded images may be manipulated"))
     return "بعض الصور المرفوعة قد تحتوي على تعديل أو تلاعب.";
   if (normalized.includes("image analysis failed")) return "تعذر تحليل الصورة المرفوعة.";
@@ -170,7 +179,7 @@ function localizeLooseText(text: string) {
   if (lower.startsWith("reachable ")) return normalized.replace(/^Reachable\s+/i, "تم الوصول إلى ");
   if (lower.startsWith("ai model request failed")) return "تعذر الاتصال بخدمة التحليل الذكية.";
   if (lower.startsWith("python ai service unavailable")) return "خدمة التحليل الخارجية غير متاحة حاليًا.";
-  if (looksMostlyEnglish(normalized)) return `نص بحاجة لترجمة: ${normalized}`;
+  if (looksMostlyEnglish(normalized)) return "تم رصد ملاحظة تقنية باللغة الإنجليزية، وتحتاج مراجعة من الإدارة.";
   return normalized;
 }
 
@@ -308,15 +317,41 @@ function tokenizeForRelevance(text: string) {
   );
 }
 
+function normalizeHandle(value?: string | null) {
+  return (value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/^@+/, "")
+    .replace(/^https?:\/\/(www\.)?/i, "")
+    .replace(/\/+$/g, "");
+}
+
+function usernameMatchesUrl(url: string, pageUsername?: string | null) {
+  const handle = normalizeHandle(pageUsername);
+  if (!handle) return false;
+
+  const normalizedUrl = normalizeHandle(url);
+  const handleParts = handle.split("/").filter(Boolean);
+  const lastHandlePart = handleParts[handleParts.length - 1] || handle;
+
+  return normalizedUrl.includes(handle) || normalizedUrl.includes(lastHandlePart);
+}
+
 function scoreLinkRelevance(params: {
   url: string;
   pageText: string;
+  pageUsername?: string | null;
   fullName: string;
   bio: string;
   description: string;
 }): { score: number; matchedTokens: string[]; status: "matched" | "weak" | "unknown" } {
+  const handleMatched = usernameMatchesUrl(params.url, params.pageUsername);
   const claimTokens = tokenizeForRelevance(`${params.fullName} ${params.bio} ${params.description}`).slice(0, 60);
-  const pageTokens = new Set(tokenizeForRelevance(`${params.url} ${params.pageText}`).slice(0, 250));
+  const pageTokens = new Set(tokenizeForRelevance(`${params.url} ${params.pageUsername || ""} ${params.pageText}`).slice(0, 250));
+
+  if (handleMatched) {
+    return { score: 75, matchedTokens: ["username"], status: "matched" as const };
+  }
 
   if (claimTokens.length === 0 || pageTokens.size === 0) {
     return { score: 0, matchedTokens: [] as string[], status: "unknown" as const };
@@ -371,12 +406,20 @@ async function analyzeLink(
 
 async function analyzeRelevantLink(
   url?: string | null,
-  context?: { fullName: string; bio: string; description: string }
+  context?: { fullName: string; bio: string; description: string; pageUsername?: string | null }
 ): Promise<LinkAnalysisResult> {
   if (!url) return { ...EMPTY_LINK };
 
   const baseResult = await analyzeLink(url, context);
   if (!baseResult.reachable) return baseResult;
+  const handleMatched = usernameMatchesUrl(url, context?.pageUsername);
+  const handleMatchResult = {
+    ...baseResult,
+    relevanceHint: `تم الوصول إلى الرابط على ${baseResult.platform} واسم الصفحة المدخل موجود داخل الرابط.`,
+    relevanceScore: 75,
+    relevanceStatus: "matched" as const,
+  };
+  if (handleMatched) return handleMatchResult;
 
   try {
     const controller = new AbortController();
@@ -400,6 +443,7 @@ async function analyzeRelevantLink(
       ? scoreLinkRelevance({
           url,
           pageText: page.content,
+          pageUsername: context.pageUsername,
           fullName: context.fullName,
           bio: context.bio,
           description: context.description,
@@ -422,11 +466,13 @@ async function analyzeRelevantLink(
       pageDescription: page.description || undefined,
     };
   } catch {
-    return {
-      ...baseResult,
-      relevanceStatus: "unknown",
-      relevanceScore: 0,
-    };
+    return handleMatched
+      ? handleMatchResult
+      : {
+          ...baseResult,
+          relevanceStatus: "unknown",
+          relevanceScore: 0,
+        };
   }
 }
 
@@ -460,6 +506,44 @@ function collectDescription(accountType: string, typeSpecific: Record<string, un
     .join(" ");
 }
 
+function getFallbackPythonDecision(payload: {
+  bio: string;
+  email: string;
+  links: string[];
+  description: string;
+}): PythonAiResponse {
+  const bioWordCount = payload.bio.trim() ? payload.bio.trim().split(/\s+/).length : 0;
+  const descriptionWordCount = payload.description.trim() ? payload.description.trim().split(/\s+/).length : 0;
+  const emailLocalPart = payload.email.includes("@") ? payload.email.split("@")[0] : payload.email;
+  const suspiciousEmail = (emailLocalPart.match(/\d/g) || []).length >= 4;
+  const hasLinks = payload.links.length > 0;
+
+  let score = 0.45;
+  if (bioWordCount >= 20) score += 0.2;
+  if (descriptionWordCount >= 4) score += 0.15;
+  if (hasLinks) score += 0.15;
+  if (suspiciousEmail) score -= 0.2;
+  if (bioWordCount < 8) score -= 0.15;
+
+  score = Math.max(0.05, Math.min(0.95, score));
+  const decision: PythonAiResponse["decision"] = score >= 0.72 ? "approve" : score <= 0.35 ? "reject" : "review";
+  const reasons: string[] = ["python ai service unavailable"];
+
+  if (bioWordCount < 8) reasons.push("bio too short");
+  if (!hasLinks) reasons.push("no links provided");
+  if (suspiciousEmail) reasons.push("suspicious email");
+  if (descriptionWordCount < 4) reasons.push("project or store description is limited");
+  if (reasons.length === 1) reasons.push("mixed signals require manual review");
+
+  return {
+    decision,
+    score,
+    confidence: Math.min(0.65, Math.max(0.35, score)),
+    reasons: reasons.slice(0, 4),
+    source: "fallback",
+  };
+}
+
 async function getPythonDecision(payload: {
   bio: string;
   email: string;
@@ -484,9 +568,28 @@ async function getPythonDecision(payload: {
     console.log("AI Source = random_forest");
     return { ...result, source: "random_forest" };
   } catch (error) {
-    console.error("Python AI service unavailable; fallback is disabled.", error);
-    throw error;
+    console.error("Python AI service unavailable; using fallback decision.", error);
+    return getFallbackPythonDecision(payload);
   }
+}
+
+function ignoreEmailDomainSignal(python: PythonAiResponse): PythonAiResponse {
+  const reasons = python.reasons.filter(
+    (reason) => !reason.toLowerCase().includes("email domain does not match")
+  );
+
+  if (reasons.length === python.reasons.length) return python;
+
+  const decision =
+    python.decision === "reject" && reasons.length <= 1
+      ? "review"
+      : python.decision;
+
+  return {
+    ...python,
+    decision,
+    reasons: reasons.length > 0 ? reasons : ["mixed signals require manual review"],
+  };
 }
 
 function buildDecisionHint(recommendation: AIReport["recommendation"]) {
@@ -553,7 +656,7 @@ function buildArabicFallbackReport(params: {
         ? "الطلب يبدو موثوقًا مبدئيًا استنادًا إلى النصوص وروابط الإثبات."
         : recommendation === "reject"
           ? "الطلب يحتوي على مؤشرات شك واضحة ولا يوصى باعتماده تلقائيًا."
-          : "الطلب يحتوي على إشارات متباينة ويحتاج مراجعة بشرية.",
+          : "الطلب يحتاج مراجعة إدارية نهائية قبل اتخاذ القرار.",
     project_summary: `تم تحليل بيانات الحساب من خلال النظام الهجين للنصوص والروابط والملفات المرفوعة لنوع الحساب ${app.account_type || "غير المحدد"}.`,
     details: `القرار المبدئي: ${DECISION_LABELS[recommendation]}. نسبة الثقة: ${Math.round(
       python.confidence * 100
@@ -696,7 +799,7 @@ export async function POST(req: NextRequest) {
     const bioWordCount = bio.trim() ? bio.trim().split(/\s+/).length : 0;
     const fileUrls = Array.isArray(proof.file_urls) ? proof.file_urls : [];
 
-    const [python, link1Result, link2Result, imageAnalyses] = await Promise.all([
+    const [rawPython, link1Result, link2Result, imageAnalyses] = await Promise.all([
       getPythonDecision({
         bio,
         email,
@@ -705,8 +808,8 @@ export async function POST(req: NextRequest) {
         full_name: fullName,
         description,
       }),
-      analyzeRelevantLink(proof.proof_link_1, { fullName, bio, description }),
-      analyzeRelevantLink(proof.proof_link_2, { fullName, bio, description }),
+      analyzeRelevantLink(proof.proof_link_1, { fullName, bio, description, pageUsername: proof.page_username }),
+      analyzeRelevantLink(proof.proof_link_2, { fullName, bio, description, pageUsername: proof.page_username }),
       Promise.all(
         fileUrls.map(async (url) => {
           try {
@@ -717,6 +820,7 @@ export async function POST(req: NextRequest) {
         })
       ),
     ]);
+    const python = ignoreEmailDomainSignal(rawPython);
 
     const fallbackReport = buildArabicFallbackReport({
       app,

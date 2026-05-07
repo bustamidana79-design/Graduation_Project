@@ -17,6 +17,16 @@ function redirectByAccountType(accountType: string) {
   return redirects[accountType] || "/dashboard";
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
 export default function AuthCallbackPage() {
   const router = useRouter();
 
@@ -30,7 +40,9 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      const userId = data.session.user.id;
+      const user = data.session.user;
+      const userId = user.id;
+      const metadata = (user.user_metadata || {}) as Record<string, unknown>;
 
       // نضع email_verified = true في الـ profile
       await supabase
@@ -39,11 +51,76 @@ export default function AuthCallbackPage() {
         .eq("id", userId);
 
       // نفحص الـ status ونوجّه
-      const { data: profile } = await supabase
+      const { data: existingProfile } = await supabase
         .from("profiles")
         .select("status, account_type, full_name, email, phone, country, city")
         .eq("id", userId)
-        .single();
+        .maybeSingle();
+
+      let profile = existingProfile;
+
+      if (!profile) {
+        const accountType = getString(metadata.account_type);
+        const email = getString(metadata.email) || user.email || "";
+
+        if (!accountType || !email) {
+          router.push("/login");
+          return;
+        }
+
+        const { data: createdProfile, error: profileError } = await supabase
+          .from("profiles")
+          .upsert(
+            {
+              id: userId,
+              full_name: getString(metadata.full_name) || email,
+              email,
+              phone: getString(metadata.phone) || null,
+              country: getString(metadata.country) || null,
+              account_type: accountType,
+              status: "pending",
+              email_verified: true,
+            },
+            { onConflict: "id" }
+          )
+          .select("status, account_type, full_name, email, phone, country, city")
+          .single();
+
+        if (profileError || !createdProfile) {
+          console.error("Creating callback profile failed:", profileError);
+          router.push("/pending");
+          return;
+        }
+
+        profile = createdProfile;
+      }
+
+      const applicationDataJson = asRecord(metadata.application_data_json);
+      const applicationProofJson = asRecord(metadata.application_proof_json);
+      const metadataAccountType = getString(metadata.account_type);
+
+      if (applicationDataJson && applicationProofJson && metadataAccountType) {
+        const { data: existingApplication } = await supabase
+          .from("applications")
+          .select("id")
+          .eq("user_id", userId)
+          .limit(1)
+          .maybeSingle();
+
+        if (!existingApplication) {
+          const { error: applicationError } = await supabase.from("applications").insert({
+            user_id: userId,
+            account_type: metadataAccountType,
+            data_json: applicationDataJson,
+            proof_json: applicationProofJson,
+            status: "pending",
+          });
+
+          if (applicationError) {
+            console.error("Creating callback application failed:", applicationError);
+          }
+        }
+      }
 
       if (profile?.status === "approved") {
         const { data: application } = await supabase
