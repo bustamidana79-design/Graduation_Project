@@ -8,6 +8,10 @@ type LinkAnalysisResult = {
   reachable: boolean;
   platform?: string;
   relevanceHint?: string;
+  relevanceScore?: number;
+  relevanceStatus?: "matched" | "weak" | "unknown";
+  pageTitle?: string;
+  pageDescription?: string;
   error?: string;
 };
 
@@ -71,6 +75,10 @@ type AIReport = {
       reachable: boolean;
       platform?: string;
       relevanceHint?: string;
+      relevanceScore?: number;
+      relevanceStatus?: "matched" | "weak" | "unknown";
+      pageTitle?: string;
+      pageDescription?: string;
       error?: string;
     };
     link2: {
@@ -78,6 +86,10 @@ type AIReport = {
       reachable: boolean;
       platform?: string;
       relevanceHint?: string;
+      relevanceScore?: number;
+      relevanceStatus?: "matched" | "weak" | "unknown";
+      pageTitle?: string;
+      pageDescription?: string;
       error?: string;
     };
   };
@@ -211,7 +223,116 @@ function parseGroqJson(raw: string) {
   return JSON.parse(cleaned);
 }
 
-async function analyzeLink(url?: string | null): Promise<LinkAnalysisResult> {
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractMetaContent(html: string, name: string) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`<meta[^>]+(?:name|property)=["']${escaped}["'][^>]+content=["']([^"']+)["'][^>]*>`, "i"),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${escaped}["'][^>]*>`, "i"),
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) return decodeHtmlEntities(match[1]);
+  }
+
+  return "";
+}
+
+function extractPageText(html: string) {
+  const title = decodeHtmlEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "");
+  const description =
+    extractMetaContent(html, "description") ||
+    extractMetaContent(html, "og:description") ||
+    extractMetaContent(html, "twitter:description");
+  const ogTitle = extractMetaContent(html, "og:title") || extractMetaContent(html, "twitter:title");
+  const bodyText = decodeHtmlEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .slice(0, 6000)
+  );
+
+  return {
+    title: ogTitle || title,
+    description,
+    content: [ogTitle, title, description, bodyText].filter(Boolean).join(" "),
+  };
+}
+
+function tokenizeForRelevance(text: string) {
+  const stopWords = new Set([
+    "the",
+    "and",
+    "for",
+    "with",
+    "http",
+    "https",
+    "www",
+    "com",
+    "من",
+    "في",
+    "على",
+    "عن",
+    "الى",
+    "إلى",
+    "هذا",
+    "هذه",
+    "ذلك",
+    "التي",
+    "الذي",
+    "او",
+    "أو",
+    "و",
+  ]);
+
+  return Array.from(
+    new Set(
+      text
+        .toLowerCase()
+        .match(/[\p{L}\p{N}]+/gu)
+        ?.filter((token) => token.length > 2 && !stopWords.has(token)) || []
+    )
+  );
+}
+
+function scoreLinkRelevance(params: {
+  url: string;
+  pageText: string;
+  fullName: string;
+  bio: string;
+  description: string;
+}): { score: number; matchedTokens: string[]; status: "matched" | "weak" | "unknown" } {
+  const claimTokens = tokenizeForRelevance(`${params.fullName} ${params.bio} ${params.description}`).slice(0, 60);
+  const pageTokens = new Set(tokenizeForRelevance(`${params.url} ${params.pageText}`).slice(0, 250));
+
+  if (claimTokens.length === 0 || pageTokens.size === 0) {
+    return { score: 0, matchedTokens: [] as string[], status: "unknown" as const };
+  }
+
+  const matchedTokens = claimTokens.filter((token) => pageTokens.has(token));
+  const score = Math.round((matchedTokens.length / Math.min(claimTokens.length, 12)) * 100);
+  const status = score >= 25 || matchedTokens.length >= 3 ? "matched" : "weak";
+
+  return { score: Math.min(score, 100), matchedTokens: matchedTokens.slice(0, 6), status };
+}
+
+async function analyzeLink(
+  url?: string | null,
+  context?: { fullName: string; bio: string; description: string }
+): Promise<LinkAnalysisResult> {
   if (!url) return { ...EMPTY_LINK };
 
   const platform = detectPlatform(url);
@@ -244,6 +365,67 @@ async function analyzeLink(url?: string | null): Promise<LinkAnalysisResult> {
       reachable: false,
       platform,
       error: error instanceof Error ? error.message : "فشل التحقق من الرابط",
+    };
+  }
+}
+
+async function analyzeRelevantLink(
+  url?: string | null,
+  context?: { fullName: string; bio: string; description: string }
+): Promise<LinkAnalysisResult> {
+  if (!url) return { ...EMPTY_LINK };
+
+  const baseResult = await analyzeLink(url, context);
+  if (!baseResult.reachable) return baseResult;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Accept: "text/html,application/xhtml+xml",
+      },
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) return baseResult;
+
+    const html = await response.text();
+    const page = extractPageText(html);
+    const relevance = context
+      ? scoreLinkRelevance({
+          url,
+          pageText: page.content,
+          fullName: context.fullName,
+          bio: context.bio,
+          description: context.description,
+        })
+      : { score: 0, matchedTokens: [] as string[], status: "unknown" as const };
+
+    const relevanceHint =
+      relevance.status === "matched"
+        ? `تم الوصول إلى الرابط على ${baseResult.platform} وظهر تطابق مع وصف النشاط (${relevance.matchedTokens.join("، ")}).`
+        : relevance.status === "weak"
+          ? `تم الوصول إلى الرابط على ${baseResult.platform} لكن لم يظهر تطابق كاف مع وصف النشاط.`
+          : `تم الوصول إلى الرابط على ${baseResult.platform} لكن لا توجد معلومات كافية للتحقق من مطابقته للنشاط.`;
+
+    return {
+      ...baseResult,
+      relevanceHint,
+      relevanceScore: relevance.score,
+      relevanceStatus: relevance.status,
+      pageTitle: page.title || undefined,
+      pageDescription: page.description || undefined,
+    };
+  } catch {
+    return {
+      ...baseResult,
+      relevanceStatus: "unknown",
+      relevanceScore: 0,
     };
   }
 }
@@ -344,6 +526,12 @@ function buildArabicFallbackReport(params: {
   if (reachableLinks > 0) strengths.push("يوجد رابط إثبات واحد على الأقل يمكن الوصول إليه.");
   else weaknesses.push("لم يتم العثور على رابط إثبات صالح يمكن الوصول إليه.");
 
+  const matchedLinks = [link1Result, link2Result].filter((item) => item.relevanceStatus === "matched").length;
+  const weakLinks = [link1Result, link2Result].filter((item) => item.relevanceStatus === "weak").length;
+
+  if (matchedLinks > 0) strengths.push("رابط الإثبات يحتوي على مؤشرات مرتبطة بوصف النشاط المقدم.");
+  if (weakLinks > 0) weaknesses.push("يوجد رابط إثبات يعمل، لكن محتواه لا يطابق وصف النشاط بشكل كاف.");
+
   if (python.reasons.some((reason) => reason.includes("suspicious email"))) {
     weaknesses.push("صيغة البريد الإلكتروني تثير الشك.");
   }
@@ -390,6 +578,10 @@ function buildArabicFallbackReport(params: {
         reachable: link1Result.reachable,
         platform: link1Result.platform,
         relevanceHint: link1Result.relevanceHint,
+        relevanceScore: link1Result.relevanceScore,
+        relevanceStatus: link1Result.relevanceStatus,
+        pageTitle: link1Result.pageTitle,
+        pageDescription: link1Result.pageDescription,
         error: link1Result.error,
       },
       link2: {
@@ -397,6 +589,10 @@ function buildArabicFallbackReport(params: {
         reachable: link2Result.reachable,
         platform: link2Result.platform,
         relevanceHint: link2Result.relevanceHint,
+        relevanceScore: link2Result.relevanceScore,
+        relevanceStatus: link2Result.relevanceStatus,
+        pageTitle: link2Result.pageTitle,
+        pageDescription: link2Result.pageDescription,
         error: link2Result.error,
       },
     },
@@ -509,8 +705,8 @@ export async function POST(req: NextRequest) {
         full_name: fullName,
         description,
       }),
-      analyzeLink(proof.proof_link_1),
-      analyzeLink(proof.proof_link_2),
+      analyzeRelevantLink(proof.proof_link_1, { fullName, bio, description }),
+      analyzeRelevantLink(proof.proof_link_2, { fullName, bio, description }),
       Promise.all(
         fileUrls.map(async (url) => {
           try {
