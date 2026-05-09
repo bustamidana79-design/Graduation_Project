@@ -7,6 +7,7 @@ const AI_SERVER_URL = process.env.AI_MODEL_API_URL || "http://127.0.0.1:8000/pre
 type LinkAnalysisResult = {
   reachable: boolean;
   platform?: string;
+  isSocialPlatform?: boolean;
   relevanceHint?: string;
   relevanceScore?: number;
   relevanceStatus?: "matched" | "weak" | "unknown";
@@ -75,6 +76,7 @@ type AIReport = {
       url: string | null;
       reachable: boolean;
       platform?: string;
+      isSocialPlatform?: boolean;
       relevanceHint?: string;
       relevanceScore?: number;
       relevanceStatus?: "matched" | "weak" | "unknown";
@@ -86,6 +88,7 @@ type AIReport = {
       url: string | null;
       reachable: boolean;
       platform?: string;
+      isSocialPlatform?: boolean;
       relevanceHint?: string;
       relevanceScore?: number;
       relevanceStatus?: "matched" | "weak" | "unknown";
@@ -108,17 +111,39 @@ const DECISION_LABELS: Record<AIReport["recommendation"], string> = {
   review: "مراجعة",
 };
 
+const SOCIAL_PLATFORM_HOSTS: Record<string, string[]> = {
+  Instagram: ["instagram.com"],
+  Facebook: ["facebook.com", "fb.com"],
+  TikTok: ["tiktok.com"],
+  X: ["x.com", "twitter.com"],
+  LinkedIn: ["linkedin.com"],
+  YouTube: ["youtube.com", "youtu.be"],
+  Snapchat: ["snapchat.com"],
+  WhatsApp: ["wa.me", "whatsapp.com"],
+};
+
+function getUrlHostname(url: string) {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function hostnameMatches(hostname: string, domain: string) {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
 function detectPlatform(url: string): string {
-  const normalized = url.toLowerCase();
-  if (normalized.includes("instagram.com")) return "Instagram";
-  if (normalized.includes("facebook.com") || normalized.includes("fb.com")) return "Facebook";
-  if (normalized.includes("tiktok.com")) return "TikTok";
-  if (normalized.includes("twitter.com") || normalized.includes("x.com")) return "X";
-  if (normalized.includes("linkedin.com")) return "LinkedIn";
-  if (normalized.includes("youtube.com") || normalized.includes("youtu.be")) return "YouTube";
-  if (normalized.includes("snapchat.com")) return "Snapchat";
-  if (normalized.includes("wa.me") || normalized.includes("whatsapp")) return "WhatsApp";
+  const hostname = getUrlHostname(url);
+  for (const [platform, domains] of Object.entries(SOCIAL_PLATFORM_HOSTS)) {
+    if (domains.some((domain) => hostnameMatches(hostname, domain))) return platform;
+  }
   return "Website";
+}
+
+function isSocialPlatformUrl(url: string) {
+  return detectPlatform(url) !== "Website";
 }
 
 function translateReason(reason: string) {
@@ -127,12 +152,16 @@ function translateReason(reason: string) {
   if (normalized.includes("no links provided")) return "لا توجد روابط داعمة لإثبات النشاط.";
   if (normalized.includes("email domain does not match")) return "دومين البريد لا يبدو متوافقًا مع الروابط المرفقة.";
   if (normalized.includes("suspicious email")) return "صيغة البريد الإلكتروني تبدو غير موثوقة.";
+  if (normalized.includes("proof link is not a business or social page"))
+    return "رابط الإثبات يبدو غير مناسب كنشاط تجاري أو صفحة سوشال ميديا، مثل روابط الكود أو مواقع لا تعرض متجراً.";
   if (normalized.includes("project or store description is limited"))
     return "وصف المشروع أو المتجر محدود جدًا.";
   if (normalized.includes("bio and business description look sufficiently detailed"))
     return "النبذة ووصف النشاط يحتويان على تفاصيل مقنعة مبدئيًا.";
   if (normalized.includes("multiple weak trust signals"))
     return "توجد عدة مؤشرات ثقة ضعيفة في الطلب وتحتاج مراجعة دقيقة.";
+  if (normalized.includes("model pattern leaned reject"))
+    return "النموذج وجد أن نمط الطلب أقرب لطلبات مرفوضة سابقة، لذلك يحتاج تحققاً يدوياً قبل القرار.";
   if (normalized.includes("model confidence is moderate"))
     return "ثقة النموذج متوسطة، لذلك يفضّل مراجعة الطلب يدوياً قبل القرار النهائي.";
   if (normalized.includes("ai model request failed"))
@@ -337,20 +366,65 @@ function usernameMatchesUrl(url: string, pageUsername?: string | null) {
   return normalizedUrl.includes(handle) || normalizedUrl.includes(lastHandlePart);
 }
 
+function decodeUrlForMatching(url: string) {
+  try {
+    return decodeURIComponent(url);
+  } catch {
+    return url;
+  }
+}
+
+function tokenLooksSimilar(left: string, right: string) {
+  if (left === right) return true;
+  if (left.length >= 4 && right.includes(left)) return true;
+  if (right.length >= 4 && left.includes(right)) return true;
+  return false;
+}
+
+function scoreBusinessNameInUrl(url: string, businessName?: string | null) {
+  const nameTokens = tokenizeForRelevance(businessName || "").filter((token) => token.length >= 3);
+  if (nameTokens.length === 0) {
+    return { matched: false, score: 0, matchedTokens: [] as string[] };
+  }
+
+  const urlTokens = tokenizeForRelevance(decodeUrlForMatching(url));
+  const matchedTokens = nameTokens.filter((nameToken) =>
+    urlTokens.some((urlToken) => tokenLooksSimilar(nameToken, urlToken))
+  );
+
+  if (matchedTokens.length === 0) {
+    return { matched: false, score: 0, matchedTokens: [] as string[] };
+  }
+
+  const ratio = matchedTokens.length / nameTokens.length;
+  const score = Math.max(65, Math.min(92, Math.round(ratio * 100)));
+  return { matched: true, score, matchedTokens: matchedTokens.slice(0, 4) };
+}
+
 function scoreLinkRelevance(params: {
   url: string;
   pageText: string;
   pageUsername?: string | null;
+  businessName?: string | null;
   fullName: string;
   bio: string;
   description: string;
 }): { score: number; matchedTokens: string[]; status: "matched" | "weak" | "unknown" } {
   const handleMatched = usernameMatchesUrl(params.url, params.pageUsername);
+  const businessNameMatched = scoreBusinessNameInUrl(params.url, params.businessName);
   const claimTokens = tokenizeForRelevance(`${params.fullName} ${params.bio} ${params.description}`).slice(0, 60);
   const pageTokens = new Set(tokenizeForRelevance(`${params.url} ${params.pageUsername || ""} ${params.pageText}`).slice(0, 250));
 
   if (handleMatched) {
     return { score: 75, matchedTokens: ["username"], status: "matched" as const };
+  }
+
+  if (businessNameMatched.matched) {
+    return {
+      score: businessNameMatched.score,
+      matchedTokens: businessNameMatched.matchedTokens,
+      status: "matched" as const,
+    };
   }
 
   if (claimTokens.length === 0 || pageTokens.size === 0) {
@@ -365,12 +439,12 @@ function scoreLinkRelevance(params: {
 }
 
 async function analyzeLink(
-  url?: string | null,
-  context?: { fullName: string; bio: string; description: string }
+  url?: string | null
 ): Promise<LinkAnalysisResult> {
   if (!url) return { ...EMPTY_LINK };
 
   const platform = detectPlatform(url);
+  const isSocialPlatform = isSocialPlatformUrl(url);
 
   try {
     const controller = new AbortController();
@@ -387,18 +461,22 @@ async function analyzeLink(
     clearTimeout(timeout);
 
     if (!response.ok) {
-      return { reachable: false, platform, error: `HTTP ${response.status}` };
+      return { reachable: false, platform, isSocialPlatform, error: `HTTP ${response.status}` };
     }
 
     return {
       reachable: true,
       platform,
-      relevanceHint: `تم الوصول إلى رابط إثبات على ${platform}`,
+      isSocialPlatform,
+      relevanceHint: isSocialPlatform
+        ? `تم الوصول إلى رابط سوشال ميديا موثوق على ${platform}.`
+        : `تم الوصول إلى رابط إثبات على موقع إلكتروني عادي.`,
     };
   } catch (error) {
     return {
       reachable: false,
       platform,
+      isSocialPlatform,
       error: error instanceof Error ? error.message : "فشل التحقق من الرابط",
     };
   }
@@ -406,13 +484,14 @@ async function analyzeLink(
 
 async function analyzeRelevantLink(
   url?: string | null,
-  context?: { fullName: string; bio: string; description: string; pageUsername?: string | null }
+  context?: { fullName: string; bio: string; description: string; pageUsername?: string | null; businessName?: string | null }
 ): Promise<LinkAnalysisResult> {
   if (!url) return { ...EMPTY_LINK };
 
-  const baseResult = await analyzeLink(url, context);
+  const baseResult = await analyzeLink(url);
   if (!baseResult.reachable) return baseResult;
   const handleMatched = usernameMatchesUrl(url, context?.pageUsername);
+  const businessNameMatched = scoreBusinessNameInUrl(url, context?.businessName);
   const handleMatchResult = {
     ...baseResult,
     relevanceHint: `تم الوصول إلى الرابط على ${baseResult.platform} واسم الصفحة المدخل موجود داخل الرابط.`,
@@ -420,6 +499,14 @@ async function analyzeRelevantLink(
     relevanceStatus: "matched" as const,
   };
   if (handleMatched) return handleMatchResult;
+  if (businessNameMatched.matched) {
+    return {
+      ...baseResult,
+      relevanceHint: `تم الوصول إلى الرابط على ${baseResult.platform} وظهر تشابه مع اسم النشاط في الرابط (${businessNameMatched.matchedTokens.join("، ")}).`,
+      relevanceScore: businessNameMatched.score,
+      relevanceStatus: "matched" as const,
+    };
+  }
 
   try {
     const controller = new AbortController();
@@ -444,6 +531,7 @@ async function analyzeRelevantLink(
           url,
           pageText: page.content,
           pageUsername: context.pageUsername,
+          businessName: context.businessName,
           fullName: context.fullName,
           bio: context.bio,
           description: context.description,
@@ -454,8 +542,8 @@ async function analyzeRelevantLink(
       relevance.status === "matched"
         ? `تم الوصول إلى الرابط على ${baseResult.platform} وظهر تطابق مع وصف النشاط (${relevance.matchedTokens.join("، ")}).`
         : relevance.status === "weak"
-          ? `تم الوصول إلى الرابط على ${baseResult.platform} لكن لم يظهر تطابق كاف مع وصف النشاط.`
-          : `تم الوصول إلى الرابط على ${baseResult.platform} لكن لا توجد معلومات كافية للتحقق من مطابقته للنشاط.`;
+          ? `تم الوصول إلى الرابط على ${baseResult.platform}، ويمكن مراجعته يدوياً لتأكيد علاقته بالنشاط.`
+          : `تم الوصول إلى الرابط على ${baseResult.platform}، ويعد إشارة داعمة تحتاج مراجعة يدوية عند الحاجة.`;
 
     return {
       ...baseResult,
@@ -504,6 +592,26 @@ function collectDescription(accountType: string, typeSpecific: Record<string, un
     })
     .filter(Boolean)
     .join(" ");
+}
+
+function extractBusinessName(
+  accountType: string,
+  typeSpecific: Record<string, unknown>,
+  fullName: string
+) {
+  const keyMap: Record<string, string[]> = {
+    merchant: ["store_name"],
+    small_business: ["project_name"],
+    delivery: ["company_name"],
+    supporter: ["professional_name", "supporter_name"],
+  };
+
+  for (const key of keyMap[accountType] || []) {
+    const value = typeSpecific[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+
+  return fullName;
 }
 
 function getFallbackPythonDecision(payload: {
@@ -592,6 +700,20 @@ function ignoreEmailDomainSignal(python: PythonAiResponse): PythonAiResponse {
   };
 }
 
+function softenGenericConfidenceSignal(python: PythonAiResponse): PythonAiResponse {
+  const shouldKeepModerateConfidence =
+    python.decision === "review" && python.confidence < 0.55;
+
+  if (shouldKeepModerateConfidence) return python;
+
+  return {
+    ...python,
+    reasons: python.reasons.filter(
+      (reason) => !reason.toLowerCase().includes("model confidence is moderate")
+    ),
+  };
+}
+
 function buildDecisionHint(recommendation: AIReport["recommendation"]) {
   if (recommendation === "approve") return "يمكن اعتماد الطلب مبدئيًا ما لم تظهر ملاحظات يدوية معاكسة.";
   if (recommendation === "reject") return "يفضل رفض الطلب ما لم تتوفر أدلة خارجية قوية تعالج نقاط الشك.";
@@ -608,14 +730,21 @@ function buildArabicFallbackReport(params: {
 }): AIReport {
   const { app, python, bioWordCount, link1Result, link2Result, imageAnalyses } = params;
   const proof = app.proof_json || {};
+  const providedLinks = [proof.proof_link_1, proof.proof_link_2].filter(
+    (value) => typeof value === "string" && value.trim().length > 0
+  ).length;
   const reachableLinks = [link1Result, link2Result].filter((item) => item.reachable).length;
+  const socialLinks = [link1Result, link2Result].filter((item) => item.isSocialPlatform).length;
   const baseScore = Math.round(python.score * 100);
-  const adjustedScore = Math.max(
+  const linkAdjustment = reachableLinks > 0 ? 6 : providedLinks > 0 ? 2 : -8;
+  const bioAdjustment = bioWordCount >= 20 ? 4 : bioWordCount >= 12 ? 2 : bioWordCount >= 8 ? 0 : -6;
+  let adjustedScore = Math.max(
     0,
-    Math.min(100, baseScore + (reachableLinks > 0 ? 6 : -8) + (bioWordCount >= 20 ? 4 : -6))
+    Math.min(100, baseScore + linkAdjustment + bioAdjustment)
   );
 
   const recommendation = python.decision;
+  if (recommendation === "reject") adjustedScore = Math.min(adjustedScore, 35);
   const risk: AIReport["risk"] =
     recommendation === "reject" ? "high" : recommendation === "approve" ? "low" : "medium";
 
@@ -627,13 +756,14 @@ function buildArabicFallbackReport(params: {
   else weaknesses.push("النبذة قصيرة ولا توضح النشاط بشكل كاف.");
 
   if (reachableLinks > 0) strengths.push("يوجد رابط إثبات واحد على الأقل يمكن الوصول إليه.");
-  else weaknesses.push("لم يتم العثور على رابط إثبات صالح يمكن الوصول إليه.");
+  else if (providedLinks > 0) strengths.push("تم تقديم رابط إثبات يمكن مراجعته يدوياً حتى لو تعذر التحقق الآلي منه.");
+  else weaknesses.push("لم يتم تقديم رابط إثبات يمكن الاعتماد عليه في المراجعة.");
+
+  if (socialLinks > 0) strengths.push("يوجد رابط سوشال ميديا معروف مثل إنستغرام أو فيسبوك أو لينكدإن.");
 
   const matchedLinks = [link1Result, link2Result].filter((item) => item.relevanceStatus === "matched").length;
-  const weakLinks = [link1Result, link2Result].filter((item) => item.relevanceStatus === "weak").length;
 
   if (matchedLinks > 0) strengths.push("رابط الإثبات يحتوي على مؤشرات مرتبطة بوصف النشاط المقدم.");
-  if (weakLinks > 0) weaknesses.push("يوجد رابط إثبات يعمل، لكن محتواه لا يطابق وصف النشاط بشكل كاف.");
 
   if (python.reasons.some((reason) => reason.includes("suspicious email"))) {
     weaknesses.push("صيغة البريد الإلكتروني تثير الشك.");
@@ -665,7 +795,7 @@ function buildArabicFallbackReport(params: {
       bioWordCount >= 20
         ? "النبذة تعطي وصفًا مقبولًا للنشاط ويمكن البناء عليها في المراجعة."
         : "النبذة ضعيفة وتحتاج تفاصيل أوضح عن النشاط والخبرة أو طبيعة العمل.",
-    link_analysis: [link1Result.relevanceHint, link2Result.relevanceHint].filter(Boolean).join(" | ") || "لا توجد إفادة قوية من الروابط المرفقة.",
+    link_analysis: [link1Result.relevanceHint, link2Result.relevanceHint].filter(Boolean).join(" | ") || "لم يتم تقديم رابط يمكن الاعتماد عليه في التحليل الآلي، ويمكن للمدير طلب رابط إضافي عند الحاجة.",
     strengths,
     weaknesses,
     flags,
@@ -680,6 +810,7 @@ function buildArabicFallbackReport(params: {
         url: proof.proof_link_1 || null,
         reachable: link1Result.reachable,
         platform: link1Result.platform,
+        isSocialPlatform: link1Result.isSocialPlatform,
         relevanceHint: link1Result.relevanceHint,
         relevanceScore: link1Result.relevanceScore,
         relevanceStatus: link1Result.relevanceStatus,
@@ -691,6 +822,7 @@ function buildArabicFallbackReport(params: {
         url: proof.proof_link_2 || null,
         reachable: link2Result.reachable,
         platform: link2Result.platform,
+        isSocialPlatform: link2Result.isSocialPlatform,
         relevanceHint: link2Result.relevanceHint,
         relevanceScore: link2Result.relevanceScore,
         relevanceStatus: link2Result.relevanceStatus,
@@ -723,6 +855,7 @@ async function humanizeWithGroq(report: AIReport, context: {
             "أنت محلل طلبات احترافي. أعد صياغة التقرير التالي بالعربية الطبيعية وبأسلوب بشري واضح ومهني. " +
             "أعد JSON فقط بنفس المفاتيح التالية: summary, project_summary, details, bio_analysis, link_analysis, strengths, weaknesses, flags, decision_hint, reasons. " +
             "اجعل الجمل طبيعية وغير روبوتية، قصيرة نسبيًا، وواضحة لمدير منصة عربي. " +
+            "لا تجعل عدم وضوح الرابط نقطة ضعف بحد ذاته إذا كان الرابط يعمل؛ اكتبه كملاحظة تحقق يدوية فقط، ولا تضرر تقييم المستخدم بسبب غياب تطابق آلي كامل. " +
             "ممنوع استخدام اللغة الإنجليزية إلا لأسماء المنصات أو القيم التقنية الضرورية جدًا.",
         },
         {
@@ -793,6 +926,7 @@ export async function POST(req: NextRequest) {
     const fullName = typeof basic.full_name === "string" ? basic.full_name : "";
     const accountType = typeof app.account_type === "string" ? app.account_type : "";
     const description = collectDescription(accountType, typeSpecific);
+    const businessName = extractBusinessName(accountType, typeSpecific, fullName);
     const links = [proof.proof_link_1, proof.proof_link_2].filter(
       (value): value is string => typeof value === "string" && value.length > 0
     );
@@ -808,8 +942,8 @@ export async function POST(req: NextRequest) {
         full_name: fullName,
         description,
       }),
-      analyzeRelevantLink(proof.proof_link_1, { fullName, bio, description, pageUsername: proof.page_username }),
-      analyzeRelevantLink(proof.proof_link_2, { fullName, bio, description, pageUsername: proof.page_username }),
+      analyzeRelevantLink(proof.proof_link_1, { fullName, bio, description, pageUsername: proof.page_username, businessName }),
+      analyzeRelevantLink(proof.proof_link_2, { fullName, bio, description, pageUsername: proof.page_username, businessName }),
       Promise.all(
         fileUrls.map(async (url) => {
           try {
@@ -820,7 +954,7 @@ export async function POST(req: NextRequest) {
         })
       ),
     ]);
-    const python = ignoreEmailDomainSignal(rawPython);
+    const python = softenGenericConfidenceSignal(ignoreEmailDomainSignal(rawPython));
 
     const fallbackReport = buildArabicFallbackReport({
       app,

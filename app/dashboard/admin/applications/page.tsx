@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
-import { provisionApprovedAccount } from "@/lib/account-provisioning";
 
 type ApplicationStatus = "pending" | "approved" | "rejected";
 
@@ -42,6 +41,7 @@ type LinkMeta = {
   url: string | null;
   reachable: boolean;
   platform?: string;
+  isSocialPlatform?: boolean;
   relevanceHint?: string;
   relevanceScore?: number;
   relevanceStatus?: "matched" | "weak" | "unknown";
@@ -305,64 +305,32 @@ export default function ApplicationsPage() {
     setActionMsg("");
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      // 1. update applications
-      const { error: appError } = await supabase
-        .from("applications")
-        .update({
-          status,
-          admin_note: adminNote.trim() || null,
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: user?.id ?? null,
-        })
-        .eq("id", selectedApp.id);
-      if (appError) throw new Error(appError.message);
-
-      // 2. insert في admin_reviews
-      const { error: reviewError } = await supabase
-        .from("admin_reviews")
-        .insert({
-          application_id: selectedApp.id,
-          admin_id: user?.id ?? null,
-          decision: status,
-          reason: adminNote.trim() || null,
-        });
-      if (reviewError) throw new Error(reviewError.message);
-
-      if (status === "approved") {
-        const specific = selectedApp.data_json.type_specific || {};
-        const accountType = selectedApp.account_type;
-
-        // 3. insert في profiles الأساسي
-        const { error: profileError } = await supabase.from("profiles").upsert({
-          id: selectedApp.user_id,
-          full_name: selectedApp.data_json.basic.full_name,
-          email: selectedApp.data_json.basic.email,
-          phone: selectedApp.data_json.basic.phone,
-          country: selectedApp.data_json.basic.country,
-          city: selectedApp.data_json.basic.city,
-          account_type: accountType,
-          status: "approved",
-        }, { onConflict: "id" });
-        if (profileError) throw new Error(profileError.message);
-
-        // 4. insert في الجدول المخصص حسب نوع الحساب
-        await provisionApprovedAccount({
-          supabase,
-          userId: selectedApp.user_id,
-          accountType,
-          basic: selectedApp.data_json.basic,
-          typeSpecific: specific,
-          proofJson: selectedApp.proof_json,
-        });
-
-      } else {
-        // rejected → فقط update الـ status بـ profiles إذا موجود
-        await supabase.from("profiles").update({ status: "rejected" }).eq("id", selectedApp.user_id);
+      if (!session?.access_token) {
+        throw new Error("يجب تسجيل الدخول كأدمن لتنفيذ هذا الإجراء.");
       }
 
-      // 5. إرسال الإيميل
+      const reviewResponse = await fetch("/api/admin/applications/review", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          applicationId: selectedApp.id,
+          status,
+          adminNote,
+        }),
+      });
+
+      const reviewResult = await reviewResponse.json().catch(() => ({}));
+      if (!reviewResponse.ok) {
+        throw new Error(reviewResult.error || "فشل تنفيذ قرار المراجعة.");
+      }
+
       await sendEmail(
         selectedApp.data_json.basic.email,
         selectedApp.data_json.basic.full_name,
@@ -425,12 +393,11 @@ export default function ApplicationsPage() {
     const isGood = meta.reachable && !meta.relevanceHint?.includes("لم يُرصد");
 
     const relevanceStatus = meta.relevanceStatus || "unknown";
-    const isWeak = meta.reachable && relevanceStatus === "weak";
     const relevanceBadge =
       relevanceStatus === "matched"
         ? { label: "مطابق للنشاط", color: "bg-green-100 text-green-700" }
         : relevanceStatus === "weak"
-          ? { label: "تطابق ضعيف", color: "bg-yellow-100 text-yellow-700" }
+          ? { label: "بحاجة مراجعة", color: "bg-yellow-100 text-yellow-700" }
           : { label: "غير مؤكد", color: "bg-gray-100 text-gray-600" };
 
     const cardIsGood = meta.relevanceStatus ? meta.relevanceStatus === "matched" : isGood;
@@ -448,6 +415,15 @@ export default function ApplicationsPage() {
               {meta.platform && (
                 <span className="text-xs px-1.5 py-0.5 rounded bg-white/60 text-[#273347]/60 border border-current/10">
                   {meta.platform}
+                </span>
+              )}
+              {meta.url && (
+                <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                  meta.isSocialPlatform
+                    ? "bg-blue-50 text-blue-700 border-blue-100"
+                    : "bg-gray-50 text-gray-600 border-gray-100"
+                }`}>
+                  {meta.isSocialPlatform ? "سوشال" : "موقع"}
                 </span>
               )}
               {meta.reachable && (

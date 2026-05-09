@@ -118,6 +118,75 @@ def _request_to_record(payload: PredictRequest) -> NormalizedApplication:
     )
 
 
+def _class_probability_map(
+    probabilities: Any,
+    model: Any,
+    label_encoder: Any,
+) -> dict[str, float]:
+    if label_encoder is not None:
+        labels = [str(label) for label in label_encoder.inverse_transform(model.classes_)]
+    else:
+        labels = [str(label) for label in model.classes_]
+    return {label: float(probability) for label, probability in zip(labels, probabilities)}
+
+
+def _quality_score(probability_map: dict[str, float], decision: str, confidence: float) -> float:
+    approve_probability = probability_map.get("approve")
+    review_probability = probability_map.get("review", 0.0)
+    reject_probability = probability_map.get("reject")
+
+    if approve_probability is None:
+        if decision == "approve":
+            approve_probability = confidence
+        elif reject_probability is not None:
+            approve_probability = max(0.0, 1.0 - reject_probability - review_probability)
+        else:
+            approve_probability = 0.0
+
+    score = approve_probability + (review_probability * 0.5)
+    return round(max(0.0, min(1.0, score)), 4)
+
+
+def _decision_with_approval_bias(
+    record: NormalizedApplication,
+    decision: str,
+    probability_map: dict[str, float],
+) -> str:
+    features = build_structured_features(record)
+    has_clear_rejection_signals = (
+        features["bio_word_count"] < 8
+        and features["description_word_count"] < 4
+        and not features["has_links"]
+    ) or (
+        features["has_non_business_proof_domain"]
+    ) or (
+        features["has_random_numbers"]
+        and not features["has_links"]
+        and features["bio_word_count"] < 12
+    )
+
+    if decision == "reject" and not has_clear_rejection_signals:
+        if (
+            features["has_links"]
+            and features["bio_word_count"] >= 12
+            and features["description_word_count"] >= 3
+        ):
+            return "approve"
+        return "review"
+
+    if decision == "review":
+        approve_probability = probability_map.get("approve", 0.0)
+        if (
+            features["has_links"]
+            and features["bio_word_count"] >= 16
+            and features["description_word_count"] >= 4
+            and approve_probability >= 0.3
+        ):
+            return "approve"
+
+    return decision
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -140,7 +209,11 @@ def predict(payload: PredictRequest):
     else:
         decision = str(model.classes_[best_index])
     confidence = float(probabilities[best_index])
-    score = round(confidence, 4)
+    probability_map = _class_probability_map(probabilities, model, label_encoder)
+    decision = _decision_with_approval_bias(record, decision, probability_map)
+    score = _quality_score(probability_map, decision, confidence)
+    if decision == "approve":
+        score = max(score, 0.75)
     reasons = reasons_from_record(record, decision, confidence)
     print("AI Source = random_forest")
 

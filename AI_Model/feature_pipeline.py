@@ -21,6 +21,21 @@ FREE_EMAIL_DOMAINS = {
 
 RANDOM_NUMBER_THRESHOLD = 4
 
+NON_BUSINESS_PROOF_DOMAINS = {
+    "github.com",
+    "gitlab.com",
+    "bitbucket.org",
+    "stackoverflow.com",
+    "stackexchange.com",
+    "codepen.io",
+    "codesandbox.io",
+    "replit.com",
+    "npmjs.com",
+    "pypi.org",
+    "medium.com",
+    "notion.site",
+}
+
 
 @dataclass
 class NormalizedApplication:
@@ -164,6 +179,18 @@ def _link_domains(links: Iterable[str]) -> list[str]:
     return domains
 
 
+def _domain_matches(domain: str, candidate: str) -> bool:
+    return domain == candidate or domain.endswith(f".{candidate}")
+
+
+def _has_non_business_proof_domain(domains: Iterable[str]) -> bool:
+    return any(
+        _domain_matches(domain, candidate)
+        for domain in domains
+        for candidate in NON_BUSINESS_PROOF_DOMAINS
+    )
+
+
 def build_structured_features(record: NormalizedApplication) -> dict[str, float]:
     bio_words = re.findall(r"\w+", record.bio, flags=re.UNICODE)
     description_words = re.findall(r"\w+", record.description, flags=re.UNICODE)
@@ -181,6 +208,7 @@ def build_structured_features(record: NormalizedApplication) -> dict[str, float]
         "has_links": float(bool(record.links or "http" in record.bio.lower())),
         "link_count": float(len(record.links)),
         "unique_link_domains": float(len(unique_link_domains)),
+        "has_non_business_proof_domain": float(_has_non_business_proof_domain(unique_link_domains)),
         "has_email_match": 1.0,
         "has_random_numbers": float(digit_count >= RANDOM_NUMBER_THRESHOLD),
         "email_digit_count": float(digit_count),
@@ -224,18 +252,20 @@ def reasons_from_record(record: NormalizedApplication, decision: str, confidence
         reasons.append("no links provided")
     if features["has_random_numbers"]:
         reasons.append("suspicious email")
-    if features["description_word_count"] < 4:
+    if features["has_non_business_proof_domain"]:
+        reasons.append("proof link is not a business or social page")
+    if decision != "approve" and features["description_word_count"] < 4:
         reasons.append("project or store description is limited")
 
     if not reasons:
         if decision == "approve":
             reasons.append("bio and business description look sufficiently detailed")
         elif decision == "reject":
-            reasons.append("multiple weak trust signals were detected")
+            reasons.append("model pattern leaned reject; verify manually")
         else:
             reasons.append("mixed signals require manual review")
 
-    if confidence < 0.6 and "mixed signals require manual review" not in reasons:
+    if decision == "review" and confidence < 0.55 and "mixed signals require manual review" not in reasons:
         reasons.append("model confidence is moderate")
 
     return reasons[:4]

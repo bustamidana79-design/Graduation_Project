@@ -38,6 +38,30 @@ const isValidUrl = (val: string): boolean => {
   }
 };
 
+const socialMediaDomains = [
+  "instagram.com",
+  "facebook.com",
+  "fb.com",
+  "tiktok.com",
+  "x.com",
+  "twitter.com",
+  "linkedin.com",
+  "youtube.com",
+  "youtu.be",
+  "snapchat.com",
+  "wa.me",
+  "whatsapp.com",
+];
+
+const isSocialMediaUrl = (val: string): boolean => {
+  try {
+    const hostname = new URL(val).hostname.toLowerCase().replace(/^www\./, "");
+    return socialMediaDomains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
+};
+
 
 type ProjectStage = "idea" | "running" | "scaling" | "";
 type DeliveryScope = "local" | "international" | "international_local" | "";
@@ -233,6 +257,7 @@ if (projectField === "other" && !projectFieldOther.trim()) return "يرجى كت
       if (needs.length === 0) return "يرجى اختيار احتياج واحد على الأقل.";
       if (!socialLink.trim()) return "يرجى إدخال رابط السوشال للمشروع.";
       if (!isValidUrl(socialLink.trim())) return "رابط السوشال غير صحيح، يجب أن يبدأ بـ https://";
+      if (!isSocialMediaUrl(socialLink.trim())) return "رابط السوشال يجب أن يكون من منصة معروفة مثل Instagram أو Facebook أو TikTok أو LinkedIn.";
     }
 
     if (accountType === "delivery") {
