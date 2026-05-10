@@ -3,23 +3,31 @@
 import { FormEvent, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
+import ProfileEditModal, { type EditableProfile } from "@/components/ProfileEditModal";
 
 type SmallBusinessDetails = {
+  user_id?: string | null;
   project_name: string | null;
   project_field: string | null;
   project_stage: string | null;
   needs: string[] | null;
   social_link: string | null;
+  [key: string]: unknown;
 };
 
 type BaseProfile = {
+  id?: string | null;
   full_name: string | null;
   email?: string | null;
   phone?: string | null;
   country?: string | null;
   city?: string | null;
+  bio?: string | null;
+  avatar_url?: string | null;
   status?: string | null;
 };
+
+type FullProfile = BaseProfile & Partial<SmallBusinessDetails>;
 
 type ShowcaseItem = {
   id: string;
@@ -34,11 +42,13 @@ const cardClass = "rounded-2xl border border-[#e6edf5] bg-white p-5 shadow-sm";
 export default function SmallBusinessProfilePage() {
   const { profile, loading } = useDashboardAccess({ requiredAccountType: "small_business" });
   const [baseProfile, setBaseProfile] = useState<BaseProfile | null>(null);
-  const [details, setDetails] = useState<SmallBusinessDetails | null>(null);
+  const [fullProfile, setFullProfile] = useState<FullProfile | null>(null);
   const [showcaseItems, setShowcaseItems] = useState<ShowcaseItem[]>([]);
   const [schemaHint, setSchemaHint] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [toast, setToast] = useState("");
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -50,26 +60,40 @@ export default function SmallBusinessProfilePage() {
     if (!profile?.id) return;
 
     const loadProfileData = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const userId = user?.id;
+      if (!userId) return;
+
       const [{ data: baseData }, { data: detailsData }] = await Promise.all([
         supabase
           .from("profiles")
-          .select("full_name, email, phone, country, city, status")
-          .eq("id", profile.id)
+          .select("*")
+          .eq("id", userId)
           .maybeSingle(),
         supabase
           .from("small_business_profiles")
-          .select("project_name, project_field, project_stage, needs, social_link")
-          .eq("user_id", profile.id)
+          .select("*")
+          .eq("user_id", userId)
           .maybeSingle(),
       ]);
 
+      const mergedProfile = {
+        ...((baseData as BaseProfile | null) || {}),
+        ...((detailsData as SmallBusinessDetails | null) || {}),
+      } as FullProfile;
+
+      console.log("profile", baseData);
+      console.log("business", detailsData);
+      console.log("fullProfile", mergedProfile);
       setBaseProfile((baseData as BaseProfile | null) || null);
-      setDetails((detailsData as SmallBusinessDetails | null) || null);
+      setFullProfile(mergedProfile);
 
       const { data: itemsData, error: itemsError } = await supabase
         .from("small_business_showcase_items")
         .select("id, title, description, image_url, item_link")
-        .eq("user_id", profile.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
       if (itemsError) {
@@ -132,20 +156,36 @@ export default function SmallBusinessProfilePage() {
     setShowcaseItems((current) => current.filter((item) => item.id !== itemId));
   };
 
-  const fullName = baseProfile?.full_name || profile?.full_name || "صاحب المشروع";
+  const fullName = fullProfile?.full_name || profile?.full_name || "صاحب المشروع";
 
   return (
     <div className="space-y-6" dir="rtl">
       <section className="rounded-3xl bg-[#273347] px-8 py-8 text-white">
+        <div className="mb-5 flex items-center justify-between gap-4">
+          {fullProfile?.avatar_url ? (
+            <img src={fullProfile.avatar_url} alt={fullName} className="h-16 w-16 rounded-2xl object-cover" />
+          ) : (
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/10 text-2xl font-bold">
+              {fullName.trim().charAt(0)}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            className="rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-[#273347] transition hover:bg-[#eaf1f7]"
+          >
+            تعديل المعلومات
+          </button>
+        </div>
         <p className="text-sm text-white/60">الملف الشخصي</p>
         <h1 className="mt-2 text-3xl font-bold">{loading ? "..." : fullName}</h1>
         <p className="mt-2 text-sm text-white/70">
-          {details?.project_name || "صفحة تعريفية بمشروعك ومعرض أعمالك داخل المنصة."}
+          {fullProfile?.project_name || "صفحة تعريفية بمشروعك ومعرض أعمالك داخل المنصة."}
         </p>
         <div className="mt-5 flex flex-wrap gap-3 text-sm text-white/85">
           <span className="rounded-full bg-white/10 px-4 py-2">نوع الحساب: مشروع صغير</span>
           <span className="rounded-full bg-white/10 px-4 py-2">
-            الحالة: {baseProfile?.status || "approved"}
+            الحالة: {fullProfile?.status || "approved"}
           </span>
           <span className="rounded-full bg-white/10 px-4 py-2">
             عدد عناصر المعرض: {showcaseItems.length}
@@ -156,6 +196,12 @@ export default function SmallBusinessProfilePage() {
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      )}
+
+      {toast && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+          {toast}
         </div>
       )}
 
@@ -174,25 +220,26 @@ export default function SmallBusinessProfilePage() {
           <h2 className="text-lg font-bold text-[#273347]">المعلومات العامة</h2>
           <div className="mt-4 space-y-3 text-sm text-[#273347]/75">
             <p>الاسم: {fullName}</p>
-            <p>الإيميل: {baseProfile?.email || "غير متوفر"}</p>
-            <p>رقم الهاتف: {baseProfile?.phone || "غير متوفر"}</p>
-            <p>الدولة: {baseProfile?.country || "غير متوفرة"}</p>
-            <p>المدينة: {baseProfile?.city || "غير متوفرة"}</p>
+            <p>الإيميل: {fullProfile?.email ?? "غير متوفر"}</p>
+            <p>رقم الهاتف: {fullProfile?.phone ?? "غير متوفر"}</p>
+            <p>الدولة: {fullProfile?.country ?? "غير متوفرة"}</p>
+            <p>المدينة: {fullProfile?.city ?? "غير متوفرة"}</p>
+            <p>النبذة: {fullProfile?.bio ?? "غير متوفرة"}</p>
           </div>
         </div>
 
         <div className={cardClass}>
           <h2 className="text-lg font-bold text-[#273347]">معلومات المشروع</h2>
           <div className="mt-4 space-y-3 text-sm text-[#273347]/75">
-            <p>اسم المشروع: {details?.project_name || fullName}</p>
-            <p>مجال المشروع: {details?.project_field || "غير محدد"}</p>
-            <p>مرحلة المشروع: {details?.project_stage || "غير محددة"}</p>
+            <p>اسم المشروع: {fullProfile?.project_name || fullName}</p>
+            <p>مجال المشروع: {fullProfile?.project_field ?? "غير محدد"}</p>
+            <p>مرحلة المشروع: {fullProfile?.project_stage ?? "غير محددة"}</p>
             <p>
               الرابط:
               {" "}
-              {details?.social_link ? (
+              {fullProfile?.social_link ? (
                 <a
-                  href={details.social_link}
+                  href={fullProfile.social_link}
                   target="_blank"
                   rel="noreferrer"
                   className="font-medium text-blue-600 hover:underline"
@@ -206,8 +253,8 @@ export default function SmallBusinessProfilePage() {
             <div className="pt-1">
               <p className="mb-2">الاحتياجات الحالية:</p>
               <div className="flex flex-wrap gap-2">
-                {(details?.needs || []).length > 0 ? (
-                  (details?.needs || []).map((need) => (
+                {(fullProfile?.needs || []).length > 0 ? (
+                  (fullProfile?.needs || []).map((need) => (
                     <span key={need} className="rounded-full bg-[#eef3f8] px-3 py-1 text-xs">
                       {need}
                     </span>
@@ -324,6 +371,19 @@ export default function SmallBusinessProfilePage() {
           </div>
         )}
       </section>
+      <ProfileEditModal
+        open={editOpen}
+        profile={fullProfile || baseProfile}
+        onClose={() => setEditOpen(false)}
+        onUpdated={(nextProfile: EditableProfile) => {
+          const nextFullProfile = { ...fullProfile, ...nextProfile } as FullProfile;
+          setBaseProfile(nextProfile as BaseProfile);
+          setFullProfile(nextFullProfile);
+          setEditOpen(false);
+          setToast("Profile updated successfully");
+          window.setTimeout(() => setToast(""), 3000);
+        }}
+      />
     </div>
   );
 }

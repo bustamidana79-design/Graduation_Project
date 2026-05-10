@@ -1,0 +1,150 @@
+type SupabaseClient = {
+  from: (table: string) => any;
+};
+
+export type CartLine = {
+  id: string;
+  cart_id: string;
+  product_id: string;
+  quantity: number;
+  product?: Record<string, any> | null;
+};
+
+export function requireSmallBusiness(profile: { account_type?: string | null }) {
+  if (profile.account_type !== "small_business") {
+    throw new Error("SMALL_BUSINESS_ONLY");
+  }
+}
+
+export async function getOrCreateCart(supabase: SupabaseClient, userId: string) {
+  const existing = await supabase.from("carts").select("id, user_id").eq("user_id", userId).maybeSingle();
+  if (existing.error && existing.error.code !== "PGRST116") throw new Error(existing.error.message);
+  if (existing.data) return existing.data;
+
+  const created = await supabase.from("carts").insert({ user_id: userId }).select("id, user_id").single();
+  if (created.error || !created.data) throw new Error(created.error?.message || "Failed to create cart.");
+  return created.data;
+}
+
+async function fetchCartRows(supabase: SupabaseClient, cartId: string): Promise<CartLine[]> {
+  const { data, error } = await supabase
+    .from("cart_items")
+    .select("id, cart_id, product_id, quantity")
+    .eq("cart_id", cartId);
+
+  if (error) throw new Error(error.message);
+  return (data || []) as CartLine[];
+}
+
+async function attachProducts(supabase: SupabaseClient, rows: CartLine[]) {
+  const productIds = rows.map((row) => row.product_id).filter(Boolean);
+  if (productIds.length === 0) return rows;
+
+  const { data, error } = await supabase
+    .from("products")
+    .select("*, product_images(id, image_url, is_primary)")
+    .in("id", productIds);
+
+  if (error) throw new Error(error.message);
+  const productMap = new Map<string, Record<string, any>>();
+  for (const product of data || []) {
+    const images = product.product_images || [];
+    productMap.set(String(product.id), {
+      ...product,
+      primary_image: images.find((image: any) => image.is_primary) || images[0] || null,
+    });
+  }
+
+  return rows.map((row) => ({ ...row, product: productMap.get(row.product_id) || null }));
+}
+
+export async function getCart(supabase: SupabaseClient, userId: string) {
+  const cart = await getOrCreateCart(supabase, userId);
+  const rows = await fetchCartRows(supabase, cart.id);
+  const items = await attachProducts(supabase, rows);
+  const subtotal = items.reduce((sum, item) => {
+    const price = Number(item.product?.wholesale_price || 0);
+    return sum + price * Number(item.quantity || 0);
+  }, 0);
+
+  return { cart, items, subtotal, total_amount: subtotal };
+}
+
+export async function addToCart(supabase: SupabaseClient, userId: string, productId: string, quantity: number) {
+  const finalQuantity = Math.max(1, Number(quantity || 1));
+  const { data: product, error: productError } = await supabase
+    .from("products")
+    .select("id, stock_quantity, min_order_quantity, is_published")
+    .eq("id", productId)
+    .single();
+
+  if (productError || !product || !product.is_published) throw new Error("PRODUCT_NOT_AVAILABLE");
+  if (finalQuantity < Number(product.min_order_quantity || 1)) throw new Error("MIN_ORDER_QUANTITY");
+
+  const cart = await getOrCreateCart(supabase, userId);
+  const requestedQuantity = finalQuantity;
+  const existing = await supabase
+    .from("cart_items")
+    .select("id, quantity")
+    .eq("cart_id", cart.id)
+    .eq("product_id", productId)
+    .maybeSingle();
+
+  if (existing.error && existing.error.code !== "PGRST116") throw new Error(existing.error.message);
+
+  const nextQuantity = Number(existing.data?.quantity || 0) + requestedQuantity;
+  if (Number(product.stock_quantity || 0) < nextQuantity) throw new Error("INSUFFICIENT_STOCK");
+
+  if (existing.data) {
+    const { error } = await supabase.from("cart_items").update({ quantity: nextQuantity }).eq("id", existing.data.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase
+      .from("cart_items")
+      .insert({ cart_id: cart.id, product_id: productId, quantity: requestedQuantity });
+    if (error) throw new Error(error.message);
+  }
+
+  return getCart(supabase, userId);
+}
+
+export async function updateCartItemQuantity(
+  supabase: SupabaseClient,
+  userId: string,
+  productId: string,
+  quantity: number
+) {
+  const finalQuantity = Math.max(1, Number(quantity || 1));
+  const cart = await getOrCreateCart(supabase, userId);
+
+  const { data: product, error: productError } = await supabase
+    .from("products")
+    .select("id, stock_quantity, min_order_quantity, is_published")
+    .eq("id", productId)
+    .single();
+
+  if (productError || !product || !product.is_published) throw new Error("PRODUCT_NOT_AVAILABLE");
+  if (finalQuantity < Number(product.min_order_quantity || 1)) throw new Error("MIN_ORDER_QUANTITY");
+  if (Number(product.stock_quantity || 0) < finalQuantity) throw new Error("INSUFFICIENT_STOCK");
+
+  const { error } = await supabase
+    .from("cart_items")
+    .update({ quantity: finalQuantity })
+    .eq("cart_id", cart.id)
+    .eq("product_id", productId);
+
+  if (error) throw new Error(error.message);
+  return getCart(supabase, userId);
+}
+
+export async function removeFromCart(supabase: SupabaseClient, userId: string, productId: string) {
+  const cart = await getOrCreateCart(supabase, userId);
+  const { error } = await supabase.from("cart_items").delete().eq("cart_id", cart.id).eq("product_id", productId);
+  if (error) throw new Error(error.message);
+  return getCart(supabase, userId);
+}
+
+export async function clearCart(supabase: SupabaseClient, cartId: string) {
+  const { error } = await supabase.from("cart_items").delete().eq("cart_id", cartId);
+  if (error) throw new Error(error.message);
+}

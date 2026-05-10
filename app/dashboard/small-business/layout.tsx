@@ -3,6 +3,8 @@
 import { useState } from "react";
 import SmallBusinessSidebar from "./components/Small-BusinessSidebar";
 import { getProfileInitial, useDashboardAccess } from "@/hooks/useDashboardAccess";
+import NotificationBell from "@/components/NotificationBell";
+import OrderRealtimeBridge from "@/components/OrderRealtimeBridge";
 
 export default function SmallBusinessLayout({
   children,
@@ -22,6 +24,7 @@ export default function SmallBusinessLayout({
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc]" dir="rtl">
+      <OrderRealtimeBridge />
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-20 bg-black/30 md:hidden"
@@ -41,6 +44,7 @@ export default function SmallBusinessLayout({
           </button>
 
           <div className="mr-auto flex items-center gap-3">
+            <NotificationBell />
             <div className="text-right">
               <p className="text-sm font-semibold text-[#273347]">
                 {profile?.full_name || "صاحب المشروع"}

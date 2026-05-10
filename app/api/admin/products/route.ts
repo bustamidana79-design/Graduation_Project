@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabase, isAdminProfile, requireAuthProfile } from "@/lib/api-auth";
+import { isAdminProfile, requireAuthProfile } from "@/lib/api-auth";
+import { createSupabaseAdmin } from "@/lib/supabase-admin";
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,7 +9,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "غير مصرح لك بعرض هذه البيانات." }, { status: 403 });
     }
 
-    const supabase = createServerSupabase();
+    const supabase = createSupabaseAdmin();
     const { data: products, error } = await supabase
       .from("products")
       .select("*")

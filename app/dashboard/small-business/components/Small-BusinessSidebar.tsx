@@ -5,15 +5,17 @@ import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "../../../../lib/supabase";
 
 const navItems = [
-  { label: "الرئيسية", href: "/dashboard/small-business", icon: "🏠" },
-  { label: "المستخدمون", href: "/dashboard/small-business/users", icon: "👥" },
-  { label: "المنتجات", href: "/dashboard/small-business/products", icon: "🏪" },
-  { label: "طلباتي", href: "/dashboard/small-business/orders", icon: "🛒" },
-  { label: "المحادثات", href: "/dashboard/small-business/messages", icon: "💬" },
-  { label: "التحليلات", href: "/dashboard/small-business/analytics", icon: "📊" },
+  { label: "الرئيسية", href: "/dashboard/small-business", icon: "Home" },
+  { label: "المستخدمون", href: "/dashboard/small-business/users", icon: "Users" },
+  { label: "المنتجات", href: "/dashboard/small-business/products", icon: "Shop" },
+  { label: "السلة", href: "/dashboard/small-business/cart", icon: "Cart" },
+  { label: "المفضلة", href: "/dashboard/small-business/favorites", icon: "Fav" },
+  { label: "طلباتي", href: "/dashboard/small-business/orders", icon: "Orders" },
+  { label: "المحادثات", href: "/dashboard/small-business/messages", icon: "Chat" },
+  { label: "التحليلات", href: "/dashboard/small-business/analytics", icon: "Stats" },
   { label: "المساعد الذكي", href: "/dashboard/small-business/assistant", icon: "AI" },
-  { label: "خدمة العملاء", href: "/dashboard/small-business/customer-service", icon: "🎧" },
-  { label: "الملف الشخصي", href: "/dashboard/small-business/profile", icon: "👤" },
+  { label: "خدمة العملاء", href: "/dashboard/small-business/customer-service", icon: "Help" },
+  { label: "الملف الشخصي", href: "/dashboard/small-business/profile", icon: "Me" },
 ];
 
 export default function SmallBusinessSidebar({
@@ -62,7 +64,7 @@ export default function SmallBusinessSidebar({
                 : "text-white/70 hover:bg-white/10 hover:text-white"
             }`}
           >
-            <span className="text-lg">{item.icon}</span>
+            <span className="w-10 text-xs font-semibold text-white/60">{item.icon}</span>
             <span>{item.label}</span>
           </Link>
         ))}
@@ -73,7 +75,7 @@ export default function SmallBusinessSidebar({
           onClick={handleSignOut}
           className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-white/70 transition-all hover:bg-white/10 hover:text-white"
         >
-          <span className="text-lg">🚪</span>
+          <span className="w-10 text-xs font-semibold text-white/60">Exit</span>
           <span>تسجيل الخروج</span>
         </button>
       </div>

@@ -2,6 +2,8 @@
 
 import AdminSidebar from "./components/AdminSidebar";
 import { getProfileInitial, useDashboardAccess } from "@/hooks/useDashboardAccess";
+import NotificationBell from "@/components/NotificationBell";
+import OrderRealtimeBridge from "@/components/OrderRealtimeBridge";
 
 export default function AdminLayout({
   children,
@@ -20,11 +22,13 @@ export default function AdminLayout({
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc]" dir="rtl">
+      <OrderRealtimeBridge />
       <AdminSidebar />
       <div className="flex flex-1 flex-col">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-[#e6edf5] bg-white px-6 py-4">
           <div className="text-sm font-semibold text-[#273347]"></div>
           <div className="flex items-center gap-3">
+            <NotificationBell />
             <div className="text-right">
               <p className="text-sm font-semibold text-[#273347]">{profile?.full_name || "المدير"}</p>
               <p className="text-xs text-[#273347]/50">مدير النظام</p>

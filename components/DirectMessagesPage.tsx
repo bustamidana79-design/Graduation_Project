@@ -59,6 +59,10 @@ const getConversationPeerId = (conversation: DirectConversation, currentUserId: 
   conversation.user_one_id === currentUserId ? conversation.user_two_id : conversation.user_one_id;
 
 export default function DirectMessagesPage() {
+  const [initialConversationId] = useState(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("conversation");
+  });
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [conversations, setConversations] = useState<EnrichedConversation[]>([]);
   const [availableUsers, setAvailableUsers] = useState<Profile[]>([]);
@@ -135,6 +139,10 @@ export default function DirectMessagesPage() {
     setSelectedConversationId((currentSelected) => {
       if (currentSelected && nextConversations.some((conversation) => conversation.id === currentSelected)) {
         return currentSelected;
+      }
+
+      if (initialConversationId && nextConversations.some((conversation) => conversation.id === initialConversationId)) {
+        return initialConversationId;
       }
 
       return nextConversations[0]?.id ?? null;

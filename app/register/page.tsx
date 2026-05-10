@@ -147,6 +147,7 @@ export default function RegisterPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [countryName, setCountryName] = useState("فلسطين");
+  const [city, setCity] = useState("");
 const [interestsOther, setInterestsOther] = useState("");
 const [countryCode, setCountryCode] = useState("PS");
 const [productCategoryOther, setProductCategoryOther] = useState("");
@@ -235,6 +236,7 @@ if (countryCode === "PS") {
     if (!isValidPhoneNumber(phone))
   return "رقم الهاتف غير صحيح.";
     if (!country.trim()) return "يرجى إدخال الدولة.";
+    if (!city.trim()) return "يرجى اختيار المدينة.";
 if (bioWordCount < 20) return "يرجى كتابة نبذة تعريفية أكثر تفصيلاً (20 كلمة على الأقل)."  ;
     return "";
   };
@@ -363,6 +365,7 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
           email: cleanEmail,
           phone: phone,
           country: countryName,
+          city,
           account_type: accountType,
           bio: bio.trim(),
         },
@@ -417,8 +420,10 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
             email: cleanEmail,
             phone,
             country: countryName,
+            city,
             account_type: accountType,
             status: "pending",
+            ...(bio.trim() ? { bio: bio.trim() } : {}),
           },
           { onConflict: "id" }
         );
@@ -715,6 +720,7 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
           setCountryCode(country);
           setCountryName(name);
           setCountry(name);
+          setCity("");
         }
       }}
       className="w-full border border-gray-300 rounded-xl p-3"
@@ -733,6 +739,23 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
         readOnly
         className="w-full border border-gray-300 rounded-xl p-3 bg-gray-100"
       />
+    </div>
+    <div>
+      <label className="block text-sm font-semibold text-[#273347] mb-2">
+        المدينة
+      </label>
+      <select
+        value={city}
+        onChange={(e) => setCity(e.target.value)}
+        className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+      >
+        <option value="">اختر المدينة</option>
+        {cities.map((cityOption) => (
+          <option key={cityOption.name} value={cityOption.name}>
+            {cityOption.name}
+          </option>
+        ))}
+      </select>
     </div>
     <div>
       <label className="block text-sm font-semibold text-[#273347] mb-2">

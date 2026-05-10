@@ -3,6 +3,8 @@
 import { useState } from "react";
 import SupplierSidebar from "./components/SupplierSidebar";
 import { getProfileInitial, useDashboardAccess } from "@/hooks/useDashboardAccess";
+import NotificationBell from "@/components/NotificationBell";
+import OrderRealtimeBridge from "@/components/OrderRealtimeBridge";
 
 export default function SupplierLayout({
   children,
@@ -22,6 +24,7 @@ export default function SupplierLayout({
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc]" dir="rtl">
+      <OrderRealtimeBridge />
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-20 bg-black/30 md:hidden"
@@ -41,6 +44,7 @@ export default function SupplierLayout({
       <main className="flex min-h-screen flex-1 flex-col">
         <header className="sticky top-0 z-10 border-b border-[#e6edf5] bg-white px-6 py-4">
           <div className="flex items-center justify-end gap-3">
+            <NotificationBell />
             <div className="text-sm">
               <p className="font-semibold text-[#273347]">{profile?.full_name || "المورد"}</p>
               <p className="text-xs text-[#273347]/50">مورد</p>

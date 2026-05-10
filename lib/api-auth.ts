@@ -4,8 +4,20 @@ import { NextRequest, NextResponse } from "next/server";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export function createServerSupabase() {
-  return createClient(supabaseUrl, supabaseAnonKey);
+export function createServerSupabase(token?: string) {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: token
+      ? {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      : undefined,
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }
 
 export async function requireAuthProfile(request: NextRequest) {
@@ -16,16 +28,17 @@ export async function requireAuthProfile(request: NextRequest) {
     throw new Error("UNAUTHORIZED");
   }
 
-  const supabase = createServerSupabase();
+  const authSupabase = createServerSupabase();
   const {
     data: { user },
     error: authError,
-  } = await supabase.auth.getUser(token);
+  } = await authSupabase.auth.getUser(token);
 
   if (authError || !user) {
     throw new Error("UNAUTHORIZED");
   }
 
+  const supabase = createServerSupabase(token);
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("*")

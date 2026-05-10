@@ -9,7 +9,7 @@ async function buildProductDetails(productId: string) {
     return { error: "المنتج غير موجود." };
   }
 
-  const [{ data: images }, { data: supplier }] = await Promise.all([
+  const [{ data: images }, { data: supplier }, { data: profile }] = await Promise.all([
     supabase
       .from("product_images")
       .select("id, image_url, is_primary")
@@ -20,13 +20,21 @@ async function buildProductDetails(productId: string) {
       .select("user_id, store_name")
       .eq("user_id", product.supplier_id)
       .single(),
+    supabase
+      .from("profiles")
+      .select("id, full_name, account_type")
+      .eq("id", product.supplier_id)
+      .maybeSingle(),
   ]);
+  const supplierName = supplier?.store_name || profile?.full_name || "متجر المورد";
 
   return {
     product: {
       ...product,
+      supplier_name: supplierName,
+      supplier_type: profile?.account_type || "merchant",
       images: images || [],
-      supplier: supplier || null,
+      supplier: supplier ? { ...supplier, account_type: profile?.account_type || "merchant" } : null,
     },
   };
 }

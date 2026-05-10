@@ -2,6 +2,7 @@
 
 import SupporterSidebar from "./components/SupporterSidebar";
 import { getProfileInitial, useDashboardAccess } from "@/hooks/useDashboardAccess";
+import NotificationBell from "@/components/NotificationBell";
 
 export default function SupporterLayout({
   children,
@@ -24,6 +25,7 @@ export default function SupporterLayout({
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-end border-b border-[#e6edf5] bg-white px-6 py-4">
           <div className="flex items-center gap-3">
+            <NotificationBell />
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#273347] text-sm font-bold text-white">
               {getProfileInitial(profile?.full_name, "د")}
             </div>

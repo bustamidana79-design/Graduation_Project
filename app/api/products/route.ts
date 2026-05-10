@@ -9,7 +9,7 @@ async function enrichProducts(products: Record<string, unknown>[]) {
     new Set(products.map((product) => String(product.supplier_id || "")).filter(Boolean))
   );
 
-  const [{ data: images }, { data: suppliers }] = await Promise.all([
+  const [{ data: images }, { data: suppliers }, { data: profiles }] = await Promise.all([
     supabase
       .from("product_images")
       .select("id, product_id, image_url, is_primary")
@@ -18,6 +18,10 @@ async function enrichProducts(products: Record<string, unknown>[]) {
       .from("supplier_profiles")
       .select("user_id, store_name")
       .in("user_id", supplierIds),
+    supabase
+      .from("profiles")
+      .select("id, full_name, account_type")
+      .in("id", supplierIds),
   ]);
 
   const imageMap = new Map<string, Record<string, unknown>[]>();
@@ -32,15 +36,28 @@ async function enrichProducts(products: Record<string, unknown>[]) {
     supplierMap.set(String(supplier.user_id), String(supplier.store_name || ""));
   }
 
+  const profileMap = new Map<string, { full_name: string; account_type: string }>();
+  for (const profile of profiles || []) {
+    profileMap.set(String(profile.id), {
+      full_name: String(profile.full_name || ""),
+      account_type: String(profile.account_type || ""),
+    });
+  }
+
   return products
     .map((product) => {
       const productImages = imageMap.get(String(product.id)) || [];
       const primaryImage =
         productImages.find((image) => Boolean(image.is_primary)) || productImages[0] || null;
+      const supplierId = String(product.supplier_id);
+      const supplierName = supplierMap.get(supplierId) || profileMap.get(supplierId)?.full_name || "متجر المورد";
 
       return {
         ...product,
-        supplier_store_name: supplierMap.get(String(product.supplier_id)) || "متجر المورد",
+        supplier_id: supplierId,
+        supplier_name: supplierName,
+        supplier_type: profileMap.get(supplierId)?.account_type || "merchant",
+        supplier_store_name: supplierName,
         primary_image: primaryImage,
       };
     })
@@ -106,7 +123,7 @@ export async function POST(request: NextRequest) {
 
     if (supplierError || !supplierProfile || profile.account_type !== "merchant") {
       return NextResponse.json(
-        { error: "الحساب الحالي ليس موردًا جاهزًا لإضافة منتجات. تأكد أن نوع الحساب تاجر (جملة)." },
+        { error: "الحساب الحالي ليس موردا جاهزا لإضافة منتجات. تأكد أن نوع الحساب تاجر (جملة)." },
         { status: 403 }
       );
     }

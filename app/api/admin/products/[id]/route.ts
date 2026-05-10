@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminProfile, requireAuthProfile } from "@/lib/api-auth";
+import { createSupabaseAdmin } from "@/lib/supabase-admin";
 
 export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, profile } = await requireAuthProfile(request);
+    const { profile } = await requireAuthProfile(request);
     if (!isAdminProfile(profile)) {
       return NextResponse.json({ error: "غير مصرح لك بحذف هذا المنتج." }, { status: 403 });
     }
 
+    const supabase = createSupabaseAdmin();
     const { id } = await context.params;
     const body = await request.json().catch(() => ({}));
     const reason = String(body.reason || "").trim();
@@ -26,10 +28,34 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       return NextResponse.json({ error: "المنتج غير موجود." }, { status: 404 });
     }
 
+    const dependentResults = await Promise.all([
+      supabase.from("product_images").delete().eq("product_id", id),
+      supabase.from("cart_items").delete().eq("product_id", id),
+      supabase.from("favorites").delete().eq("product_id", id),
+      supabase.from("order_items").delete().eq("product_id", id),
+    ]);
+    const dependentError = dependentResults.find((result) => result.error)?.error;
+    if (dependentError) {
+      return NextResponse.json({ error: dependentError.message }, { status: 500 });
+    }
+
+    const { error: deleteError } = await supabase.from("products").delete().eq("id", id);
+
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+
     const { error: notificationError } = await supabase.from("notifications").insert({
       user_id: product.supplier_id,
       title: "تم حذف منتجك",
-      body: `تم حذف المنتج "${product.name}" بسبب: ${reason}`,
+      body: `تم حذف المنتج "${product.name}" من قبل الإدارة بسبب مخالفة. يمكنك التواصل مع خدمة العملاء لمعرفة التفاصيل.`,
+      notification_type: "product_deleted",
+      data: {
+        action: "contact_support",
+        product_id: product.id,
+        product_name: product.name,
+        reason,
+      },
     });
 
     if (notificationError) {
@@ -62,13 +88,6 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
 
     if (messageError) {
       return NextResponse.json({ error: messageError.message }, { status: 500 });
-    }
-
-    await supabase.from("product_images").delete().eq("product_id", id);
-    const { error: deleteError } = await supabase.from("products").delete().eq("id", id);
-
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });

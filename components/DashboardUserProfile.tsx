@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
@@ -72,6 +72,7 @@ const cardClass = "rounded-2xl border border-[#e6edf5] bg-white p-5 shadow-sm";
 
 export default function DashboardUserProfile({ backHref }: { backHref: string }) {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const userId = params?.id;
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [supplierProfile, setSupplierProfile] = useState<SupplierProfile | null>(null);
@@ -179,6 +180,25 @@ export default function DashboardUserProfile({ backHref }: { backHref: string })
     profile?.full_name ||
     "الملف الشخصي";
 
+  const startChat = async (targetUserId: string) => {
+    const { data } = await supabase.auth.getSession();
+    const response = await fetch("/api/chat/conversation", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${data.session?.access_token || ""}`,
+      },
+      body: JSON.stringify({ targetUserId }),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "تعذر بدء المحادثة.");
+    }
+
+    router.push(`/chat/${result.conversationId}`);
+  };
+
   return (
     <section className="space-y-6" dir="rtl">
       <Link href={`${backHref}/users`} className="inline-block text-sm font-semibold text-[#273347]/60 hover:text-[#273347]">
@@ -198,12 +218,13 @@ export default function DashboardUserProfile({ backHref }: { backHref: string })
               {[profile.city, profile.country].filter(Boolean).join(" - ") || "عضو معتمد داخل المنصة"}
             </p>
             <div className="mt-5">
-              <Link
-                href={`${backHref}/messages?user=${profile.id}`}
+              <button
+                type="button"
+                onClick={() => void startChat(profile.id).catch((error) => alert(error.message))}
                 className="inline-flex rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-[#273347] transition hover:bg-[#eaf1f7]"
               >
                 راسل المستخدم
-              </Link>
+              </button>
             </div>
           </section>
 

@@ -15,11 +15,14 @@ export type Product = {
   category_id?: string | null;
   is_published?: boolean;
   created_at: string;
+  supplier_name?: string;
+  supplier_type?: string;
   supplier_store_name?: string;
   primary_image?: ProductImage | null;
   images?: ProductImage[];
   supplier?: {
     user_id: string;
     store_name: string;
+    account_type?: string | null;
   } | null;
 };

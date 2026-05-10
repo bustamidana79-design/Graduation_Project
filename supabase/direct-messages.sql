@@ -60,6 +60,18 @@ create policy "authenticated users can read approved public profiles"
       and status = 'approved'
       and account_type <> 'admin'
     )
+    or exists (
+      select 1
+      from public.direct_conversations
+      where (
+        direct_conversations.user_one_id = auth.uid()
+        and direct_conversations.user_two_id = profiles.id
+      )
+      or (
+        direct_conversations.user_two_id = auth.uid()
+        and direct_conversations.user_one_id = profiles.id
+      )
+    )
   );
 
 drop policy if exists "users can create their own pending profile" on public.profiles;
