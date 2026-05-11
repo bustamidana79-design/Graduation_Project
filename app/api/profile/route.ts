@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthProfile } from "@/lib/api-auth";
+import { normalizeCurrency } from "@/lib/currency";
 
-const editableFields = ["full_name", "phone", "country", "city", "bio", "avatar_url"] as const;
+const editableFields = ["full_name", "phone", "country", "city", "bio", "avatar_url", "preferred_currency"] as const;
 
 function cleanText(value: unknown) {
   if (typeof value !== "string") return undefined;
@@ -16,7 +17,7 @@ export async function PATCH(request: NextRequest) {
 
     const { data: existingProfile, error: existingError } = await supabase
       .from("profiles")
-      .select("full_name, email, phone, country, city, bio, avatar_url, status")
+      .select("full_name, email, phone, country, city, bio, avatar_url, status, preferred_currency")
       .eq("id", user.id)
       .single();
 
@@ -30,7 +31,7 @@ export async function PATCH(request: NextRequest) {
     const patch: Record<string, string> = {};
     for (const field of editableFields) {
       if (field in body) {
-        const value = cleanText(body[field]);
+        const value = field === "preferred_currency" ? normalizeCurrency(body[field]) : cleanText(body[field]);
         if (value !== undefined) {
           patch[field] = value;
         }
@@ -48,7 +49,7 @@ export async function PATCH(request: NextRequest) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", user.id)
-      .select("full_name, email, phone, country, city, bio, avatar_url, status")
+      .select("full_name, email, phone, country, city, bio, avatar_url, status, preferred_currency")
       .single();
 
     if (error) {

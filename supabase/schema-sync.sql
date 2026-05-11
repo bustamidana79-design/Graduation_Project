@@ -60,10 +60,112 @@ end $$;
 
 alter table public.profiles add column if not exists bio text;
 alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles add column if not exists preferred_currency text default 'ILS';
 alter table public.profiles add column if not exists email_verified boolean default false;
 alter table public.profiles add column if not exists is_active boolean default true;
 alter table public.profiles add column if not exists created_at timestamp default now();
 alter table public.profiles add column if not exists updated_at timestamp default now();
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.profiles'::regclass
+      and conname = 'profiles_preferred_currency_check'
+  ) then
+    alter table public.profiles
+      add constraint profiles_preferred_currency_check
+      check (preferred_currency in ('ILS', 'USD', 'JOD'));
+  end if;
+end $$;
+
+alter table public.products add column if not exists currency text default 'ILS';
+alter table public.orders add column if not exists currency text default 'ILS';
+alter table public.orders add column if not exists phone text;
+alter table public.orders add column if not exists city text;
+alter table public.orders add column if not exists area text;
+alter table public.orders add column if not exists notes text;
+alter table public.order_items add column if not exists currency text default 'ILS';
+alter table public.payments add column if not exists currency text default 'ILS';
+alter table public.payments add column if not exists provider_payment_id text;
+alter table public.payments add column if not exists payment_url text;
+alter table public.delivery_orders add column if not exists shipping_fee numeric default 0;
+alter table public.delivery_orders add column if not exists avg_delivery_time text;
+
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'orders' and column_name = 'shipping_address_id'
+  ) then
+    alter table public.orders alter column shipping_address_id drop not null;
+  end if;
+end $$;
+
+create table if not exists public.addresses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  city text not null,
+  street_address text not null,
+  phone text,
+  notes text,
+  is_default boolean default false,
+  created_at timestamp default now()
+);
+
+alter table public.addresses add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.addresses add column if not exists city text;
+alter table public.addresses add column if not exists street_address text;
+alter table public.addresses add column if not exists phone text;
+alter table public.addresses add column if not exists notes text;
+alter table public.addresses add column if not exists is_default boolean default false;
+alter table public.addresses add column if not exists created_at timestamp default now();
+
+-- Make PostgREST/Supabase refresh its schema cache after newly added columns.
+notify pgrst, 'reload schema';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.products'::regclass
+      and conname = 'products_currency_check'
+  ) then
+    alter table public.products
+      add constraint products_currency_check
+      check (currency in ('ILS', 'USD', 'JOD'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.orders'::regclass
+      and conname = 'orders_currency_check'
+  ) then
+    alter table public.orders
+      add constraint orders_currency_check
+      check (currency in ('ILS', 'USD', 'JOD'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.order_items'::regclass
+      and conname = 'order_items_currency_check'
+  ) then
+    alter table public.order_items
+      add constraint order_items_currency_check
+      check (currency in ('ILS', 'USD', 'JOD'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.payments'::regclass
+      and conname = 'payments_currency_check'
+  ) then
+    alter table public.payments
+      add constraint payments_currency_check
+      check (currency in ('ILS', 'USD', 'JOD'));
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- applications: AI cache columns used by register/admin applications pages.
@@ -168,6 +270,7 @@ $$;
 -- RLS policies aligned with profiles.id.
 -- ---------------------------------------------------------------------------
 alter table public.profiles enable row level security;
+alter table public.addresses enable row level security;
 alter table public.applications enable row level security;
 alter table public.ai_recommendation enable row level security;
 alter table public.verification_files enable row level security;
@@ -192,6 +295,12 @@ create policy profiles_update_own_or_admin
 on public.profiles for update
 using (auth.uid() = id or public.is_admin())
 with check (auth.uid() = id or public.is_admin());
+
+drop policy if exists addresses_owner_all on public.addresses;
+create policy addresses_owner_all
+on public.addresses for all
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
 
 drop policy if exists applications_select_own_or_admin on public.applications;
 create policy applications_select_own_or_admin

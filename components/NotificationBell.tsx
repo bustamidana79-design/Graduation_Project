@@ -9,6 +9,7 @@ type NotificationData = {
   action?: string;
   product_id?: string;
   product_name?: string;
+  reason?: string;
 };
 
 type NotificationItem = {
@@ -146,12 +147,13 @@ export default function NotificationBell() {
 
     try {
       const headers = await getAuthHeaders();
-      const response = await fetch("/api/chat/start-support", {
+      const response = await fetch("/api/support/start", {
         method: "POST",
         headers,
         body: JSON.stringify({
           productId: notification.data?.product_id,
           productName: notification.data?.product_name,
+          reason: notification.data?.reason,
         }),
       });
       const result = await response.json();
@@ -161,7 +163,7 @@ export default function NotificationBell() {
       }
 
       setOpen(false);
-      router.push(result.route || `/dashboard/small-business/messages?conversation=${result.conversationId}`);
+      router.push(result.route || `/dashboard/supplier/customer-service?ticket=${result.ticketId}`);
     } catch (error) {
       alert(error instanceof Error ? error.message : "تعذر فتح خدمة العملاء.");
     } finally {

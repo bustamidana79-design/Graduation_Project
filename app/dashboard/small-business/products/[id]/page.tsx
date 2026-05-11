@@ -7,6 +7,7 @@ import { Heart, Minus, Plus, ShoppingCart } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 import { getProfileRoute } from "@/lib/profile-routes";
+import { convertCurrency, formatMoney, normalizeCurrency } from "@/lib/currency";
 import type { Product } from "@/types/product";
 
 async function getAuthToken() {
@@ -24,9 +25,21 @@ export default function SmallBusinessProductDetailsPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [message, setMessage] = useState("");
+  const [currentImage, setCurrentImage] = useState(0);
+  const [userCurrency, setUserCurrency] = useState("ILS");
 
   useEffect(() => {
     const load = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth.user?.id) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("preferred_currency")
+          .eq("id", auth.user.id)
+          .maybeSingle();
+        setUserCurrency(normalizeCurrency(profile?.preferred_currency));
+      }
+
       const response = await fetch(`/api/products/${params.id}`);
       const result = await response.json();
       if (!response.ok) {
@@ -91,21 +104,48 @@ export default function SmallBusinessProductDetailsPage() {
 
   const minimum = Number(product.min_order_quantity || 1);
   const stock = Number(product.stock_quantity || 0);
+  const images = product.images && product.images.length > 0 ? product.images : product.primary_image ? [product.primary_image] : [];
+  const activeImage = images[currentImage] || images[0] || null;
+  const sourceCurrency = normalizeCurrency(product.currency);
+  const sourcePrice = Number(product.price ?? product.wholesale_price ?? 0);
+  const convertedPrice = convertCurrency(sourcePrice, sourceCurrency, userCurrency);
+  const isConverted = sourceCurrency !== userCurrency;
+  const prevImage = () => setCurrentImage((index) => (index - 1 + images.length) % images.length);
+  const nextImage = () => setCurrentImage((index) => (index + 1) % images.length);
 
   return (
     <div className="space-y-6 p-6" dir="rtl">
       {message && <div className="rounded-xl border border-[#e6edf5] bg-white p-4 text-sm text-[#273347]">{message}</div>}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="grid gap-4">
-          {(product.images || []).map((image, index) => (
+        <div className="relative overflow-hidden rounded-xl border border-[#e6edf5] bg-white">
+          {activeImage && (
             <img
-              key={`${image.image_url}-${index}`}
-              src={getPublicImage(image.image_url)}
-              alt={`${product.name}-${index + 1}`}
-              className="h-72 w-full rounded-xl object-cover"
+              src={getPublicImage(activeImage.image_url)}
+              alt={product.name}
+              className="h-[420px] w-full object-cover"
             />
-          ))}
+          )}
+          {images.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={prevImage}
+                className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-xl font-bold text-[#273347] shadow"
+                aria-label="الصورة السابقة"
+              >
+                →
+              </button>
+              <button
+                type="button"
+                onClick={nextImage}
+                className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-xl font-bold text-[#273347] shadow"
+                aria-label="الصورة التالية"
+              >
+                ←
+              </button>
+            </>
+          )}
         </div>
 
         <div className="space-y-4 rounded-xl border border-[#e6edf5] bg-white p-6">
@@ -133,7 +173,7 @@ export default function SmallBusinessProductDetailsPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm text-[#273347]">
-            <div className="rounded-xl bg-[#f8fafc] p-4">السعر: {product.wholesale_price}</div>
+            <div className="rounded-xl bg-[#f8fafc] p-4">السعر: {isConverted ? "≈ " : ""}{formatMoney(convertedPrice, userCurrency)}</div>
             <div className="rounded-xl bg-[#f8fafc] p-4">المخزون: {product.stock_quantity}</div>
           </div>
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
+import { formatMoney, normalizeCurrency } from "@/lib/currency";
 import type { Product } from "@/types/product";
 
 async function getAuthHeaders() {
@@ -31,10 +32,28 @@ export default function SupplierProductsPage() {
     name: "",
     description: "",
     wholesale_price: "",
+    currency: "ILS",
     min_order_quantity: "1",
     stock_quantity: "1",
     category_id: "",
   });
+
+  useEffect(() => {
+    const loadCurrency = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user?.id) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("preferred_currency")
+        .eq("id", auth.user.id)
+        .maybeSingle();
+      if (data?.preferred_currency) {
+        setForm((prev) => ({ ...prev, currency: normalizeCurrency(data.preferred_currency) }));
+      }
+    };
+
+    void loadCurrency();
+  }, []);
 
   const fetchMyProducts = async () => {
     setLoading(true);
@@ -120,6 +139,7 @@ export default function SupplierProductsPage() {
         name: "",
         description: "",
         wholesale_price: "",
+        currency: form.currency,
         min_order_quantity: "1",
         stock_quantity: "1",
         category_id: "",
@@ -132,6 +152,33 @@ export default function SupplierProductsPage() {
       setMessage(error instanceof Error ? error.message : "حدث خطأ غير متوقع.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleImagesChange = async (files: File[]) => {
+    setImages(files);
+    if (files.length === 0) return;
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const suggestionForm = new FormData();
+      suggestionForm.append("image", files[0]);
+      const response = await fetch("/api/products/suggest", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.session?.access_token || ""}` },
+        body: suggestionForm,
+      });
+      const result = await response.json();
+      if (!response.ok) return;
+
+      setForm((prev) => ({
+        ...prev,
+        name: prev.name.trim() ? prev.name : result.suggestion?.name || prev.name,
+        description: prev.description.trim() ? prev.description : result.suggestion?.description || prev.description,
+      }));
+      setMessage("تم اقتراح اسم ووصف للمنتج، ويمكنك تعديلهما قبل الحفظ.");
+    } catch {
+      setMessage("تعذر توليد اقتراح AI من الصورة، يمكنك إدخال البيانات يدوياً.");
     }
   };
 
@@ -196,7 +243,7 @@ export default function SupplierProductsPage() {
               onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
             />
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             <div className="grid gap-2">
               <label className="text-sm font-semibold text-[#273347]">سعر الجملة</label>
               <input
@@ -208,6 +255,19 @@ export default function SupplierProductsPage() {
                 onChange={(event) => setForm((prev) => ({ ...prev, wholesale_price: event.target.value }))}
               />
               <p className="text-xs text-[#546a85]">السعر الذي سيدفعه المشتري لكل وحدة أو طلب جملة.</p>
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-semibold text-[#273347]">العملة</label>
+              <select
+                className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
+                value={form.currency}
+                onChange={(event) => setForm((prev) => ({ ...prev, currency: event.target.value }))}
+              >
+                <option value="ILS">ILS</option>
+                <option value="USD">USD</option>
+                <option value="JOD">JOD</option>
+              </select>
+              <p className="text-xs text-[#546a85]">العملة الافتراضية من الحساب ويمكن تغييرها.</p>
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-semibold text-[#273347]">الحد الأدنى للطلب</label>
@@ -241,7 +301,7 @@ export default function SupplierProductsPage() {
               type="file"
               multiple
               accept="image/*"
-              onChange={(event) => setImages(Array.from(event.target.files || []))}
+              onChange={(event) => void handleImagesChange(Array.from(event.target.files || []))}
             />
             <p className="text-xs text-[#546a85]">
               يمكنك رفع أكثر من صورة للمنتج، وأول صورة يتم اختيارها ستكون الصورة الرئيسية.
@@ -285,7 +345,7 @@ export default function SupplierProductsPage() {
                   {product.description || "لا يوجد وصف متاح."}
                 </p>
                 <div className="grid grid-cols-2 gap-3 text-sm text-[#273347]">
-                  <div className="rounded-2xl bg-[#f8fafc] p-3">السعر: {product.wholesale_price}</div>
+                  <div className="rounded-2xl bg-[#f8fafc] p-3">السعر: {formatMoney(product.wholesale_price, product.currency)}</div>
                   <div className="rounded-2xl bg-[#f8fafc] p-3">المخزون: {product.stock_quantity}</div>
                 </div>
                 <div className="flex gap-3">

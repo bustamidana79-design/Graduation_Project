@@ -6,6 +6,7 @@ import { Heart, Minus, Plus, ShoppingCart } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 import { getProfileRoute } from "@/lib/profile-routes";
+import { convertCurrency, formatMoney, normalizeCurrency } from "@/lib/currency";
 import type { Product } from "@/types/product";
 
 async function getAuthToken() {
@@ -29,9 +30,20 @@ export default function SmallBusinessProductsPage() {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [userCurrency, setUserCurrency] = useState("ILS");
 
   useEffect(() => {
     const load = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth.user?.id) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("preferred_currency")
+          .eq("id", auth.user.id)
+          .maybeSingle();
+        setUserCurrency(normalizeCurrency(profile?.preferred_currency));
+      }
+
       const response = await fetch("/api/products");
       const result = await response.json();
 
@@ -121,6 +133,10 @@ export default function SmallBusinessProductsPage() {
             const quantity = quantities[product.id] || Number(product.min_order_quantity || 1);
             const minimum = Number(product.min_order_quantity || 1);
             const stock = Number(product.stock_quantity || 0);
+            const sourceCurrency = normalizeCurrency(product.currency);
+            const sourcePrice = Number(product.price ?? product.wholesale_price ?? 0);
+            const convertedPrice = convertCurrency(sourcePrice, sourceCurrency, userCurrency);
+            const isConverted = sourceCurrency !== userCurrency;
 
             return (
               <div key={product.id} className="overflow-hidden rounded-xl border border-[#e6edf5] bg-white">
@@ -149,7 +165,7 @@ export default function SmallBusinessProductsPage() {
                   <p className="line-clamp-3 text-sm text-[#273347]/70">{product.description || "لا يوجد وصف متاح."}</p>
 
                   <div className="grid grid-cols-2 gap-3 text-sm text-[#273347]">
-                    <div className="rounded-xl bg-[#f8fafc] p-3">السعر: {product.wholesale_price}</div>
+                    <div className="rounded-xl bg-[#f8fafc] p-3">السعر: {isConverted ? "≈ " : ""}{formatMoney(convertedPrice, userCurrency)}</div>
                     <div className="rounded-xl bg-[#f8fafc] p-3">الحد الأدنى: {minimum}</div>
                   </div>
 

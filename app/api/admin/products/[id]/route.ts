@@ -40,7 +40,6 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     }
 
     const { error: deleteError } = await supabase.from("products").delete().eq("id", id);
-
     if (deleteError) {
       return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
@@ -48,7 +47,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     const { error: notificationError } = await supabase.from("notifications").insert({
       user_id: product.supplier_id,
       title: "تم حذف منتجك",
-      body: `تم حذف المنتج "${product.name}" من قبل الإدارة بسبب مخالفة. يمكنك التواصل مع خدمة العملاء لمعرفة التفاصيل.`,
+      body: `تم حذف المنتج "${product.name}". اضغط للتواصل مع خدمة العملاء.`,
       notification_type: "product_deleted",
       data: {
         action: "contact_support",
@@ -60,34 +59,6 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
 
     if (notificationError) {
       return NextResponse.json({ error: notificationError.message }, { status: 500 });
-    }
-
-    const { data: ticket, error: ticketError } = await supabase
-      .from("support_tickets")
-      .insert({
-        user_id: product.supplier_id,
-        subject: "حذف منتج",
-        user_role: "supplier",
-        status: "open",
-        priority: "medium",
-        last_sender_type: "system",
-      })
-      .select("id")
-      .single();
-
-    if (ticketError || !ticket) {
-      return NextResponse.json({ error: ticketError?.message || "فشل إنشاء تذكرة الدعم." }, { status: 500 });
-    }
-
-    const { error: messageError } = await supabase.from("ticket_messages").insert({
-      ticket_id: ticket.id,
-      sender_id: product.supplier_id,
-      sender_type: "system",
-      message: reason,
-    });
-
-    if (messageError) {
-      return NextResponse.json({ error: messageError.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });

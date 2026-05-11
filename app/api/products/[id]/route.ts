@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase, requireAuthProfile } from "@/lib/api-auth";
+import { normalizeCurrency } from "@/lib/currency";
 
 async function buildProductDetails(productId: string) {
   const supabase = createServerSupabase();
@@ -31,6 +32,8 @@ async function buildProductDetails(productId: string) {
   return {
     product: {
       ...product,
+      price: Number(product.wholesale_price || 0),
+      currency: product.currency || "ILS",
       supplier_name: supplierName,
       supplier_type: profile?.account_type || "merchant",
       images: images || [],
@@ -70,6 +73,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       name: String(body.name || "").trim(),
       description: String(body.description || "").trim(),
       wholesale_price: Number(body.wholesale_price || 0),
+      currency: normalizeCurrency(body.currency),
       min_order_quantity: Math.max(1, Number(body.min_order_quantity || 1)),
       stock_quantity: Math.max(0, Number(body.stock_quantity || 0)),
       category_id: body.category_id || null,

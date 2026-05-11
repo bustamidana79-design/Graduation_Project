@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase-admin";
+import { currencyFromCountry, normalizeCurrency } from "@/lib/currency";
 
 const ACCOUNT_TYPES = new Set(["merchant", "small_business", "delivery", "supporter"]);
 
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
       email: String(email).trim(),
       phone: phone || null,
       country: String(country).trim(),
+      preferred_currency: normalizeCurrency(body.preferred_currency || body.currency || currencyFromCountry(country)),
       account_type: accountType,
       status: "pending",
     });

@@ -12,6 +12,7 @@ export type EditableProfile = {
   bio?: string | null;
   avatar_url?: string | null;
   status?: string | null;
+  preferred_currency?: string | null;
 };
 
 type ProfileEditModalProps = {
@@ -34,6 +35,7 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
     city: "",
     bio: "",
     avatar_url: "",
+    preferred_currency: "ILS",
   });
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -49,6 +51,7 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
       city: profile.city || "",
       bio: profile.bio || "",
       avatar_url: profile.avatar_url || "",
+      preferred_currency: profile.preferred_currency || "ILS",
     });
     setAvatarFile(null);
     setMessage("");
@@ -178,6 +181,19 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
                   {city}
                 </option>
               ))}
+            </select>
+          </label>
+
+          <label className="space-y-2 text-sm font-semibold text-[#273347]">
+            العملة المفضلة
+            <select
+              value={form.preferred_currency}
+              onChange={(event) => setForm((current) => ({ ...current, preferred_currency: event.target.value }))}
+              className={inputClass}
+            >
+              <option value="ILS">ILS</option>
+              <option value="USD">USD</option>
+              <option value="JOD">JOD</option>
             </select>
           </label>
 

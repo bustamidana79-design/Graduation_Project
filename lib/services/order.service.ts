@@ -1,8 +1,16 @@
 import { clearCart, getCart } from "./cart.service";
 import { createNotification } from "./notification.service";
+import { convertCurrency, normalizeCurrency } from "@/lib/currency";
 
 type SupabaseClient = {
   from: (table: string) => any;
+};
+
+type OrderShippingDetails = {
+  phone: string;
+  city: string;
+  area: string;
+  notes?: string | null;
 };
 
 const SUPPLIER_STATUSES = ["pending", "confirmed", "processing", "shipped"] as const;
@@ -10,12 +18,19 @@ const SUPPLIER_STATUSES = ["pending", "confirmed", "processing", "shipped"] as c
 export async function createOrdersFromCart(
   supabase: SupabaseClient,
   buyerId: string,
-  shippingAddressId: string
+  shippingDetails: OrderShippingDetails,
+  targetCurrency = "ILS"
 ) {
-  if (!shippingAddressId) throw new Error("SHIPPING_ADDRESS_REQUIRED");
+  const phone = shippingDetails.phone.trim();
+  const city = shippingDetails.city.trim();
+  const area = shippingDetails.area.trim();
+  if (!phone) throw new Error("PHONE_REQUIRED");
+  if (!city) throw new Error("CITY_REQUIRED");
+  if (!area) throw new Error("AREA_REQUIRED");
 
-  const { items, cart } = await getCart(supabase, buyerId);
-  const validItems = items.filter((item) => item.product);
+  const currency = normalizeCurrency(targetCurrency);
+  const { items, cart } = await getCart(supabase, buyerId, currency);
+  const validItems = items.filter((item) => item.product) as any[];
   if (validItems.length === 0) throw new Error("CART_EMPTY");
 
   const grouped = new Map<string, typeof validItems>();
@@ -34,7 +49,9 @@ export async function createOrdersFromCart(
 
   for (const [supplierId, supplierItems] of grouped.entries()) {
     const subtotal = supplierItems.reduce((sum, item) => {
-      return sum + Number(item.product?.wholesale_price || 0) * Number(item.quantity || 0);
+      const productCurrency = normalizeCurrency(item.product?.currency);
+      const price = convertCurrency(Number(item.product?.wholesale_price || 0), productCurrency, currency);
+      return sum + price * Number(item.quantity || 0);
     }, 0);
 
     const orderInsert = await supabase
@@ -42,10 +59,15 @@ export async function createOrdersFromCart(
       .insert({
         buyer_id: buyerId,
         supplier_id: supplierId,
-        shipping_address_id: shippingAddressId,
+        shipping_address_id: null,
+        phone,
+        city,
+        area,
+        notes: shippingDetails.notes?.trim() || null,
         status: "pending",
         subtotal,
         total_amount: subtotal,
+        currency,
       })
       .select("*")
       .single();
@@ -59,8 +81,15 @@ export async function createOrdersFromCart(
       order_id: order.id,
       product_id: item.product_id,
       quantity: Number(item.quantity || 0),
-      unit_price: Number(item.product?.wholesale_price || 0),
-      total_price: Number(item.product?.wholesale_price || 0) * Number(item.quantity || 0),
+      unit_price: convertCurrency(
+        Number(item.product?.wholesale_price || 0),
+        normalizeCurrency(item.product?.currency),
+        currency
+      ),
+      total_price:
+        convertCurrency(Number(item.product?.wholesale_price || 0), normalizeCurrency(item.product?.currency), currency) *
+        Number(item.quantity || 0),
+      currency,
     }));
 
     const orderItemsInsert = await supabase.from("order_items").insert(itemPayload).select("*");

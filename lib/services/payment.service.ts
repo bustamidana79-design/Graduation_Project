@@ -1,16 +1,18 @@
 import { createNotification } from "./notification.service";
+import { convertCurrency, normalizeCurrency } from "@/lib/currency";
 
 type SupabaseClient = {
   from: (table: string) => any;
 };
 
-async function createTalerPayment(params: { amount: number; paymentId: string; returnUrl?: string }) {
+async function createTalerPayment(params: { amount: number; paymentId: string; currency: string; returnUrl?: string }) {
   const baseUrl = process.env.TALER_BACKEND_URL;
   const token = process.env.TALER_BACKEND_TOKEN;
 
   if (!baseUrl) {
     return {
       providerPaymentId: params.paymentId,
+      provider: "mock",
       paymentUrl: `/api/payment/confirm?paymentId=${params.paymentId}`,
     };
   }
@@ -23,7 +25,7 @@ async function createTalerPayment(params: { amount: number; paymentId: string; r
     },
     body: JSON.stringify({
       order: {
-        amount: `USD:${params.amount.toFixed(2)}`,
+        amount: `${params.currency}:${params.amount.toFixed(2)}`,
         summary: "Graduation Project order payment",
         fulfillment_url: params.returnUrl || `${process.env.NEXT_PUBLIC_APP_URL || ""}/dashboard/small-business/orders`,
       },
@@ -34,6 +36,7 @@ async function createTalerPayment(params: { amount: number; paymentId: string; r
   const data = await response.json();
   return {
     providerPaymentId: data.order_id || data.provider_payment_id || params.paymentId,
+    provider: "taler",
     paymentUrl: data.taler_pay_uri || data.payment_url || data.order_status_url,
   };
 }
@@ -42,21 +45,25 @@ export async function createPayment(
   supabase: SupabaseClient,
   buyerId: string,
   orderIds: string[],
-  returnUrl?: string
+  returnUrl?: string,
+  requestedCurrency?: string
 ) {
   const ids = Array.from(new Set(orderIds.filter(Boolean)));
   if (ids.length === 0) throw new Error("ORDER_REQUIRED");
 
   const { data: orders, error } = await supabase
     .from("orders")
-    .select("id, buyer_id, total_amount, status")
+    .select("id, buyer_id, total_amount, status, currency")
     .in("id", ids)
     .eq("buyer_id", buyerId);
 
   if (error) throw new Error(error.message);
   if (!orders || orders.length !== ids.length) throw new Error("ORDER_NOT_FOUND");
 
-  const amount = orders.reduce((sum: number, order: any) => sum + Number(order.total_amount || 0), 0);
+  const currency = normalizeCurrency(requestedCurrency || orders[0]?.currency);
+  const amount = orders.reduce((sum: number, order: any) => {
+    return sum + convertCurrency(Number(order.total_amount || 0), order.currency || "ILS", currency);
+  }, 0);
   const paymentRows = [];
 
   for (const order of orders) {
@@ -64,7 +71,8 @@ export async function createPayment(
       .from("payments")
       .insert({
         order_id: order.id,
-        amount: Number(order.total_amount || 0),
+        amount: convertCurrency(Number(order.total_amount || 0), order.currency || "ILS", currency),
+        currency,
         payment_provider: "taler",
         payment_status: "pending",
       })
@@ -76,19 +84,27 @@ export async function createPayment(
   }
 
   const primaryPayment = paymentRows[0];
-  const taler = await createTalerPayment({ amount, paymentId: primaryPayment.id, returnUrl });
+  const taler = await createTalerPayment({ amount, paymentId: primaryPayment.id, currency, returnUrl });
 
   for (const payment of paymentRows) {
     await supabase
       .from("payments")
       .update({
+        payment_provider: taler.provider,
         provider_payment_id: taler.providerPaymentId,
         payment_url: taler.paymentUrl,
       })
       .eq("id", payment.id);
   }
 
-  return { payments: paymentRows, amount, payment_url: taler.paymentUrl, provider_payment_id: taler.providerPaymentId };
+  return {
+    payments: paymentRows,
+    amount,
+    currency,
+    payment_url: taler.paymentUrl,
+    provider_payment_id: taler.providerPaymentId,
+    provider: taler.provider,
+  };
 }
 
 export async function confirmPayment(supabase: SupabaseClient, paymentId?: string | null, providerPaymentId?: string | null) {
@@ -106,15 +122,24 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
     const orderUpdate = await supabase.from("orders").update({ status: "confirmed" }).eq("id", payment.order_id);
     if (orderUpdate.error) throw new Error(orderUpdate.error.message);
 
-    const tx = await supabase.from("transactions").insert({
-      payment_id: payment.id,
-      amount: payment.amount,
-      transaction_type: "payment",
-      status: "completed",
-      provider: "taler",
-      provider_reference: payment.provider_payment_id,
-    });
-    if (tx.error) throw new Error(tx.error.message);
+    const existingTx = await supabase
+      .from("transactions")
+      .select("id")
+      .eq("payment_id", payment.id)
+      .maybeSingle();
+    if (existingTx.error && existingTx.error.code !== "PGRST116") throw new Error(existingTx.error.message);
+
+    if (!existingTx.data) {
+      const tx = await supabase.from("transactions").insert({
+        payment_id: payment.id,
+        amount: payment.amount,
+        transaction_type: "payment",
+        status: "completed",
+        provider: payment.payment_provider || "mock",
+        provider_reference: payment.provider_payment_id,
+      });
+      if (tx.error) throw new Error(tx.error.message);
+    }
 
     const { data: order } = await supabase
       .from("orders")

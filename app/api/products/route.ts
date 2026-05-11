@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase, requireAuthProfile } from "@/lib/api-auth";
+import { currencyFromCountry, normalizeCurrency } from "@/lib/currency";
 
 async function enrichProducts(products: Record<string, unknown>[]) {
   if (products.length === 0) return [];
@@ -54,6 +55,8 @@ async function enrichProducts(products: Record<string, unknown>[]) {
 
       return {
         ...product,
+        price: Number(product.wholesale_price || 0),
+        currency: product.currency || "ILS",
         supplier_id: supplierId,
         supplier_name: supplierName,
         supplier_type: profileMap.get(supplierId)?.account_type || "merchant",
@@ -128,11 +131,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const defaultCurrency = normalizeCurrency(
+      body.currency || profile.preferred_currency || currencyFromCountry(profile.country)
+    );
+
     const payload = {
       supplier_id: user.id,
       name: String(body.name || "").trim(),
       description: String(body.description || "").trim(),
       wholesale_price: Number(body.wholesale_price || 0),
+      currency: defaultCurrency,
       min_order_quantity: Math.max(1, Number(body.min_order_quantity || 1)),
       stock_quantity: Math.max(0, Number(body.stock_quantity || 0)),
       category_id: body.category_id || null,

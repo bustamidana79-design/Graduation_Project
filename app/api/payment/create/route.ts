@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuthProfile } from "@/lib/api-auth";
 import { requireSmallBusiness } from "@/lib/services/cart.service";
 import { createPayment } from "@/lib/services/payment.service";
+import { normalizeCurrency } from "@/lib/currency";
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +15,8 @@ export async function POST(request: NextRequest) {
         : [String(body.order_id || body.orderId || "")].filter(Boolean);
 
     requireSmallBusiness(profile);
-    const payment = await createPayment(supabase, user.id, orderIds, body.return_url || body.returnUrl);
+    const currency = normalizeCurrency(body.currency || profile.preferred_currency);
+    const payment = await createPayment(supabase, user.id, orderIds, body.return_url || body.returnUrl, currency);
     return NextResponse.json(payment, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل إنشاء الدفع.";

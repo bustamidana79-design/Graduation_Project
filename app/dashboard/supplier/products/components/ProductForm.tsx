@@ -6,6 +6,7 @@ type ProductFormValues = {
   name: string;
   description: string;
   wholesale_price: number;
+  currency?: string;
   min_order_quantity: number;
   stock_quantity: number;
   category_id?: string | null;
@@ -22,6 +23,7 @@ export default function ProductForm({
     name: initialData.name || "",
     description: initialData.description || "",
     wholesale_price: initialData.wholesale_price || 0,
+    currency: initialData.currency || "ILS",
     min_order_quantity: initialData.min_order_quantity || 1,
     stock_quantity: initialData.stock_quantity || 0,
     category_id: initialData.category_id || "",
@@ -55,7 +57,7 @@ export default function ProductForm({
           onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
         />
       </div>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <div className="grid gap-2">
           <label className="text-sm font-semibold text-[#273347]">سعر الجملة</label>
           <input
@@ -68,6 +70,18 @@ export default function ProductForm({
             }
           />
           <p className="text-xs text-[#546a85]">السعر المعتمد للبيع بالجملة.</p>
+        </div>
+        <div className="grid gap-2">
+          <label className="text-sm font-semibold text-[#273347]">العملة</label>
+          <select
+            className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
+            value={form.currency}
+            onChange={(event) => setForm((prev) => ({ ...prev, currency: event.target.value }))}
+          >
+            <option value="ILS">ILS</option>
+            <option value="USD">USD</option>
+            <option value="JOD">JOD</option>
+          </select>
         </div>
         <div className="grid gap-2">
           <label className="text-sm font-semibold text-[#273347]">الحد الأدنى للطلب</label>

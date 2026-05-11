@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
+import { formatMoney } from "@/lib/currency";
 import type { Product } from "@/types/product";
 
 async function getAuthHeaders() {
@@ -110,7 +111,7 @@ export default function AdminProductsPage() {
                 </p>
 
                 <div className="grid grid-cols-2 gap-3 text-sm text-[#273347]">
-                  <div className="rounded-2xl bg-[#f8fafc] p-3">السعر: {product.wholesale_price}</div>
+                  <div className="rounded-2xl bg-[#f8fafc] p-3">السعر: {formatMoney(product.wholesale_price, product.currency)}</div>
                   <div className="rounded-2xl bg-[#f8fafc] p-3">المخزون: {product.stock_quantity}</div>
                 </div>
 
@@ -159,7 +160,7 @@ export default function AdminProductsPage() {
             />
 
             <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <div className="rounded-2xl bg-[#f8fafc] p-4 text-sm text-[#273347]">السعر: {selected.wholesale_price}</div>
+              <div className="rounded-2xl bg-[#f8fafc] p-4 text-sm text-[#273347]">السعر: {formatMoney(selected.wholesale_price, selected.currency)}</div>
               <div className="rounded-2xl bg-[#f8fafc] p-4 text-sm text-[#273347]">المخزون: {selected.stock_quantity}</div>
               <div className="rounded-2xl bg-[#f8fafc] p-4 text-sm text-[#273347]">الحد الأدنى: {selected.min_order_quantity}</div>
             </div>

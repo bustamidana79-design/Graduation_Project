@@ -13,11 +13,17 @@ function trackingNumber() {
 export async function getShippingCompanies(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("shipping_company_profiles")
-    .select("*")
+    .select("user_id, company_name, delivery_cities, avg_delivery_time")
     .order("company_name", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return data || [];
+  return (data || []).map((company: any) => ({
+    id: company.user_id,
+    user_id: company.user_id,
+    company_name: company.company_name,
+    delivery_cities: company.delivery_cities || [],
+    avg_delivery_time: company.avg_delivery_time || "",
+  }));
 }
 
 export async function selectShippingCompany(
@@ -35,13 +41,13 @@ export async function selectShippingCompany(
   if (companyError || !company) throw new Error("SHIPPING_COMPANY_NOT_FOUND");
 
   const shippingFee = Number(company.shipping_fee || company.delivery_fee || company.base_fee || 0);
-  const estimatedDeliveryTime = String(company.estimated_delivery_time || company.avg_delivery_time || "");
+  const avgDeliveryTime = String(company.avg_delivery_time || "");
   const payload = {
     order_id: orderId,
     shipping_company_id: shippingCompanyId,
     tracking_number: trackingNumber(),
     shipping_fee: shippingFee,
-    estimated_delivery_time: estimatedDeliveryTime,
+    avg_delivery_time: avgDeliveryTime,
     status: "picked_up",
   };
 

@@ -5,11 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
+import { formatMoney, normalizeCurrency } from "@/lib/currency";
 
 type CartProduct = {
   id: string;
   name: string;
   wholesale_price: number;
+  currency?: string;
+  converted_wholesale_price?: number;
   min_order_quantity: number;
   stock_quantity: number;
   primary_image?: { image_url: string } | null;
@@ -21,6 +24,26 @@ type CartItem = {
   quantity: number;
   product?: CartProduct | null;
 };
+
+type ShippingCompany = {
+  id: string;
+  user_id?: string;
+  company_name: string;
+  delivery_cities?: string[];
+  avg_delivery_time?: string;
+  shipping_fee?: number;
+};
+
+const palestinianCities = ["Nablus", "Ramallah", "Hebron", "Jerusalem", "Bethlehem", "Jenin", "Tulkarm", "Qalqilya", "Jericho", "Gaza"];
+
+function getShippingCompanyKey(company: ShippingCompany) {
+  return company.user_id || company.id;
+}
+
+function getCityOptionsForCompany(company?: ShippingCompany) {
+  const companyCities = company?.delivery_cities?.filter(Boolean) || [];
+  return companyCities.length > 0 ? companyCities : palestinianCities;
+}
 
 async function getAuthHeaders() {
   const { data } = await supabase.auth.getSession();
@@ -40,14 +63,63 @@ export default function SmallBusinessCartPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  const [shippingAddressId, setShippingAddressId] = useState("");
+  const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [area, setArea] = useState("");
+  const [notes, setNotes] = useState("");
+  const [shippingCompanies, setShippingCompanies] = useState<ShippingCompany[]>([]);
+  const [shippingCompanyId, setShippingCompanyId] = useState("");
+  const [currency, setCurrency] = useState("ILS");
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   const itemCount = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantity || 0), 0), [items]);
+  const selectedShippingCompany = useMemo(
+    () => shippingCompanies.find((company) => getShippingCompanyKey(company) === shippingCompanyId),
+    [shippingCompanies, shippingCompanyId]
+  );
+  const cityOptions = useMemo(() => getCityOptionsForCompany(selectedShippingCompany), [selectedShippingCompany]);
+
+  useEffect(() => {
+    const loadProfileDefaults = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user?.id) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("phone, country, city, preferred_currency")
+        .eq("id", auth.user.id)
+        .maybeSingle();
+
+      setPhone(data?.phone || "");
+      setCity(data?.city || "");
+      if (data?.preferred_currency) setCurrency(normalizeCurrency(data.preferred_currency));
+    };
+
+    void loadProfileDefaults();
+  }, []);
+
+  useEffect(() => {
+    const loadShippingCompanies = async () => {
+      const headers = await getAuthHeaders();
+      const response = await fetch("/api/shipping/companies", { headers });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(result.error || "Failed to load shipping companies.");
+        return;
+      }
+
+      const companies = (Array.isArray(result) ? result : result.companies || []) as ShippingCompany[];
+      setShippingCompanies(companies);
+      setShippingCompanyId((current) => current || (companies[0] ? getShippingCompanyKey(companies[0]) : ""));
+    };
+
+    void loadShippingCompanies();
+  }, []);
 
   useEffect(() => {
     const load = async () => {
       const headers = await getAuthHeaders();
-      const response = await fetch("/api/cart", { headers });
+      const response = await fetch(`/api/cart?currency=${currency}`, { headers });
       const result = await response.json();
 
       if (!response.ok) {
@@ -62,7 +134,7 @@ export default function SmallBusinessCartPage() {
     };
 
     void load();
-  }, []);
+  }, [currency]);
 
   const updateQuantity = async (item: CartItem, nextQuantity: number) => {
     const product = item.product;
@@ -75,7 +147,7 @@ export default function SmallBusinessCartPage() {
     const response = await fetch("/api/cart", {
       method: "PATCH",
       headers,
-      body: JSON.stringify({ productId: item.product_id, quantity }),
+      body: JSON.stringify({ productId: item.product_id, quantity, currency }),
     });
     const result = await response.json();
 
@@ -94,7 +166,7 @@ export default function SmallBusinessCartPage() {
     const response = await fetch("/api/cart/remove", {
       method: "DELETE",
       headers,
-      body: JSON.stringify({ productId: item.product_id }),
+      body: JSON.stringify({ productId: item.product_id, currency }),
     });
     const result = await response.json();
 
@@ -109,21 +181,83 @@ export default function SmallBusinessCartPage() {
   };
 
   const checkout = async () => {
-    if (!shippingAddressId.trim()) {
-      setMessage("أدخل رقم عنوان الشحن قبل المتابعة للدفع.");
+    if (checkoutLoading) return;
+    if (!shippingCompanyId) {
+      setMessage("Select a shipping company before payment.");
+      return;
+    }
+    if (!city.trim()) {
+      setMessage("اختر مدينة الشحن قبل المتابعة للدفع.");
+      return;
+    }
+    if (!phone.trim()) {
+      setMessage("أدخل رقم الهاتف قبل المتابعة للدفع.");
+      return;
+    }
+    if (!area.trim()) {
+      setMessage("أدخل المنطقة قبل المتابعة للدفع.");
       return;
     }
 
+    setCheckoutLoading(true);
     const headers = await getAuthHeaders();
     const response = await fetch("/api/orders/create", {
       method: "POST",
       headers,
-      body: JSON.stringify({ shippingAddressId: shippingAddressId.trim() }),
+      body: JSON.stringify({
+        phone: phone.trim(),
+        city: city.trim(),
+        area: area.trim(),
+        notes: notes.trim() || null,
+        currency,
+      }),
     });
     const result = await response.json();
 
+    if (response.ok) {
+      const orders = (result.orders || []) as Array<{ id: string }>;
+      for (const order of orders) {
+        const shippingResponse = await fetch("/api/shipping/select", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ orderId: order.id, shippingCompanyId }),
+        });
+        const shippingResult = await shippingResponse.json();
+
+        if (!shippingResponse.ok) {
+          setMessage(shippingResult.error || "Failed to select shipping company.");
+          setCheckoutLoading(false);
+          return;
+        }
+      }
+
+      const paymentResponse = await fetch("/api/payment/create", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          orderIds: orders.map((order) => order.id),
+          currency,
+          returnUrl: `${window.location.origin}/dashboard/small-business/orders`,
+        }),
+      });
+      const paymentResult = await paymentResponse.json();
+
+      if (!paymentResponse.ok) {
+        setMessage(paymentResult.error || "Failed to create payment.");
+        setCheckoutLoading(false);
+        return;
+      }
+
+      setItems([]);
+      setTotal(0);
+      setMessage("Payment created. Redirecting...");
+      window.location.href = paymentResult.payment_url || "/dashboard/small-business/orders";
+      return;
+    }
+
     if (!response.ok) {
       setMessage(result.error || "تعذر إنشاء الطلب.");
+      setCheckoutLoading(false);
       return;
     }
 
@@ -161,7 +295,7 @@ export default function SmallBusinessCartPage() {
             {items.map((item) => {
               const product = item.product;
               if (!product) return null;
-              const price = Number(product.wholesale_price || 0);
+              const price = Number(product.converted_wholesale_price ?? product.wholesale_price ?? 0);
               const lineTotal = price * Number(item.quantity || 0);
               const minimum = Number(product.min_order_quantity || 1);
               const stock = Number(product.stock_quantity || minimum);
@@ -173,9 +307,9 @@ export default function SmallBusinessCartPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h2 className="font-bold text-[#273347]">{product.name}</h2>
-                        <p className="text-sm text-[#546a85]">السعر: {price}</p>
+                        <p className="text-sm text-[#546a85]">السعر: {formatMoney(price, currency)}</p>
                       </div>
-                      <p className="font-bold text-[#273347]">المجموع: {lineTotal}</p>
+                      <p className="font-bold text-[#273347]">المجموع: {formatMoney(lineTotal, currency)}</p>
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -222,16 +356,92 @@ export default function SmallBusinessCartPage() {
             </div>
             <div className="flex items-center justify-between text-lg font-bold text-[#273347]">
               <span>الإجمالي</span>
-              <span>{total}</span>
+              <span>{formatMoney(total, currency)}</span>
             </div>
-            <input
-              value={shippingAddressId}
-              onChange={(event) => setShippingAddressId(event.target.value)}
-              placeholder="shipping_address_id"
-              className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
-            />
-            <button type="button" onClick={() => void checkout()} className="w-full rounded-xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white">
-              Proceed to Checkout
+            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+              العملة
+              <select
+                value={currency}
+                onChange={(event) => setCurrency(normalizeCurrency(event.target.value))}
+                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
+              >
+                <option value="ILS">ILS</option>
+                <option value="USD">USD</option>
+                <option value="JOD">JOD</option>
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+              Shipping company
+              <select
+                value={shippingCompanyId}
+                onChange={(event) => {
+                  const nextCompanyId = event.target.value;
+                  setShippingCompanyId(nextCompanyId);
+                }}
+                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
+              >
+                {shippingCompanies.length === 0 ? (
+                  <option value="">No shipping companies available</option>
+                ) : (
+                  shippingCompanies.map((company) => (
+                    <option key={getShippingCompanyKey(company)} value={getShippingCompanyKey(company)}>
+                      {company.company_name} - {company.avg_delivery_time || "Delivery time not set"}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+              Phone
+              <input
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                placeholder="Phone number"
+                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+              City
+              <input
+                value={city}
+                list="shipping-city-options"
+                onChange={(event) => setCity(event.target.value)}
+                placeholder="City"
+                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
+              />
+              <datalist id="shipping-city-options">
+                {cityOptions.map((cityOption) => (
+                  <option key={cityOption} value={cityOption}>
+                    {cityOption}
+                  </option>
+                ))}
+              </datalist>
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+              Area
+              <input
+                value={area}
+                onChange={(event) => setArea(event.target.value)}
+                placeholder="Area"
+                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+              Notes
+              <input
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Optional notes"
+                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={checkoutLoading}
+              onClick={() => void checkout()}
+              className="w-full rounded-xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {checkoutLoading ? "Processing..." : "Pay"}
             </button>
           </aside>
         </div>

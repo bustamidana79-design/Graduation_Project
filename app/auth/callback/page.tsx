@@ -77,6 +77,7 @@ export default function AuthCallbackPage() {
               email,
               phone: getString(metadata.phone) || null,
               country: getString(metadata.country) || null,
+              preferred_currency: getString(metadata.preferred_currency) || "ILS",
               account_type: accountType,
               status: "pending",
               email_verified: true,

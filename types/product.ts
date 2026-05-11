@@ -9,7 +9,12 @@ export type Product = {
   name: string;
   description: string | null;
   supplier_id: string;
+  price?: number;
   wholesale_price: number;
+  currency?: string;
+  converted_wholesale_price?: number;
+  original_wholesale_price?: number;
+  original_currency?: string;
   min_order_quantity: number;
   stock_quantity: number;
   category_id?: string | null;

@@ -38,6 +38,7 @@ export default function EditProductPage() {
     name: string;
     description: string;
     wholesale_price: number;
+    currency?: string;
     min_order_quantity: number;
     stock_quantity: number;
     category_id?: string | null;
@@ -78,6 +79,7 @@ export default function EditProductPage() {
           name: product.name,
           description: product.description || "",
           wholesale_price: product.wholesale_price,
+          currency: product.currency || "ILS",
           min_order_quantity: product.min_order_quantity,
           stock_quantity: product.stock_quantity,
           category_id: product.category_id || "",

@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const { supabase, profile } = await requireAuthProfile(request);
     requireSmallBusiness(profile);
     const companies = await getShippingCompanies(supabase);
-    return NextResponse.json({ companies });
+    return NextResponse.json(companies);
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل تحميل شركات الشحن.";
     const status = message === "UNAUTHORIZED" ? 401 : message === "SMALL_BUSINESS_ONLY" ? 403 : 500;

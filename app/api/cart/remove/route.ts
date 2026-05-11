@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthProfile } from "@/lib/api-auth";
 import { removeFromCart, requireSmallBusiness } from "@/lib/services/cart.service";
+import { normalizeCurrency } from "@/lib/currency";
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function DELETE(request: NextRequest) {
     requireSmallBusiness(profile);
     if (!productId) return NextResponse.json({ error: "product_id مطلوب." }, { status: 400 });
 
-    const cart = await removeFromCart(supabase, user.id, productId);
+    const cart = await removeFromCart(supabase, user.id, productId, normalizeCurrency(body.currency || profile.preferred_currency));
     return NextResponse.json({ success: true, cart });
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل حذف المنتج من السلة.";

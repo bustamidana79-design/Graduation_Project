@@ -1,3 +1,5 @@
+import { convertCurrency, normalizeCurrency } from "@/lib/currency";
+
 type SupabaseClient = {
   from: (table: string) => any;
 };
@@ -58,16 +60,35 @@ async function attachProducts(supabase: SupabaseClient, rows: CartLine[]) {
   return rows.map((row) => ({ ...row, product: productMap.get(row.product_id) || null }));
 }
 
-export async function getCart(supabase: SupabaseClient, userId: string) {
+export async function getCart(supabase: SupabaseClient, userId: string, targetCurrency?: string) {
   const cart = await getOrCreateCart(supabase, userId);
   const rows = await fetchCartRows(supabase, cart.id);
   const items = await attachProducts(supabase, rows);
-  const subtotal = items.reduce((sum, item) => {
-    const price = Number(item.product?.wholesale_price || 0);
+  const currency = normalizeCurrency(targetCurrency);
+  const convertedItems = items.map((item) => {
+    if (!item.product) return item;
+    const product = item.product as Record<string, any>;
+    const sourceCurrency = normalizeCurrency(product.currency);
+    const convertedPrice = convertCurrency(Number(product.wholesale_price || 0), sourceCurrency, currency);
+    return {
+      ...item,
+      product: {
+        ...product,
+        original_wholesale_price: Number(product.wholesale_price || 0),
+        original_currency: sourceCurrency,
+        converted_wholesale_price: convertedPrice,
+      },
+      line_total: convertedPrice * Number(item.quantity || 0),
+    };
+  });
+
+  const subtotal = convertedItems.reduce((sum, item) => {
+    const product = item.product as Record<string, any> | null | undefined;
+    const price = Number(product?.converted_wholesale_price ?? product?.wholesale_price ?? 0);
     return sum + price * Number(item.quantity || 0);
   }, 0);
 
-  return { cart, items, subtotal, total_amount: subtotal };
+  return { cart, items: convertedItems, subtotal, total_amount: subtotal, currency };
 }
 
 export async function addToCart(supabase: SupabaseClient, userId: string, productId: string, quantity: number) {
@@ -112,7 +133,8 @@ export async function updateCartItemQuantity(
   supabase: SupabaseClient,
   userId: string,
   productId: string,
-  quantity: number
+  quantity: number,
+  targetCurrency?: string
 ) {
   const finalQuantity = Math.max(1, Number(quantity || 1));
   const cart = await getOrCreateCart(supabase, userId);
@@ -134,14 +156,14 @@ export async function updateCartItemQuantity(
     .eq("product_id", productId);
 
   if (error) throw new Error(error.message);
-  return getCart(supabase, userId);
+  return getCart(supabase, userId, targetCurrency);
 }
 
-export async function removeFromCart(supabase: SupabaseClient, userId: string, productId: string) {
+export async function removeFromCart(supabase: SupabaseClient, userId: string, productId: string, targetCurrency?: string) {
   const cart = await getOrCreateCart(supabase, userId);
   const { error } = await supabase.from("cart_items").delete().eq("cart_id", cart.id).eq("product_id", productId);
   if (error) throw new Error(error.message);
-  return getCart(supabase, userId);
+  return getCart(supabase, userId, targetCurrency);
 }
 
 export async function clearCart(supabase: SupabaseClient, cartId: string) {

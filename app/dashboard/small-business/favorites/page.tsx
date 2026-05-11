@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { HeartOff, ShoppingCart } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
+import { convertCurrency, formatMoney, normalizeCurrency } from "@/lib/currency";
 import type { Product } from "@/types/product";
 
 type FavoriteRow = {
@@ -35,9 +36,20 @@ export default function SmallBusinessFavoritesPage() {
   const [favorites, setFavorites] = useState<FavoriteRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [userCurrency, setUserCurrency] = useState("ILS");
 
   useEffect(() => {
     const load = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth.user?.id) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("preferred_currency")
+          .eq("id", auth.user.id)
+          .maybeSingle();
+        setUserCurrency(normalizeCurrency(profile?.preferred_currency));
+      }
+
       const headers = await getAuthHeaders();
       const response = await fetch("/api/favorites", { headers });
       const result = await response.json();
@@ -118,6 +130,10 @@ export default function SmallBusinessFavoritesPage() {
             const product = row.products;
             if (!product) return null;
             const image = getPrimaryImage(product);
+            const sourceCurrency = normalizeCurrency(product.currency);
+            const sourcePrice = Number(product.price ?? product.wholesale_price ?? 0);
+            const convertedPrice = convertCurrency(sourcePrice, sourceCurrency, userCurrency);
+            const isConverted = sourceCurrency !== userCurrency;
 
             return (
               <div key={row.id} className="overflow-hidden rounded-xl border border-[#e6edf5] bg-white">
@@ -125,7 +141,7 @@ export default function SmallBusinessFavoritesPage() {
                 <div className="space-y-3 p-5">
                   <div>
                     <h2 className="text-lg font-bold text-[#273347]">{product.name}</h2>
-                    <p className="text-sm text-[#546a85]">السعر: {product.wholesale_price}</p>
+                    <p className="text-sm text-[#546a85]">السعر: {isConverted ? "≈ " : ""}{formatMoney(convertedPrice, userCurrency)}</p>
                   </div>
 
                   <p className="line-clamp-3 text-sm text-[#273347]/70">{product.description || "لا يوجد وصف متاح."}</p>

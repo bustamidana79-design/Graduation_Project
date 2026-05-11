@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthProfile } from "@/lib/api-auth";
 import { getCart, requireSmallBusiness, updateCartItemQuantity } from "@/lib/services/cart.service";
+import { normalizeCurrency } from "@/lib/currency";
 
 export async function GET(request: NextRequest) {
   try {
     const { supabase, user, profile } = await requireAuthProfile(request);
     requireSmallBusiness(profile);
-    const cart = await getCart(supabase, user.id);
+    const requestedCurrency = request.nextUrl.searchParams.get("currency");
+    const currency = requestedCurrency || profile.preferred_currency || "ILS";
+    const cart = await getCart(supabase, user.id, normalizeCurrency(currency));
     return NextResponse.json(cart);
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل تحميل السلة.";
@@ -51,7 +54,13 @@ export async function PATCH(request: NextRequest) {
     requireSmallBusiness(profile);
     if (!productId) return NextResponse.json({ error: "product_id مطلوب." }, { status: 400 });
 
-    const cart = await updateCartItemQuantity(supabase, user.id, productId, quantity);
+    const cart = await updateCartItemQuantity(
+      supabase,
+      user.id,
+      productId,
+      quantity,
+      normalizeCurrency(body.currency || profile.preferred_currency)
+    );
     return NextResponse.json({ success: true, cart });
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل تحديث السلة.";
