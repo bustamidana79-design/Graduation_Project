@@ -1,5 +1,5 @@
-import SmartAssistantPage from "@/components/SmartAssistantPage";
+import { redirect } from "next/navigation";
 
 export default function ShippingCompanyAiPage() {
-  return <SmartAssistantPage accountType="delivery" />;
+  redirect("/dashboard/shipping-company/assistant");
 }

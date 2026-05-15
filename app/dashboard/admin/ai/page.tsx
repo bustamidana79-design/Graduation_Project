@@ -1,5 +1,5 @@
-import SmartAssistantPage from "@/components/SmartAssistantPage";
+import { redirect } from "next/navigation";
 
 export default function AdminAiPage() {
-  return <SmartAssistantPage accountType="admin" />;
+  redirect("/dashboard/admin/assistant");
 }

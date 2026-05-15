@@ -1,5 +1,5 @@
-import SmartAssistantPage from "@/components/SmartAssistantPage";
+import { redirect } from "next/navigation";
 
 export default function SmallBusinessAiPage() {
-  return <SmartAssistantPage accountType="small_business" />;
+  redirect("/dashboard/small-business/assistant");
 }

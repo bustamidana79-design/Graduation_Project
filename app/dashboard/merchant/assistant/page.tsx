@@ -1,7 +1,5 @@
-"use client";
-
-import AIChatbot from "@/components/AIChatbot";
+import SmartAssistantPage from "@/components/SmartAssistantPage";
 
 export default function MerchantAssistantPage() {
-  return <AIChatbot userType="merchant" />;
+  return <SmartAssistantPage accountType="merchant" />;
 }

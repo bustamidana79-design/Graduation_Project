@@ -1,7 +1,5 @@
-"use client";
-
-import AIChatbot from "@/components/AIChatbot";
+import SmartAssistantPage from "@/components/SmartAssistantPage";
 
 export default function AdminAssistantPage() {
-  return <AIChatbot userType="admin" />;
+  return <SmartAssistantPage accountType="admin" />;
 }

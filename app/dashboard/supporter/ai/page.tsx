@@ -1,5 +1,5 @@
-import SmartAssistantPage from "@/components/SmartAssistantPage";
+import { redirect } from "next/navigation";
 
 export default function SupporterAiPage() {
-  return <SmartAssistantPage accountType="supporter" />;
+  redirect("/dashboard/supporter/assistant");
 }
