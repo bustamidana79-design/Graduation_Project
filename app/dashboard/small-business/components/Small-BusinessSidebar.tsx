@@ -11,6 +11,7 @@ const navItems = [
   { label: "السلة", href: "/dashboard/small-business/cart", icon: "Cart" },
   { label: "المفضلة", href: "/dashboard/small-business/favorites", icon: "Fav" },
   { label: "طلباتي", href: "/dashboard/small-business/orders", icon: "Orders" },
+  { label: "طلبات الاستثمار", href: "/dashboard/small-business/investments", icon: "Fund" },
   { label: "المحادثات", href: "/dashboard/small-business/messages", icon: "Chat" },
   { label: "التحليلات", href: "/dashboard/small-business/analytics", icon: "Stats" },
   { label: "المساعد الذكي", href: "/dashboard/small-business/assistant", icon: "AI" },
