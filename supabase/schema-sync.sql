@@ -211,6 +211,21 @@ create table if not exists public.upgrade_requests (
   created_at timestamp default now()
 );
 
+alter table public.upgrade_requests
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists status text not null default 'pending',
+  add column if not exists request_json jsonb not null default '{}'::jsonb,
+  add column if not exists admin_note text,
+  add column if not exists reviewed_at timestamptz,
+  add column if not exists reviewed_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default timezone('utc'::text, now());
+
+create index if not exists upgrade_requests_user_created_idx
+  on public.upgrade_requests (user_id, created_at desc);
+
+create index if not exists upgrade_requests_status_created_idx
+  on public.upgrade_requests (status, created_at desc);
+
 -- ---------------------------------------------------------------------------
 -- AI chatbot sessions/messages.
 -- Each user type gets its own assistant memory stream.

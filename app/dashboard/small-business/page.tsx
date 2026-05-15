@@ -1,6 +1,7 @@
 "use client";
 
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
+import SmallBusinessUpgradeRequestCard from "@/components/SmallBusinessUpgradeRequestCard";
 
 type AnalyticsItem = {
   month: string;
@@ -35,6 +36,8 @@ export default function SmallBusinessDashboardPage() {
         <div className="py-10 text-center text-sm text-[#273347]/40">جارٍ التحميل...</div>
       ) : (
         <>
+          <SmallBusinessUpgradeRequestCard />
+
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-[#e6edf5] bg-white p-5">
               <p className="mb-2 text-sm text-[#273347]/60">عدد المنتجات</p>
