@@ -86,11 +86,19 @@ alter table public.orders add column if not exists city text;
 alter table public.orders add column if not exists area text;
 alter table public.orders add column if not exists notes text;
 alter table public.order_items add column if not exists currency text default 'ILS';
+alter table public.order_items add column if not exists total_price numeric;
 alter table public.payments add column if not exists currency text default 'ILS';
 alter table public.payments add column if not exists provider_payment_id text;
 alter table public.payments add column if not exists payment_url text;
+alter table public.delivery_orders add column if not exists status text default 'picked_up';
 alter table public.delivery_orders add column if not exists shipping_fee numeric default 0;
 alter table public.delivery_orders add column if not exists avg_delivery_time text;
+
+update public.order_items
+set total_price = coalesce(total_price, unit_price * quantity)
+where total_price is null
+  and unit_price is not null
+  and quantity is not null;
 
 do $$
 begin
@@ -164,6 +172,16 @@ begin
     alter table public.payments
       add constraint payments_currency_check
       check (currency in ('ILS', 'USD', 'JOD'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.delivery_orders'::regclass
+      and conname = 'delivery_orders_status_check'
+  ) then
+    alter table public.delivery_orders
+      add constraint delivery_orders_status_check
+      check (status in ('picked_up', 'in_transit', 'out_for_delivery', 'delivered'));
   end if;
 end $$;
 
@@ -465,3 +483,98 @@ with check (
     where s.id = session_id and s.profile_id = auth.uid()
   )
 );
+
+-- ---------------------------------------------------------------------------
+-- Order/delivery RLS helpers.
+-- These avoid recursive policy checks between orders and delivery_orders.
+-- ---------------------------------------------------------------------------
+create or replace function public.can_access_order(target_order_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.orders o
+    where o.id = target_order_id
+      and (
+        o.buyer_id = auth.uid()
+        or o.supplier_id = auth.uid()
+        or exists (
+          select 1
+          from public.delivery_orders d
+          where d.order_id = o.id
+            and d.shipping_company_id = auth.uid()
+        )
+      )
+  );
+$$;
+
+create or replace function public.is_order_buyer(target_order_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.orders o
+    where o.id = target_order_id
+      and o.buyer_id = auth.uid()
+  );
+$$;
+
+create or replace function public.can_access_delivery_order(target_delivery_order_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.delivery_orders d
+    join public.orders o on o.id = d.order_id
+    where d.id = target_delivery_order_id
+      and (
+        d.shipping_company_id = auth.uid()
+        or o.buyer_id = auth.uid()
+        or o.supplier_id = auth.uid()
+      )
+  );
+$$;
+
+drop policy if exists orders_participants_select on public.orders;
+create policy orders_participants_select
+on public.orders for select
+using (public.can_access_order(id));
+
+drop policy if exists order_items_participants_select on public.order_items;
+create policy order_items_participants_select
+on public.order_items for select
+using (public.can_access_order(order_id));
+
+drop policy if exists order_items_buyer_insert on public.order_items;
+create policy order_items_buyer_insert
+on public.order_items for insert
+with check (public.is_order_buyer(order_id));
+
+drop policy if exists delivery_orders_participants_select on public.delivery_orders;
+create policy delivery_orders_participants_select
+on public.delivery_orders for select
+using (public.can_access_delivery_order(id));
+
+drop policy if exists delivery_orders_buyer_insert on public.delivery_orders;
+create policy delivery_orders_buyer_insert
+on public.delivery_orders for insert
+with check (public.is_order_buyer(order_id));
+
+drop policy if exists delivery_tracking_participants_select on public.delivery_tracking;
+create policy delivery_tracking_participants_select
+on public.delivery_tracking for select
+using (public.can_access_delivery_order(delivery_order_id));
+
+drop policy if exists delivery_tracking_company_insert on public.delivery_tracking;
+create policy delivery_tracking_company_insert
+on public.delivery_tracking for insert
+with check (public.can_access_delivery_order(delivery_order_id));

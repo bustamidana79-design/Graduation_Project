@@ -86,9 +86,6 @@ export async function createOrdersFromCart(
         normalizeCurrency(item.product?.currency),
         currency
       ),
-      total_price:
-        convertCurrency(Number(item.product?.wholesale_price || 0), normalizeCurrency(item.product?.currency), currency) *
-        Number(item.quantity || 0),
       currency,
     }));
 

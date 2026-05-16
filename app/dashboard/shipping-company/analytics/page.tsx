@@ -4,31 +4,26 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 
-type BuyerOrder = {
+type DeliveryOrder = {
   id: string;
   status: string;
-  total_amount: number | string | null;
-  subtotal: number | string | null;
-  currency: string | null;
+  shipping_fee: number | string | null;
   created_at: string;
-  order_items?: {
-    quantity: number | string | null;
-    unit_price: number | string | null;
-    products?: { name: string | null } | null;
-  }[];
-  delivery_orders?: {
-    status: string | null;
-    shipping_fee: number | string | null;
-  }[];
+  orders?: {
+    id: string;
+    city: string | null;
+    area: string | null;
+    total_amount: number | string | null;
+    currency: string | null;
+    created_at: string;
+  } | null;
 };
 
 const statusLabels: Record<string, string> = {
-  pending: "قيد المراجعة",
-  confirmed: "مؤكد",
-  processing: "قيد التجهيز",
-  shipped: "تم الشحن",
+  picked_up: "تم الاستلام",
+  in_transit: "قيد النقل",
+  out_for_delivery: "خارج للتسليم",
   delivered: "تم التسليم",
-  cancelled: "ملغي",
 };
 
 const monthFormatter = new Intl.DateTimeFormat("ar", { month: "short" });
@@ -42,9 +37,9 @@ function formatAmount(amount: number, currency = "ILS") {
   return `${amount.toLocaleString("ar")} ${currency}`;
 }
 
-export default function SmallBusinessAnalyticsPage() {
-  const { profile, loading: accessLoading } = useDashboardAccess({ requiredAccountType: "small_business" });
-  const [orders, setOrders] = useState<BuyerOrder[]>([]);
+export default function ShippingAnalyticsPage() {
+  const { profile, loading: accessLoading } = useDashboardAccess({ requiredAccountType: "delivery" });
+  const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -56,16 +51,16 @@ export default function SmallBusinessAnalyticsPage() {
       setError("");
 
       const { data, error: loadError } = await supabase
-        .from("orders")
-        .select("id, status, total_amount, subtotal, currency, created_at, order_items(quantity, unit_price, products(name)), delivery_orders(status, shipping_fee)")
-        .eq("buyer_id", profile.id)
+        .from("delivery_orders")
+        .select("id, status, shipping_fee, created_at, orders(id, city, area, total_amount, currency, created_at)")
+        .eq("shipping_company_id", profile.id)
         .order("created_at", { ascending: false });
 
       if (loadError) {
         setError(loadError.message);
         setOrders([]);
       } else {
-        setOrders((data as unknown as BuyerOrder[] | null) || []);
+        setOrders((data as unknown as DeliveryOrder[] | null) || []);
       }
 
       setLoading(false);
@@ -74,27 +69,19 @@ export default function SmallBusinessAnalyticsPage() {
     void loadAnalytics();
   }, [profile?.id]);
 
-  const currency = orders[0]?.currency || "ILS";
+  const currency = orders[0]?.orders?.currency || "ILS";
 
   const stats = useMemo(() => {
-    const totalSpent = orders.reduce((sum, order) => sum + toNumber(order.total_amount || order.subtotal), 0);
-    const shippingFees = orders.reduce(
-      (sum, order) => sum + (order.delivery_orders || []).reduce((feeSum, delivery) => feeSum + toNumber(delivery.shipping_fee), 0),
-      0
-    );
-    const itemCount = orders.reduce(
-      (sum, order) => sum + (order.order_items || []).reduce((itemSum, item) => itemSum + toNumber(item.quantity), 0),
-      0
-    );
-    const delivered = orders.filter((order) => order.delivery_orders?.some((delivery) => delivery.status === "delivered"));
+    const delivered = orders.filter((order) => order.status === "delivered");
+    const active = orders.filter((order) => order.status !== "delivered");
+    const totalFees = orders.reduce((sum, order) => sum + toNumber(order.shipping_fee), 0);
 
     return {
-      ordersCount: orders.length,
-      totalSpent,
-      shippingFees,
-      itemCount,
-      deliveredCount: delivered.length,
-      averageOrder: orders.length ? totalSpent / orders.length : 0,
+      total: orders.length,
+      active: active.length,
+      delivered: delivered.length,
+      totalFees,
+      averageFee: orders.length ? totalFees / orders.length : 0,
     };
   }, [orders]);
 
@@ -103,7 +90,7 @@ export default function SmallBusinessAnalyticsPage() {
     const buckets = Array.from({ length: 6 }).map((_, index) => {
       const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-      return { key, month: monthFormatter.format(date), orders: 0, amount: 0 };
+      return { key, month: monthFormatter.format(date), deliveries: 0, fees: 0 };
     });
     const byKey = new Map(buckets.map((bucket) => [bucket.key, bucket]));
 
@@ -112,26 +99,23 @@ export default function SmallBusinessAnalyticsPage() {
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
       const bucket = byKey.get(key);
       if (!bucket) return;
-      bucket.orders += 1;
-      bucket.amount += toNumber(order.total_amount || order.subtotal);
+      bucket.deliveries += 1;
+      bucket.fees += toNumber(order.shipping_fee);
     });
 
     return buckets;
   }, [orders]);
 
-  const topProducts = useMemo(() => {
-    const totals = new Map<string, { name: string; quantity: number; amount: number }>();
+  const topCities = useMemo(() => {
+    const totals = new Map<string, number>();
     orders.forEach((order) => {
-      (order.order_items || []).forEach((item) => {
-        const name = item.products?.name || "منتج غير محدد";
-        const current = totals.get(name) || { name, quantity: 0, amount: 0 };
-        const quantity = toNumber(item.quantity);
-        current.quantity += quantity;
-        current.amount += toNumber(item.unit_price) * quantity;
-        totals.set(name, current);
-      });
+      const city = order.orders?.city || "غير محدد";
+      totals.set(city, (totals.get(city) || 0) + 1);
     });
-    return Array.from(totals.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
+    return Array.from(totals.entries())
+      .map(([city, count]) => ({ city, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
   }, [orders]);
 
   const statusBreakdown = useMemo(() => {
@@ -140,15 +124,15 @@ export default function SmallBusinessAnalyticsPage() {
     return Array.from(totals.entries()).map(([status, count]) => ({ status, count }));
   }, [orders]);
 
-  const maxOrders = Math.max(...monthly.map((item) => item.orders), 1);
+  const maxDeliveries = Math.max(...monthly.map((item) => item.deliveries), 1);
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-6xl flex-1 px-6 py-8" dir="rtl">
       <section className="mb-6 rounded-2xl bg-[#273347] px-8 py-7 text-white">
-        <p className="text-sm text-white/60">تحليلات المشروع</p>
-        <h1 className="mt-2 text-3xl font-bold">تحليل المشتريات والطلبات</h1>
+        <p className="text-sm text-white/60">تحليلات شركة الشحن</p>
+        <h1 className="mt-2 text-3xl font-bold">أداء التوصيل</h1>
         <p className="mt-2 max-w-3xl text-sm text-white/70">
-          راقب مشتريات مشروعك، متوسط الطلب، رسوم الشحن، والمنتجات الأكثر شراءً.
+          تابع حجم طلبات التوصيل، الرسوم، المدن الأكثر نشاطًا، وحالات الشحن الحالية.
         </p>
       </section>
 
@@ -158,14 +142,13 @@ export default function SmallBusinessAnalyticsPage() {
         <div className="rounded-2xl bg-white py-14 text-center text-sm text-[#273347]/45">جاري تحميل التحليلات...</div>
       ) : (
         <>
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-6">
+          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
             {[
-              { label: "عدد الطلبات", value: stats.ordersCount.toLocaleString("ar"), color: "border-r-4 border-[#273347]" },
-              { label: "إجمالي المشتريات", value: formatAmount(stats.totalSpent, currency), color: "border-r-4 border-blue-400" },
-              { label: "متوسط الطلب", value: formatAmount(stats.averageOrder, currency), color: "border-r-4 border-cyan-400" },
-              { label: "القطع المشتراة", value: stats.itemCount.toLocaleString("ar"), color: "border-r-4 border-purple-400" },
-              { label: "طلبات مسلمة", value: stats.deliveredCount.toLocaleString("ar"), color: "border-r-4 border-emerald-400" },
-              { label: "رسوم الشحن", value: formatAmount(stats.shippingFees, currency), color: "border-r-4 border-yellow-400" },
+              { label: "طلبات التوصيل", value: stats.total.toLocaleString("ar"), color: "border-r-4 border-[#273347]" },
+              { label: "قيد التوصيل", value: stats.active.toLocaleString("ar"), color: "border-r-4 border-blue-400" },
+              { label: "تم تسليمها", value: stats.delivered.toLocaleString("ar"), color: "border-r-4 border-emerald-400" },
+              { label: "إجمالي الرسوم", value: formatAmount(stats.totalFees, currency), color: "border-r-4 border-yellow-400" },
+              { label: "متوسط الرسوم", value: formatAmount(stats.averageFee, currency), color: "border-r-4 border-cyan-400" },
             ].map((card) => (
               <div key={card.label} className={`rounded-2xl bg-white p-5 shadow-sm ${card.color}`}>
                 <p className="text-2xl font-bold text-[#273347]">{card.value}</p>
@@ -179,11 +162,11 @@ export default function SmallBusinessAnalyticsPage() {
             <div className="flex h-40 items-end gap-2">
               {monthly.map((item) => (
                 <div key={item.key} className="flex flex-1 flex-col items-center gap-1">
-                  <p className="text-xs font-bold text-[#273347]/50">{item.orders}</p>
+                  <p className="text-xs font-bold text-[#273347]/50">{item.deliveries}</p>
                   <div
                     className="w-full rounded-t-md bg-[#bbd0e4] transition hover:bg-[#273347]"
-                    title={`القيمة: ${formatAmount(item.amount, currency)}`}
-                    style={{ height: `${Math.max((item.orders / maxOrders) * 100, item.orders ? 8 : 2)}%` }}
+                    title={`الرسوم: ${formatAmount(item.fees, currency)}`}
+                    style={{ height: `${Math.max((item.deliveries / maxDeliveries) * 100, item.deliveries ? 8 : 2)}%` }}
                   />
                   <p className="text-[10px] text-[#273347]/50">{item.month}</p>
                 </div>
@@ -193,15 +176,15 @@ export default function SmallBusinessAnalyticsPage() {
 
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="rounded-2xl border border-[#e6edf5] bg-white p-6">
-              <h2 className="mb-4 text-sm font-bold text-[#273347]">المنتجات الأكثر شراءً</h2>
-              {topProducts.length === 0 ? (
-                <p className="text-sm text-[#273347]/45">لا توجد منتجات مشتراة بعد.</p>
+              <h2 className="mb-4 text-sm font-bold text-[#273347]">المدن الأكثر طلبًا</h2>
+              {topCities.length === 0 ? (
+                <p className="text-sm text-[#273347]/45">لا توجد بيانات مدن بعد.</p>
               ) : (
                 <div className="space-y-3">
-                  {topProducts.map((item) => (
-                    <div key={item.name} className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3">
-                      <span className="font-semibold text-[#273347]">{item.name}</span>
-                      <span className="text-sm text-[#273347]/60">{item.quantity.toLocaleString("ar")} قطعة</span>
+                  {topCities.map((item) => (
+                    <div key={item.city} className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3">
+                      <span className="font-semibold text-[#273347]">{item.city}</span>
+                      <span className="text-sm text-[#273347]/60">{item.count.toLocaleString("ar")} طلب</span>
                     </div>
                   ))}
                 </div>
@@ -209,7 +192,7 @@ export default function SmallBusinessAnalyticsPage() {
             </section>
 
             <section className="rounded-2xl border border-[#e6edf5] bg-white p-6">
-              <h2 className="mb-4 text-sm font-bold text-[#273347]">حالات الطلبات</h2>
+              <h2 className="mb-4 text-sm font-bold text-[#273347]">حالات التوصيل</h2>
               {statusBreakdown.length === 0 ? (
                 <p className="text-sm text-[#273347]/45">لا توجد حالات بعد.</p>
               ) : (
