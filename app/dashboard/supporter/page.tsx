@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import DailyTipCard from "@/components/DailyTipCard";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import { supabase } from "@/lib/supabase";
 
@@ -127,6 +128,8 @@ export default function SupporterDashboard() {
         <div className="py-10 text-center text-sm text-[#273347]/40">جاري التحميل...</div>
       ) : (
         <>
+          <DailyTipCard />
+
           <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
             {statCards.map((card) => (
               <div key={card.label} className={`rounded-2xl bg-white p-5 shadow-sm ${card.color}`}>

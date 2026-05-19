@@ -245,6 +245,40 @@ create index if not exists upgrade_requests_status_created_idx
   on public.upgrade_requests (status, created_at desc);
 
 -- ---------------------------------------------------------------------------
+-- Daily personalized dashboard tips.
+-- One stable tip per user per day, generated from profile and activity.
+-- ---------------------------------------------------------------------------
+create table if not exists public.daily_user_tips (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  tip_date date not null default current_date,
+  account_type text not null,
+  title text not null,
+  body text not null,
+  action_label text not null,
+  action_href text not null,
+  priority text not null default 'medium' check (priority in ('low', 'medium', 'high')),
+  source jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default timezone('utc'::text, now()),
+  unique (user_id, tip_date)
+);
+
+alter table public.daily_user_tips
+  add column if not exists user_id uuid references public.profiles(id) on delete cascade,
+  add column if not exists tip_date date not null default current_date,
+  add column if not exists account_type text not null default 'merchant',
+  add column if not exists title text not null default '',
+  add column if not exists body text not null default '',
+  add column if not exists action_label text not null default '',
+  add column if not exists action_href text not null default '',
+  add column if not exists priority text not null default 'medium',
+  add column if not exists source jsonb not null default '{}'::jsonb,
+  add column if not exists created_at timestamptz not null default timezone('utc'::text, now());
+
+create unique index if not exists daily_user_tips_user_date_idx
+  on public.daily_user_tips (user_id, tip_date);
+
+-- ---------------------------------------------------------------------------
 -- AI chatbot sessions/messages.
 -- Each user type gets its own assistant memory stream.
 -- ---------------------------------------------------------------------------
@@ -310,6 +344,7 @@ alter table public.verification_files enable row level security;
 alter table public.admin_reviews enable row level security;
 alter table public.profile_roles enable row level security;
 alter table public.upgrade_requests enable row level security;
+alter table public.daily_user_tips enable row level security;
 alter table public.ai_chat_sessions enable row level security;
 alter table public.ai_chat_messages enable row level security;
 
@@ -445,6 +480,22 @@ create policy upgrade_requests_admin_update
 on public.upgrade_requests for update
 using (public.is_admin())
 with check (public.is_admin());
+
+drop policy if exists daily_user_tips_select_own_or_admin on public.daily_user_tips;
+create policy daily_user_tips_select_own_or_admin
+on public.daily_user_tips for select
+using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists daily_user_tips_insert_own_or_admin on public.daily_user_tips;
+create policy daily_user_tips_insert_own_or_admin
+on public.daily_user_tips for insert
+with check (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists daily_user_tips_update_own_or_admin on public.daily_user_tips;
+create policy daily_user_tips_update_own_or_admin
+on public.daily_user_tips for update
+using (auth.uid() = user_id or public.is_admin())
+with check (auth.uid() = user_id or public.is_admin());
 
 drop policy if exists ai_chat_sessions_select_own_or_admin on public.ai_chat_sessions;
 create policy ai_chat_sessions_select_own_or_admin

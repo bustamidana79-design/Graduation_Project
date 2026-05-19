@@ -411,7 +411,7 @@ export default function DirectMessagesPage() {
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="flex min-h-0 flex-col gap-6" dir="rtl">
       <div className="rounded-3xl bg-[#273347] px-6 py-6 text-white">
         <h1 className="text-2xl font-bold">المحادثات المباشرة</h1>
         <p className="mt-2 text-sm text-white/70">
@@ -430,8 +430,8 @@ export default function DirectMessagesPage() {
         </div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <aside className="space-y-4">
+      <div className="grid min-h-[560px] gap-6 xl:h-[calc(100vh-220px)] xl:grid-cols-[360px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col gap-4">
           <div className="rounded-3xl border border-[#e6edf5] bg-white p-5 shadow-sm">
             <h2 className="text-lg font-bold text-[#273347]">بدء محادثة جديدة</h2>
             <p className="mt-1 text-sm text-[#273347]/60">اختر مستخدمًا وابدأ المحادثة فورًا.</p>
@@ -461,12 +461,12 @@ export default function DirectMessagesPage() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-[#e6edf5] bg-white shadow-sm">
+          <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-[#e6edf5] bg-white shadow-sm">
             <div className="border-b border-[#eef3f8] px-5 py-4">
               <h2 className="text-lg font-bold text-[#273347]">قائمة المحادثات</h2>
             </div>
 
-            <div className="max-h-[640px] overflow-y-auto p-3">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {loading ? (
                 <div className="rounded-2xl px-4 py-8 text-center text-sm text-[#273347]/50">
                   جاري تحميل المحادثات...
@@ -516,7 +516,7 @@ export default function DirectMessagesPage() {
           </div>
         </aside>
 
-        <section className="flex min-h-[720px] flex-col overflow-hidden rounded-3xl border border-[#e6edf5] bg-white shadow-sm">
+        <section className="flex min-h-[560px] flex-col overflow-hidden rounded-3xl border border-[#e6edf5] bg-white shadow-sm xl:min-h-0">
           {selectedConversation ? (
             <>
               <div className="border-b border-[#eef3f8] bg-[#fcfdff] px-6 py-5">
@@ -530,7 +530,7 @@ export default function DirectMessagesPage() {
                 </p>
               </div>
 
-              <div className="flex-1 space-y-4 overflow-y-auto bg-[#f6f9fc] px-4 py-5">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#f6f9fc] px-4 py-5">
                 {messagesLoading ? (
                   <div className="py-12 text-center text-sm text-[#273347]/50">جاري تحميل الرسائل...</div>
                 ) : messages.length === 0 ? (
