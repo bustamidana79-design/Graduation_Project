@@ -6,7 +6,7 @@ import { Heart, Minus, Plus, ShoppingCart } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 import { getProfileRoute } from "@/lib/profile-routes";
-import { convertCurrency, formatMoney, normalizeCurrency } from "@/lib/currency";
+import { DEFAULT_USD_RATES, convertCurrency, formatMoney, normalizeCurrency, type ExchangeRates } from "@/lib/currency";
 import type { Product } from "@/types/product";
 
 async function getAuthToken() {
@@ -31,6 +31,7 @@ export default function SmallBusinessProductsPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [userCurrency, setUserCurrency] = useState("ILS");
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_USD_RATES);
 
   useEffect(() => {
     const load = async () => {
@@ -42,6 +43,12 @@ export default function SmallBusinessProductsPage() {
           .eq("id", auth.user.id)
           .maybeSingle();
         setUserCurrency(normalizeCurrency(profile?.preferred_currency));
+      }
+
+      const ratesResponse = await fetch("/api/currency/rates");
+      if (ratesResponse.ok) {
+        const ratesResult = await ratesResponse.json();
+        setExchangeRates(ratesResult.rates || DEFAULT_USD_RATES);
       }
 
       const response = await fetch("/api/products");
@@ -135,7 +142,7 @@ export default function SmallBusinessProductsPage() {
             const stock = Number(product.stock_quantity || 0);
             const sourceCurrency = normalizeCurrency(product.currency);
             const sourcePrice = Number(product.price ?? product.wholesale_price ?? 0);
-            const convertedPrice = convertCurrency(sourcePrice, sourceCurrency, userCurrency);
+            const convertedPrice = convertCurrency(sourcePrice, sourceCurrency, userCurrency, exchangeRates);
             const isConverted = sourceCurrency !== userCurrency;
 
             return (

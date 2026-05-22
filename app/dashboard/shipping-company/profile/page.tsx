@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import ProfileEditModal, { type EditableProfile } from "@/components/ProfileEditModal";
+import { AREAS_BY_CITY, ARAB_COUNTRY_NAMES, getCitiesByCountryName } from "@/lib/locations";
 
 type ShippingCompanyDetails = {
   company_name: string | null;
@@ -15,12 +16,31 @@ type ShippingCompanyDetails = {
 
 type BaseProfile = EditableProfile;
 
+type ShippingRate = {
+  id: string;
+  city: string;
+  area?: string | null;
+  price: number;
+};
+
 const cardClass = "rounded-2xl border border-[#e6edf5] bg-white p-5 shadow-sm";
+
+async function getAuthHeaders() {
+  const { data } = await supabase.auth.getSession();
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${data.session?.access_token || ""}`,
+  };
+}
 
 export default function ShippingCompanyProfilePage() {
   const { profile, loading } = useDashboardAccess({ requiredAccountType: "delivery" });
   const [baseProfile, setBaseProfile] = useState<BaseProfile | null>(null);
   const [details, setDetails] = useState<ShippingCompanyDetails | null>(null);
+  const [rates, setRates] = useState<ShippingRate[]>([]);
+  const [rateCity, setRateCity] = useState("");
+  const [rateArea, setRateArea] = useState("");
+  const [ratePrice, setRatePrice] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -28,7 +48,8 @@ export default function ShippingCompanyProfilePage() {
     if (!profile?.id) return;
 
     const loadProfileData = async () => {
-      const [{ data: baseData }, { data: detailsData }] = await Promise.all([
+      const headers = await getAuthHeaders();
+      const [{ data: baseData }, { data: detailsData }, ratesResponse] = await Promise.all([
         supabase
           .from("profiles")
           .select("full_name, email, phone, country, city, bio, avatar_url, status")
@@ -39,17 +60,59 @@ export default function ShippingCompanyProfilePage() {
           .select("company_name, delivery_scope, delivery_cities, avg_delivery_time, license_no")
           .eq("user_id", profile.id)
           .maybeSingle(),
+        fetch("/api/shipping/rates", { headers }),
       ]);
 
+      const ratesResult = await ratesResponse.json();
       console.log("profile", baseData);
       setBaseProfile((baseData as BaseProfile | null) || null);
       setDetails((detailsData as ShippingCompanyDetails | null) || null);
+      setRates((ratesResult.rates || []) as ShippingRate[]);
     };
 
     loadProfileData();
   }, [profile?.id]);
 
   const fullName = baseProfile?.full_name || profile?.full_name || "شركة الشحن";
+  const cityOptions = (details?.delivery_cities || []).length > 0
+    ? details?.delivery_cities || []
+    : getCitiesByCountryName(baseProfile?.country || ARAB_COUNTRY_NAMES.PS);
+  const areaOptions = AREAS_BY_CITY[rateCity] || [];
+
+  const addRate = async () => {
+    if (!rateCity) {
+      setToast("يرجى اختيار المدينة");
+      return;
+    }
+
+    const price = Number(ratePrice);
+    if (!Number.isFinite(price) || price < 0) {
+      setToast("يرجى إدخال سعر شحن صحيح");
+      return;
+    }
+
+    const headers = await getAuthHeaders();
+    const response = await fetch("/api/shipping/rates", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        city: rateCity,
+        area: rateArea || null,
+        price,
+      }),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      setToast(result.error || "تعذر إضافة سعر الشحن");
+      return;
+    }
+
+    setRates((current) => [result.rate, ...current]);
+    setRatePrice("");
+    setToast("تمت إضافة سعر الشحن");
+    window.setTimeout(() => setToast(""), 3000);
+  };
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -119,6 +182,97 @@ export default function ShippingCompanyProfilePage() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className={cardClass}>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-bold text-[#273347]">أسعار الشحن حسب المناطق</h2>
+          <p className="text-sm text-[#273347]/60">أضف سعرًا لكل مدينة/منطقة تغطيها الشركة.</p>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_140px_auto]">
+          <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+            المدينة
+            <select
+              value={rateCity}
+              onChange={(event) => {
+                setRateCity(event.target.value);
+                setRateArea("");
+              }}
+              className="w-full rounded-2xl border border-[#d8e1ec] bg-white px-4 py-3 text-sm"
+            >
+              <option value="">اختر المدينة</option>
+              {cityOptions.map((city) => (
+                <option key={city} value={city}>
+                  {city}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+            المنطقة
+            {areaOptions.length > 0 ? (
+              <select
+                value={rateArea}
+                onChange={(event) => setRateArea(event.target.value)}
+                disabled={!rateCity}
+                className="w-full rounded-2xl border border-[#d8e1ec] bg-white px-4 py-3 text-sm disabled:bg-[#eef3f8]"
+              >
+                <option value="">كل المدينة</option>
+                {areaOptions.map((area) => (
+                  <option key={area} value={area}>
+                    {area}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={rateArea}
+                onChange={(event) => setRateArea(event.target.value)}
+                disabled={!rateCity}
+                placeholder="اتركها فارغة لكل المدينة"
+                className="w-full rounded-2xl border border-[#d8e1ec] bg-white px-4 py-3 text-sm disabled:bg-[#eef3f8]"
+              />
+            )}
+          </label>
+
+          <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+            السعر
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={ratePrice}
+              onChange={(event) => setRatePrice(event.target.value)}
+              className="w-full rounded-2xl border border-[#d8e1ec] bg-white px-4 py-3 text-sm"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={() => void addRate()}
+            className="self-end rounded-2xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white"
+          >
+            إضافة
+          </button>
+        </div>
+
+        <div className="mt-5 overflow-hidden rounded-2xl border border-[#e6edf5]">
+          {rates.length === 0 ? (
+            <div className="p-4 text-sm text-[#273347]/60">لا توجد أسعار شحن بعد.</div>
+          ) : (
+            <div className="divide-y divide-[#e6edf5]">
+              {rates.map((rate) => (
+                <div key={rate.id} className="grid grid-cols-3 gap-3 p-4 text-sm text-[#273347]">
+                  <span>{rate.city}</span>
+                  <span>{rate.area || "كل المدينة"}</span>
+                  <span className="font-bold">{Number(rate.price || 0).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

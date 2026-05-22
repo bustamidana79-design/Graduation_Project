@@ -12,14 +12,21 @@ export async function POST(request: NextRequest) {
 
     requireSmallBusiness(profile);
     if (!orderId || !shippingCompanyId) {
-      return NextResponse.json({ error: "order_id و shipping_company_id مطلوبان." }, { status: 400 });
+      return NextResponse.json({ error: "order_id and shipping_company_id are required." }, { status: 400 });
     }
 
     const deliveryOrder = await selectShippingCompany(supabase, user.id, orderId, shippingCompanyId);
     return NextResponse.json({ delivery_order: deliveryOrder }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "فشل اختيار شركة الشحن.";
-    const status = message === "UNAUTHORIZED" ? 401 : message === "ORDER_NOT_FOUND" ? 404 : 500;
+    const message = error instanceof Error ? error.message : "Failed to select shipping company.";
+    const status =
+      message === "UNAUTHORIZED"
+        ? 401
+        : message === "ORDER_NOT_FOUND" || message === "SHIPPING_COMPANY_NOT_FOUND"
+          ? 404
+          : message === "SHIPPING_COMPANY_UNAVAILABLE"
+            ? 400
+            : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

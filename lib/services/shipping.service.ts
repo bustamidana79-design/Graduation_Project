@@ -5,25 +5,113 @@ type SupabaseClient = {
 };
 
 const DELIVERY_STATUSES = ["picked_up", "in_transit", "out_for_delivery", "delivered"] as const;
+const LATIN_LETTERS = /[a-z]/i;
 
 function trackingNumber() {
   return `TRK-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
-export async function getShippingCompanies(supabase: SupabaseClient) {
+function normalizeLocation(value?: unknown) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function hasMatchingDeliveryLocation(deliveryCities: unknown[], city?: unknown, area?: unknown) {
+  const normalizedCity = normalizeLocation(city);
+  const normalizedArea = normalizeLocation(area);
+
+  return deliveryCities.some((value) => {
+    const deliveryLocation = normalizeLocation(value);
+    return Boolean(deliveryLocation && (deliveryLocation === normalizedCity || deliveryLocation === normalizedArea));
+  });
+}
+
+function toShippingCompany(company: any, shippingFee = 0) {
+  return {
+    id: company.user_id,
+    user_id: company.user_id,
+    company_name: company.company_name,
+    delivery_cities: company.delivery_cities || [],
+    avg_delivery_time: company.avg_delivery_time || "",
+    shipping_fee: Number(shippingFee || 0),
+  };
+}
+
+export async function getShippingRate(
+  supabase: SupabaseClient,
+  shippingCompanyId: string,
+  city: string,
+  area?: string | null
+) {
+  const { data: rate, error } = await supabase
+    .from("shipping_rates")
+    .select("price")
+    .eq("shipping_company_id", shippingCompanyId)
+    .eq("city", city)
+    .eq("area", String(area || "").trim())
+    .single();
+
+  if (error || !rate) {
+    throw new Error("لا يوجد سعر شحن لهذه المنطقة");
+  }
+
+  return rate;
+}
+
+export async function getShippingCompanies(supabase: SupabaseClient, filters?: { city?: string; area?: string; country?: string }) {
   const { data, error } = await supabase
     .from("shipping_company_profiles")
     .select("user_id, company_name, delivery_cities, avg_delivery_time")
     .order("company_name", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return (data || []).map((company: any) => ({
-    id: company.user_id,
-    user_id: company.user_id,
-    company_name: company.company_name,
-    delivery_cities: company.delivery_cities || [],
-    avg_delivery_time: company.avg_delivery_time || "",
-  }));
+  const companies = data || [];
+  const city = String(filters?.city || "").trim();
+  const area = String(filters?.area || "").trim();
+
+  console.log("city:", city);
+  console.log("area:", area);
+
+  const availableCompanies = companies.filter((company: any) => {
+    const deliveryCities = Array.isArray(company.delivery_cities) ? company.delivery_cities : [];
+
+    console.log("company cities:", company.delivery_cities);
+    if (deliveryCities.some((value: unknown) => LATIN_LETTERS.test(String(value || "")))) {
+      console.warn("Shipping company delivery_cities should be Arabic:", company.company_name, company.delivery_cities);
+    }
+
+    if (!city && !area) return true;
+    return hasMatchingDeliveryLocation(deliveryCities, city, area);
+  });
+
+  if (availableCompanies.length === 0) {
+    console.warn("No matching companies, returning all");
+    return companies.map((company: any) => toShippingCompany(company));
+  }
+
+  if (!city || !area) {
+    return availableCompanies.map((company: any) => toShippingCompany(company));
+  }
+
+  const companyIds = availableCompanies.map((company: any) => String(company.user_id)).filter(Boolean);
+  const { data: rates, error: ratesError } =
+    companyIds.length > 0
+      ? await supabase
+          .from("shipping_rates")
+          .select("shipping_company_id, price")
+          .in("shipping_company_id", companyIds)
+          .eq("city", city)
+          .eq("area", area)
+      : { data: [], error: null };
+
+  if (ratesError) throw new Error(ratesError.message);
+  const rateMap = new Map((rates || []).map((rate: any) => [String(rate.shipping_company_id), Number(rate.price || 0)]));
+
+  return availableCompanies
+    .filter((company: any) => rateMap.has(String(company.user_id)))
+    .map((company: any) => toShippingCompany(company, rateMap.get(String(company.user_id)) || 0));
 }
 
 export async function selectShippingCompany(
@@ -33,14 +121,23 @@ export async function selectShippingCompany(
   shippingCompanyId: string
 ) {
   const [{ data: order, error: orderError }, { data: company, error: companyError }] = await Promise.all([
-    supabase.from("orders").select("id, buyer_id, total_amount").eq("id", orderId).eq("buyer_id", buyerId).single(),
+    supabase.from("orders").select("id, buyer_id, total_amount, city, area").eq("id", orderId).eq("buyer_id", buyerId).single(),
     supabase.from("shipping_company_profiles").select("*").eq("user_id", shippingCompanyId).single(),
   ]);
 
   if (orderError || !order) throw new Error("ORDER_NOT_FOUND");
   if (companyError || !company) throw new Error("SHIPPING_COMPANY_NOT_FOUND");
+  const deliveryCities = Array.isArray(company.delivery_cities) ? company.delivery_cities : [];
+  if (deliveryCities.length > 0 && !hasMatchingDeliveryLocation(deliveryCities, order.city, order.area)) {
+    console.warn("Selected shipping company does not directly match city/area; allowing fallback selection.", {
+      city: order.city,
+      area: order.area,
+      companyCities: company.delivery_cities,
+    });
+  }
 
-  const shippingFee = Number(company.shipping_fee || company.delivery_fee || company.base_fee || 0);
+  const rate = await getShippingRate(supabase, shippingCompanyId, String(order.city || "").trim(), String(order.area || "").trim());
+  const shippingFee = Number(rate.price || 0);
   const avgDeliveryTime = String(company.avg_delivery_time || "");
   const payload = {
     order_id: orderId,
@@ -54,7 +151,10 @@ export async function selectShippingCompany(
   const { data: deliveryOrder, error } = await supabase.from("delivery_orders").insert(payload).select("*").single();
   if (error || !deliveryOrder) throw new Error(error?.message || "Failed to create delivery order.");
 
-  await supabase.from("orders").update({ total_amount: Number(order.total_amount || 0) + shippingFee }).eq("id", orderId);
+  await supabase
+    .from("orders")
+    .update({ total_amount: Number(order.total_amount || 0) + shippingFee, shipping_company_id: shippingCompanyId })
+    .eq("id", orderId);
   await supabase.from("delivery_tracking").insert({
     delivery_order_id: deliveryOrder.id,
     status: "picked_up",

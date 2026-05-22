@@ -1,6 +1,8 @@
 import { clearCart, getCart } from "./cart.service";
 import { createNotification } from "./notification.service";
 import { convertCurrency, normalizeCurrency } from "@/lib/currency";
+import { getExchangeRates } from "./currency.service";
+import { getShippingRate } from "./shipping.service";
 
 type SupabaseClient = {
   from: (table: string) => any;
@@ -8,8 +10,14 @@ type SupabaseClient = {
 
 type OrderShippingDetails = {
   phone: string;
+  country: string;
   city: string;
   area: string;
+  addressText: string;
+  postalCode?: string | null;
+  customerType?: "citizen" | "visitor" | "";
+  nationalId?: string | null;
+  passportNumber?: string | null;
   notes?: string | null;
 };
 
@@ -22,16 +30,66 @@ export async function createOrdersFromCart(
   targetCurrency = "ILS"
 ) {
   const phone = shippingDetails.phone.trim();
+  const country = shippingDetails.country.trim();
   const city = shippingDetails.city.trim();
   const area = shippingDetails.area.trim();
+  const addressText = shippingDetails.addressText.trim();
+  const postalCode = shippingDetails.postalCode?.trim() || null;
   if (!phone) throw new Error("PHONE_REQUIRED");
+  if (!country) throw new Error("COUNTRY_REQUIRED");
   if (!city) throw new Error("CITY_REQUIRED");
   if (!area) throw new Error("AREA_REQUIRED");
+  if (!addressText) throw new Error("ADDRESS_REQUIRED");
 
   const currency = normalizeCurrency(targetCurrency);
+  const rates = await getExchangeRates();
   const { items, cart } = await getCart(supabase, buyerId, currency);
   const validItems = items.filter((item) => item.product) as any[];
   if (validItems.length === 0) throw new Error("CART_EMPTY");
+
+  const supplierIds = Array.from(
+    new Set(validItems.map((item) => String(item.product?.supplier_id || "")).filter(Boolean))
+  );
+  const [
+    { data: buyerProfile },
+    { data: supplierCountryProfiles, error: supplierCountryProfilesError },
+    { data: supplierProfiles, error: supplierProfilesError },
+  ] = await Promise.all([
+    supabase.from("profiles").select("id, country").eq("id", buyerId).maybeSingle(),
+    supplierIds.length > 0
+      ? supabase.from("profiles").select("id, country").in("id", supplierIds)
+      : Promise.resolve({ data: [], error: null }),
+    supplierIds.length > 0
+      ? supabase.from("supplier_profiles").select("user_id, shipping_company_id").in("user_id", supplierIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (supplierCountryProfilesError) throw new Error(supplierCountryProfilesError.message);
+  if (supplierProfilesError) throw new Error(supplierProfilesError.message);
+  const supplierCountryMap = new Map<string, string>();
+  for (const profile of supplierCountryProfiles || []) {
+    supplierCountryMap.set(String(profile.id), String(profile.country || ""));
+  }
+
+  const supplierShippingCompanyMap = new Map<string, string>();
+  for (const profile of supplierProfiles || []) {
+    supplierShippingCompanyMap.set(String(profile.user_id), String(profile.shipping_company_id || ""));
+  }
+
+  const shippingCompanyIds = Array.from(new Set(Array.from(supplierShippingCompanyMap.values()).filter(Boolean)));
+  const { data: shippingCompanies, error: shippingCompaniesError } =
+    shippingCompanyIds.length > 0
+        ? await supabase
+          .from("shipping_company_profiles")
+          .select("user_id, company_name, avg_delivery_time")
+          .in("user_id", shippingCompanyIds)
+      : { data: [], error: null };
+
+  if (shippingCompaniesError) throw new Error(shippingCompaniesError.message);
+  const shippingCompanyMap = new Map<string, Record<string, any>>();
+  for (const company of shippingCompanies || []) {
+    shippingCompanyMap.set(String(company.user_id), company);
+  }
 
   const grouped = new Map<string, typeof validItems>();
   for (const item of validItems) {
@@ -48,9 +106,32 @@ export async function createOrdersFromCart(
   const createdOrders: any[] = [];
 
   for (const [supplierId, supplierItems] of grouped.entries()) {
+    const shippingCompanyId = supplierShippingCompanyMap.get(supplierId) || "";
+    if (!shippingCompanyId) throw new Error("المورد لم يحدد شركة توصيل");
+
+    const shippingCompany = shippingCompanyMap.get(shippingCompanyId);
+    if (!shippingCompany) throw new Error("المورد لم يحدد شركة توصيل");
+
+    const shippingRate = await getShippingRate(supabase, shippingCompanyId, city, area || null);
+    const shippingFee = Number(shippingRate.price || 0);
+    const avgDeliveryTime = String(shippingCompany.avg_delivery_time || "");
+    const supplierCountry = supplierCountryMap.get(supplierId) || "";
+    const buyerCountry = String(buyerProfile?.country || country || "");
+    const isInternational = Boolean(country && supplierCountry && country !== supplierCountry) || Boolean(buyerCountry && supplierCountry && buyerCountry !== supplierCountry);
+    const customerType = shippingDetails.customerType || "";
+    const nationalId = shippingDetails.nationalId?.trim() || null;
+    const passportNumber = shippingDetails.passportNumber?.trim() || null;
+
+    if (isInternational) {
+      if (!postalCode) throw new Error("POSTAL_CODE_REQUIRED");
+      if (customerType !== "citizen" && customerType !== "visitor") throw new Error("CUSTOMER_TYPE_REQUIRED");
+      if (customerType === "citizen" && !nationalId) throw new Error("NATIONAL_ID_REQUIRED");
+      if (customerType === "visitor" && !passportNumber) throw new Error("PASSPORT_NUMBER_REQUIRED");
+    }
+
     const subtotal = supplierItems.reduce((sum, item) => {
       const productCurrency = normalizeCurrency(item.product?.currency);
-      const price = convertCurrency(Number(item.product?.wholesale_price || 0), productCurrency, currency);
+      const price = convertCurrency(Number(item.product?.wholesale_price || 0), productCurrency, currency, rates);
       return sum + price * Number(item.quantity || 0);
     }, 0);
 
@@ -61,12 +142,21 @@ export async function createOrdersFromCart(
         supplier_id: supplierId,
         shipping_address_id: null,
         phone,
+        country,
         city,
         area,
+        address_text: addressText,
+        postal_code: postalCode,
+        shipping_company_id: shippingCompanyId,
+        shipping_cost: shippingFee,
+        is_international: isInternational,
+        customer_type: isInternational ? customerType : null,
+        national_id: isInternational && customerType === "citizen" ? nationalId : null,
+        passport_number: isInternational && customerType === "visitor" ? passportNumber : null,
         notes: shippingDetails.notes?.trim() || null,
         status: "pending",
         subtotal,
-        total_amount: subtotal,
+        total_amount: subtotal + shippingFee,
         currency,
       })
       .select("*")
@@ -77,17 +167,52 @@ export async function createOrdersFromCart(
     }
 
     const order = orderInsert.data;
-    const itemPayload = supplierItems.map((item) => ({
-      order_id: order.id,
-      product_id: item.product_id,
-      quantity: Number(item.quantity || 0),
-      unit_price: convertCurrency(
+    const trackingNumber = `TRK-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const deliveryOrderInsert = await supabase
+      .from("delivery_orders")
+      .insert({
+        order_id: order.id,
+        shipping_company_id: shippingCompanyId,
+        tracking_number: trackingNumber,
+        shipping_fee: shippingFee,
+        avg_delivery_time: avgDeliveryTime,
+        status: "picked_up",
+      })
+      .select("*")
+      .single();
+
+    if (deliveryOrderInsert.error || !deliveryOrderInsert.data) {
+      throw new Error(deliveryOrderInsert.error?.message || "Failed to create delivery order.");
+    }
+
+    const trackingInsert = await supabase.from("delivery_tracking").insert({
+      delivery_order_id: deliveryOrderInsert.data.id,
+      status: "picked_up",
+      description: "Delivery order created.",
+    });
+
+    if (trackingInsert.error) throw new Error(trackingInsert.error.message);
+
+    const itemPayload = supplierItems.map((item) => {
+      const quantity = Number(item.quantity || 0);
+      const unitPrice = convertCurrency(
         Number(item.product?.wholesale_price || 0),
         normalizeCurrency(item.product?.currency),
-        currency
-      ),
-      currency,
-    }));
+        currency,
+        rates
+      );
+      const lineTotal = unitPrice * quantity;
+
+      return {
+        order_id: order.id,
+        product_id: item.product_id,
+        quantity,
+        unit_price: unitPrice,
+        total_price: lineTotal,
+        line_total: lineTotal,
+        currency,
+      };
+    });
 
     const orderItemsInsert = await supabase.from("order_items").insert(itemPayload).select("*");
     if (orderItemsInsert.error) throw new Error(orderItemsInsert.error.message);
@@ -98,7 +223,7 @@ export async function createOrdersFromCart(
       if (error) throw new Error(error.message);
     }
 
-    createdOrders.push({ ...order, items: orderItemsInsert.data || [] });
+    createdOrders.push({ ...order, delivery_order: deliveryOrderInsert.data, items: orderItemsInsert.data || [] });
 
     await createNotification({
       supabase,
@@ -106,6 +231,14 @@ export async function createOrdersFromCart(
       title: "طلب جديد",
       body: `تم إنشاء طلب جديد يحتوي على منتجاتك. رقم الطلب: ${order.id}`,
       type: "order_created",
+    });
+
+    await createNotification({
+      supabase,
+      userId: shippingCompanyId,
+      title: "طلب توصيل جديد",
+      body: `تم إسناد طلب توصيل جديد إليك. رقم التتبع: ${deliveryOrderInsert.data.tracking_number}`,
+      type: "shipping_assigned",
     });
   }
 

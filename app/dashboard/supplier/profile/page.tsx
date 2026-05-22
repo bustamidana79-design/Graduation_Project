@@ -11,6 +11,13 @@ type SupplierProfileDetails = {
   product_category: string | null;
   store_link: string | null;
   commercial_reg_no: string | null;
+  shipping_company_id?: string | null;
+};
+
+type ShippingCompanyOption = {
+  id?: string;
+  user_id: string;
+  company_name: string | null;
 };
 
 type BaseProfile = {
@@ -36,10 +43,20 @@ type SupplierProduct = {
 
 const infoCardClass = "rounded-2xl border border-[#e6edf5] bg-white p-5 shadow-sm";
 
+async function getAuthHeaders() {
+  const { data } = await supabase.auth.getSession();
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${data.session?.access_token || ""}`,
+  };
+}
+
 export default function SupplierProfilePage() {
   const { profile, loading } = useDashboardAccess({ requiredAccountType: "merchant" });
   const [baseProfile, setBaseProfile] = useState<BaseProfile | null>(null);
   const [supplierDetails, setSupplierDetails] = useState<SupplierProfileDetails | null>(null);
+  const [shippingCompanies, setShippingCompanies] = useState<ShippingCompanyOption[]>([]);
+  const [selectedShippingCompanyId, setSelectedShippingCompanyId] = useState("");
   const [products, setProducts] = useState<SupplierProduct[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -48,7 +65,8 @@ export default function SupplierProfilePage() {
     if (!profile?.id) return;
 
     const loadProfileData = async () => {
-      const [{ data: baseData }, { data: detailsData }, { data: productsData }] = await Promise.all([
+      const headers = await getAuthHeaders();
+      const [{ data: baseData }, { data: detailsData }, companiesResponse, profileResponse, { data: productsData }] = await Promise.all([
         supabase
           .from("profiles")
           .select("full_name, email, phone, country, city, bio, avatar_url, status")
@@ -56,9 +74,11 @@ export default function SupplierProfilePage() {
           .maybeSingle(),
         supabase
           .from("supplier_profiles")
-          .select("store_name, product_category, store_link, commercial_reg_no")
+          .select("store_name, product_category, store_link, commercial_reg_no, shipping_company_id")
           .eq("user_id", profile.id)
           .maybeSingle(),
+        fetch("/api/shipping/companies", { headers }),
+        fetch("/api/profile", { headers }),
         supabase
           .from("products")
           .select("id, name, description, wholesale_price, min_order_quantity, stock_quantity, product_images(image_url)")
@@ -66,9 +86,17 @@ export default function SupplierProfilePage() {
           .order("created_at", { ascending: false }),
       ]);
 
+      const companiesResult = await companiesResponse.json();
+      const profileResult = await profileResponse.json();
+
       console.log("profile", baseData);
       setBaseProfile((baseData as BaseProfile | null) || null);
       setSupplierDetails((detailsData as SupplierProfileDetails | null) || null);
+      setSelectedShippingCompanyId(
+        String(profileResult.profile?.shipping_company_id || (detailsData as SupplierProfileDetails | null)?.shipping_company_id || "")
+      );
+      console.log("companies:", companiesResult);
+      setShippingCompanies((Array.isArray(companiesResult) ? companiesResult : companiesResult.companies || []) as ShippingCompanyOption[]);
       setProducts((productsData as SupplierProduct[] | null) || []);
     };
 
@@ -76,6 +104,29 @@ export default function SupplierProfilePage() {
   }, [profile?.id]);
 
   const fullName = baseProfile?.full_name || profile?.full_name || "التاجر";
+  const saveShippingCompany = async () => {
+    if (!selectedShippingCompanyId) {
+      setToast("يرجى اختيار شركة توصيل");
+      return;
+    }
+
+    const headers = await getAuthHeaders();
+    const response = await fetch("/api/supplier/profile", {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ shipping_company_id: selectedShippingCompanyId }),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      setToast(result.error || "تعذر تحديث شركة الشحن");
+      return;
+    }
+
+    setSupplierDetails((current) => ({ ...(current || { store_name: null, product_category: null, store_link: null, commercial_reg_no: null }), shipping_company_id: selectedShippingCompanyId || null }));
+    setToast("تم تحديث شركة الشحن");
+    window.setTimeout(() => setToast(""), 3000);
+  };
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -138,6 +189,28 @@ export default function SupplierProfilePage() {
             <p>اسم المتجر: {supplierDetails?.store_name || fullName}</p>
             <p>التصنيف: {supplierDetails?.product_category || "غير محدد"}</p>
             <p>السجل التجاري: {supplierDetails?.commercial_reg_no || "غير متوفر"}</p>
+            <label className="block">
+              <span className="mb-2 block font-semibold text-[#273347]">شركة الشحن</span>
+              <select
+                value={selectedShippingCompanyId}
+                onChange={(event) => setSelectedShippingCompanyId(event.target.value)}
+                className="w-full rounded-2xl border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+              >
+                <option value="">اختر شركة الشحن</option>
+                {shippingCompanies.map((company) => (
+                  <option key={company.id || company.user_id} value={company.id || company.user_id}>
+                    {company.company_name || "شركة شحن"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => void saveShippingCompany()}
+              className="rounded-2xl bg-[#273347] px-4 py-2 text-sm font-semibold text-white"
+            >
+              حفظ شركة الشحن
+            </button>
             <p>
               الرابط:
               {" "}

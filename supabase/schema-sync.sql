@@ -60,6 +60,8 @@ end $$;
 
 alter table public.profiles add column if not exists bio text;
 alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles add column if not exists area text;
+alter table public.profiles add column if not exists village text;
 alter table public.profiles add column if not exists preferred_currency text default 'ILS';
 alter table public.profiles add column if not exists email_verified boolean default false;
 alter table public.profiles add column if not exists is_active boolean default true;
@@ -80,14 +82,166 @@ begin
 end $$;
 
 alter table public.products add column if not exists currency text default 'ILS';
+alter table public.supplier_profiles add column if not exists shipping_company_id uuid;
 alter table public.orders add column if not exists currency text default 'ILS';
 alter table public.orders add column if not exists phone text;
+alter table public.orders add column if not exists country text;
 alter table public.orders add column if not exists city text;
 alter table public.orders add column if not exists area text;
+alter table public.orders add column if not exists address_text text;
+alter table public.orders add column if not exists postal_code text;
+alter table public.orders add column if not exists shipping_company_id uuid references auth.users(id) on delete set null;
+alter table public.orders add column if not exists shipping_cost numeric default 0;
+alter table public.orders add column if not exists is_international boolean default false;
+alter table public.orders add column if not exists customer_type text;
+alter table public.orders add column if not exists national_id text;
+alter table public.orders add column if not exists passport_number text;
 alter table public.orders add column if not exists notes text;
 alter table public.order_items add column if not exists currency text default 'ILS';
-alter table public.order_items add column if not exists total_price numeric;
+alter table public.order_items add column if not exists total_price numeric default 0;
+alter table public.order_items add column if not exists line_total numeric default 0;
 alter table public.payments add column if not exists currency text default 'ILS';
+alter table public.payments add column if not exists payment_provider text default 'taler';
+alter table public.payments add column if not exists payment_method text default 'taler';
+alter table public.payments add column if not exists payment_status text default 'pending';
+alter table public.payments add column if not exists provider_payment_id text;
+alter table public.payments add column if not exists payment_url text;
+
+update public.order_items
+set total_price = coalesce(total_price, line_total, unit_price * quantity, 0)
+where total_price is null;
+
+update public.order_items
+set line_total = coalesce(line_total, total_price, unit_price * quantity, 0)
+where line_total is null;
+
+update public.payments
+set payment_provider = coalesce(payment_provider, 'taler')
+where payment_provider is null;
+
+update public.payments
+set payment_method = coalesce(payment_method, payment_provider, 'taler')
+where payment_method is null;
+
+update public.payments
+set payment_status = coalesce(payment_status, 'pending')
+where payment_status is null;
+
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.payments'::regclass
+      and conname = 'payments_payment_method_check'
+  ) then
+    alter table public.payments drop constraint payments_payment_method_check;
+  end if;
+
+  alter table public.payments
+    add constraint payments_payment_method_check
+    check (payment_method in ('taler', 'cash', 'card', 'credit_card', 'paypal', 'stripe', 'bank_transfer')) not valid;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.shipping_company_profiles'::regclass
+      and conname = 'shipping_company_profiles_user_id_key'
+  ) then
+    alter table public.shipping_company_profiles
+      add constraint shipping_company_profiles_user_id_key unique (user_id);
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.supplier_profiles'::regclass
+      and conname = 'supplier_profiles_shipping_company_id_fkey'
+  ) then
+    alter table public.supplier_profiles
+      add constraint supplier_profiles_shipping_company_id_fkey
+      foreign key (shipping_company_id) references public.shipping_company_profiles(user_id)
+      on delete set null;
+  end if;
+end $$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'shipping_company_profiles'
+      and column_name = 'delivery_cities'
+      and udt_name = '_text'
+  ) then
+    update public.shipping_company_profiles
+    set delivery_cities = array_replace(
+      array_replace(
+        array_replace(
+          array_replace(
+            array_replace(
+              array_replace(
+                array_replace(
+                  array_replace(
+                    array_replace(
+                      array_replace(delivery_cities, 'Nablus', 'Ù†Ø§Ø¨Ù„Ø³'),
+                      'Ramallah', 'Ø±Ø§Ù… Ø§Ù„Ù„Ù‡'
+                    ),
+                    'Hebron', 'Ø§Ù„Ø®Ù„ÙŠÙ„'
+                  ),
+                  'Jerusalem', 'Ø§Ù„Ù‚Ø¯Ø³'
+                ),
+                'Bethlehem', 'Ø¨ÙŠØª Ù„Ø­Ù…'
+              ),
+              'Jenin', 'Ø¬Ù†ÙŠÙ†'
+            ),
+            'Tulkarm', 'Ø·ÙˆÙ„ÙƒØ±Ù…'
+          ),
+          'Qalqilya', 'Ù‚Ù„Ù‚ÙŠÙ„ÙŠØ©'
+        ),
+        'Jericho', 'Ø£Ø±ÙŠØ­Ø§'
+      ),
+      'Gaza', 'ØºØ²Ø©'
+    )
+    where delivery_cities is not null;
+  end if;
+end $$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'shipping_company_profiles'
+  ) then
+    insert into public.shipping_company_profiles (
+      user_id,
+      company_name,
+      delivery_scope,
+      delivery_cities,
+      avg_delivery_time,
+      license_no
+    )
+    select
+      p.id,
+      coalesce(nullif(p.full_name, ''), 'Ø´Ø±ÙƒØ© Ø´Ø­Ù†'),
+      'local',
+      array_remove(array[p.city], null),
+      'ØºÙŠØ± Ù…Ø­Ø¯Ø¯',
+      'ØºÙŠØ± Ù…ØªÙˆÙØ±'
+    from public.profiles p
+    where p.account_type = 'delivery'
+      and not exists (
+        select 1
+        from public.shipping_company_profiles scp
+        where scp.user_id = p.id
+      );
+  end if;
+end $$;
 alter table public.payments add column if not exists provider_payment_id text;
 alter table public.payments add column if not exists payment_url text;
 alter table public.delivery_orders add column if not exists status text default 'picked_up';
@@ -95,10 +249,47 @@ alter table public.delivery_orders add column if not exists shipping_fee numeric
 alter table public.delivery_orders add column if not exists avg_delivery_time text;
 
 update public.order_items
-set total_price = coalesce(total_price, unit_price * quantity)
+set total_price = coalesce(total_price, line_total, unit_price * quantity, 0)
 where total_price is null
   and unit_price is not null
   and quantity is not null;
+
+create table if not exists public.delivery_tracking (
+  id uuid primary key default gen_random_uuid(),
+  delivery_order_id uuid not null references public.delivery_orders(id) on delete cascade,
+  status text not null,
+  description text,
+  location text,
+  created_at timestamp default now()
+);
+
+alter table public.delivery_tracking add column if not exists delivery_order_id uuid references public.delivery_orders(id) on delete cascade;
+alter table public.delivery_tracking add column if not exists status text;
+alter table public.delivery_tracking add column if not exists description text;
+alter table public.delivery_tracking add column if not exists location text;
+alter table public.delivery_tracking add column if not exists created_at timestamp default now();
+
+create index if not exists delivery_tracking_delivery_order_created_idx
+on public.delivery_tracking (delivery_order_id, created_at);
+
+create table if not exists public.shipping_rates (
+  id uuid primary key default gen_random_uuid(),
+  shipping_company_id uuid not null references public.shipping_company_profiles(user_id) on delete cascade,
+  city text not null,
+  area text not null,
+  price numeric(12,2) not null check (price >= 0),
+  created_at timestamp default now()
+);
+
+update public.shipping_rates
+set area = ''
+where area is null;
+
+alter table public.shipping_rates
+alter column area set not null;
+
+create index if not exists shipping_rates_company_city_area_idx
+on public.shipping_rates (shipping_company_id, city, area);
 
 do $$
 begin
@@ -410,6 +601,11 @@ alter table public.applications enable row level security;
 alter table public.ai_recommendation enable row level security;
 alter table public.verification_files enable row level security;
 alter table public.admin_reviews enable row level security;
+alter table public.profile_roles enable row level security;
+alter table public.supplier_profiles enable row level security;
+alter table public.shipping_company_profiles enable row level security;
+alter table public.shipping_rates enable row level security;
+alter table public.delivery_tracking enable row level security;
 alter table public.upgrade_requests enable row level security;
 alter table public.daily_user_tips enable row level security;
 alter table public.ai_chat_sessions enable row level security;
@@ -521,6 +717,72 @@ with check (
   or exists (
     select 1 from public.applications a
     where a.id = application_id and a.user_id = auth.uid()
+  )
+);
+
+drop policy if exists profile_roles_select_own_or_admin on public.profile_roles;
+create policy profile_roles_select_own_or_admin
+on public.profile_roles for select
+using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists profile_roles_admin_write on public.profile_roles;
+create policy profile_roles_admin_write
+on public.profile_roles for all
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists supplier_profiles_owner_or_admin_all on public.supplier_profiles;
+create policy supplier_profiles_owner_or_admin_all
+on public.supplier_profiles for all
+using (user_id = auth.uid() or public.is_admin())
+with check (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists shipping_company_profiles_read_authenticated on public.shipping_company_profiles;
+create policy shipping_company_profiles_read_authenticated
+on public.shipping_company_profiles for select
+using (true);
+
+drop policy if exists shipping_rates_read_authenticated on public.shipping_rates;
+create policy shipping_rates_read_authenticated
+on public.shipping_rates for select
+using (auth.uid() is not null or public.is_admin());
+
+drop policy if exists shipping_rates_company_insert on public.shipping_rates;
+create policy shipping_rates_company_insert
+on public.shipping_rates for insert
+with check (shipping_company_id = auth.uid() or public.is_admin());
+
+drop policy if exists shipping_rates_company_update on public.shipping_rates;
+create policy shipping_rates_company_update
+on public.shipping_rates for update
+using (shipping_company_id = auth.uid() or public.is_admin())
+with check (shipping_company_id = auth.uid() or public.is_admin());
+
+drop policy if exists delivery_tracking_participants_select on public.delivery_tracking;
+create policy delivery_tracking_participants_select
+on public.delivery_tracking for select
+using (
+  exists (
+    select 1 from public.delivery_orders d
+    join public.orders o on o.id = d.order_id
+    where d.id = delivery_tracking.delivery_order_id
+      and (
+        d.shipping_company_id = auth.uid()
+        or o.buyer_id = auth.uid()
+        or o.supplier_id = auth.uid()
+      )
+  )
+);
+
+drop policy if exists delivery_tracking_company_insert on public.delivery_tracking;
+create policy delivery_tracking_company_insert
+on public.delivery_tracking for insert
+with check (
+  exists (
+    select 1 from public.delivery_orders d
+    join public.orders o on o.id = d.order_id
+    where d.id = delivery_tracking.delivery_order_id
+      and (d.shipping_company_id = auth.uid() or o.buyer_id = auth.uid())
   )
 );
 
@@ -742,3 +1004,5 @@ drop policy if exists delivery_tracking_company_insert on public.delivery_tracki
 create policy delivery_tracking_company_insert
 on public.delivery_tracking for insert
 with check (public.can_access_delivery_order(delivery_order_id));
+
+notify pgrst, 'reload schema';

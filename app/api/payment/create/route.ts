@@ -20,7 +20,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(payment, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل إنشاء الدفع.";
-    const status = message === "UNAUTHORIZED" ? 401 : message === "ORDER_NOT_FOUND" ? 404 : 500;
+    const status =
+      message === "UNAUTHORIZED"
+        ? 401
+        : message === "ORDER_NOT_FOUND"
+          ? 404
+          : message === "Taler service unavailable"
+            ? 503
+            : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

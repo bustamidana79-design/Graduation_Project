@@ -7,7 +7,7 @@ const ACCOUNT_TYPES = new Set(["merchant", "small_business", "delivery", "suppor
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, fullName, email, phone, country, accountType } = body;
+    const { userId, fullName, email, phone, country, city, accountType } = body;
 
     if (!userId || !fullName || !email || !country || !accountType) {
       return NextResponse.json({ error: "Missing required profile fields." }, { status: 400 });
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
       email: String(email).trim(),
       phone: phone || null,
       country: String(country).trim(),
+      city: city ? String(city).trim() : null,
       preferred_currency: normalizeCurrency(body.preferred_currency || body.currency || currencyFromCountry(country)),
       account_type: accountType,
       status: "pending",

@@ -11,7 +11,7 @@ import { isValidPhoneNumber } from "react-phone-number-input";
 type AccountType = "merchant" | "small_business" | "delivery" | "supporter";
 import ar from "react-phone-number-input/locale/ar.json";
 import countries from "world-countries";
-import { City } from "country-state-city";
+import { ARAB_COUNTRY_NAMES, getCitiesByCountryCode } from "@/lib/locations";
 
 const disposableDomains = [
   "10minutemail.com",
@@ -99,13 +99,7 @@ export default function RegisterPage() {
   const [socialLink, setSocialLink] = useState("");
 
 
-  const arabCountryNames: Record<string, string> = {
-  PS: "فلسطين", JO: "الأردن", SA: "السعودية", EG: "مصر", AE: "الإمارات",
-  KW: "الكويت", QA: "قطر", BH: "البحرين", OM: "عُمان", LB: "لبنان",
-  SY: "سوريا", IQ: "العراق", MA: "المغرب", TN: "تونس", DZ: "الجزائر",
-  LY: "ليبيا", YE: "اليمن", SD: "السودان", TR: "تركيا", DE: "ألمانيا",
-  GB: "المملكة المتحدة", FR: "فرنسا", US: "الولايات المتحدة", CA: "كندا",
-};
+  const arabCountryNames = ARAB_COUNTRY_NAMES;
   // Delivery
   const [companyName, setCompanyName] = useState("");
   const [deliveryScope, setDeliveryScope] = useState<DeliveryScope>("");
@@ -155,38 +149,9 @@ const [projectFieldOther, setProjectFieldOther] = useState("");
 
 
 
-const arabCitiesMap: Record<string, string[]> = {
-  JO: ["عمّان", "الزرقاء", "إربد", "العقبة", "السلط", "مادبا", "جرش", "الكرك"],
-  SA: ["الرياض", "جدة", "مكة المكرمة", "المدينة المنورة", "الدمام", "الخبر", "تبوك", "أبها"],
-  EG: ["القاهرة", "الإسكندرية", "الجيزة", "أسوان", "الأقصر", "بورسعيد", "السويس", "المنصورة"],
-  AE: ["دبي", "أبوظبي", "الشارقة", "عجمان", "رأس الخيمة", "الفجيرة", "أم القيوين"],
-  KW: ["الكويت", "حولي", "الفروانية", "الأحمدي", "الجهراء", "مبارك الكبير"],
-  QA: ["الدوحة", "الوكرة", "الريان", "الخور", "أم صلال", "الشمال"],
-  BH: ["المنامة", "المحرق", "الرفاع", "مدينة عيسى", "مدينة حمد", "سترة"],
-  OM: ["مسقط", "صلالة", "نزوى", "صحار", "السيب", "مطرح"],
-  LB: ["بيروت", "طرابلس", "صيدا", "صور", "زحلة", "جونية"],
-  SY: ["دمشق", "حلب", "حمص", "حماة", "اللاذقية", "دير الزور", "درعا"],
-  IQ: ["بغداد", "البصرة", "الموصل", "أربيل", "النجف", "كربلاء", "كركوك"],
-  MA: ["الرباط", "الدار البيضاء", "فاس", "مراكش", "أكادير", "طنجة", "مكناس"],
-  TN: ["تونس", "صفاقس", "سوسة", "قفصة", "بنزرت", "قابس"],
-  DZ: ["الجزائر", "وهران", "قسنطينة", "عنابة", "بجاية", "سطيف"],
-  LY: ["طرابلس", "بنغازي", "مصراتة", "الزاوية", "البيضاء", "سبها"],
-  YE: ["صنعاء", "عدن", "تعز", "الحديدة", "إب", "ذمار"],
-  SD: ["الخرطوم", "أم درمان", "بورتسودان", "كسلا", "الأبيض", "وادي حلفا"],
-};
-
-const palestinianCities = [
-  "رام الله", "نابلس", "الخليل", "جنين", "طولكرم", "قلقيلية",
-  "أريحا", "بيت لحم", "سلفيت", "طوباس", "غزة", "خان يونس",
-  "رفح", "دير البلح", "بيت حانون", "القدس", "أبو ديس",
-  "بيرزيت", "عنبتا", "يطا", "دورا", "بيت جالا", "بيت ساحور",
-];
-
 const cities = useMemo(() => {
   if (!countryCode) return [];
-  if (countryCode === "PS") return palestinianCities.map(name => ({ name }));
-  if (arabCitiesMap[countryCode]) return arabCitiesMap[countryCode].map(name => ({ name }));
-  return City.getCitiesOfCountry(countryCode)?.map(c => ({ name: c.name })) ?? [];
+  return getCitiesByCountryCode(countryCode).map(name => ({ name }));
 }, [countryCode]);
 
 // معلومات الدولة
@@ -392,6 +357,7 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
             email: cleanEmail,
             phone,
             country: countryName,
+            city,
             preferred_currency: currency,
             account_type: accountType,
             application_data_json: dataJson,

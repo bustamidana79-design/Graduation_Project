@@ -1,4 +1,5 @@
 import { convertCurrency, normalizeCurrency } from "@/lib/currency";
+import { getExchangeRates } from "./currency.service";
 
 type SupabaseClient = {
   from: (table: string) => any;
@@ -48,11 +49,60 @@ async function attachProducts(supabase: SupabaseClient, rows: CartLine[]) {
     .in("id", productIds);
 
   if (error) throw new Error(error.message);
+
+  const supplierIds = Array.from(new Set((data || []).map((product: any) => String(product.supplier_id || "")).filter(Boolean)));
+  const [{ data: profiles, error: profilesError }, { data: supplierProfiles, error: supplierProfilesError }] = await Promise.all([
+    supplierIds.length > 0
+      ? supabase.from("profiles").select("id, country").in("id", supplierIds)
+      : Promise.resolve({ data: [], error: null }),
+    supplierIds.length > 0
+      ? supabase.from("supplier_profiles").select("user_id, shipping_company_id").in("user_id", supplierIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (profilesError) throw new Error(profilesError.message);
+  if (supplierProfilesError) throw new Error(supplierProfilesError.message);
+
+  const supplierCountryMap = new Map<string, string>();
+  for (const profile of profiles || []) {
+    supplierCountryMap.set(String(profile.id), String(profile.country || ""));
+  }
+
+  const supplierShippingCompanyMap = new Map<string, string>();
+  for (const profile of supplierProfiles || []) {
+    supplierShippingCompanyMap.set(String(profile.user_id), String(profile.shipping_company_id || ""));
+  }
+
+  const shippingCompanyIds = Array.from(new Set(Array.from(supplierShippingCompanyMap.values()).filter(Boolean)));
+  const { data: shippingCompanies, error: shippingCompaniesError } =
+    shippingCompanyIds.length > 0
+        ? await supabase
+          .from("shipping_company_profiles")
+          .select("user_id, company_name, avg_delivery_time")
+          .in("user_id", shippingCompanyIds)
+      : { data: [], error: null };
+
+  if (shippingCompaniesError) throw new Error(shippingCompaniesError.message);
+  const shippingCompanyMap = new Map<string, Record<string, any>>();
+  for (const company of shippingCompanies || []) {
+    shippingCompanyMap.set(String(company.user_id), {
+      id: company.user_id,
+      user_id: company.user_id,
+      company_name: company.company_name || "شركة الشحن",
+      avg_delivery_time: company.avg_delivery_time || "",
+      shipping_fee: 0,
+    });
+  }
+
   const productMap = new Map<string, Record<string, any>>();
   for (const product of data || []) {
     const images = product.product_images || [];
+    const supplierId = String(product.supplier_id || "");
+    const shippingCompanyId = supplierShippingCompanyMap.get(supplierId) || "";
     productMap.set(String(product.id), {
       ...product,
+      supplier_country: supplierCountryMap.get(supplierId) || "",
+      supplier_shipping_company: shippingCompanyId ? shippingCompanyMap.get(shippingCompanyId) || null : null,
       primary_image: images.find((image: any) => image.is_primary) || images[0] || null,
     });
   }
@@ -65,11 +115,12 @@ export async function getCart(supabase: SupabaseClient, userId: string, targetCu
   const rows = await fetchCartRows(supabase, cart.id);
   const items = await attachProducts(supabase, rows);
   const currency = normalizeCurrency(targetCurrency);
+  const rates = await getExchangeRates();
   const convertedItems = items.map((item) => {
     if (!item.product) return item;
     const product = item.product as Record<string, any>;
     const sourceCurrency = normalizeCurrency(product.currency);
-    const convertedPrice = convertCurrency(Number(product.wholesale_price || 0), sourceCurrency, currency);
+    const convertedPrice = convertCurrency(Number(product.wholesale_price || 0), sourceCurrency, currency, rates);
     return {
       ...item,
       product: {

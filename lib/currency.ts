@@ -1,11 +1,12 @@
 export const SUPPORTED_CURRENCIES = ["ILS", "USD", "JOD"] as const;
 
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
+export type ExchangeRates = Record<SupportedCurrency, number>;
 
-const RATES_TO_ILS: Record<SupportedCurrency, number> = {
-  ILS: 1,
-  USD: 3.7,
-  JOD: 5.22,
+export const DEFAULT_USD_RATES: ExchangeRates = {
+  USD: 1,
+  ILS: 3.7,
+  JOD: 0.71,
 };
 
 export function normalizeCurrency(value: unknown): SupportedCurrency {
@@ -20,12 +21,13 @@ export function currencyFromCountry(country?: string | null): SupportedCurrency 
   return "ILS";
 }
 
-export function convertCurrency(amount: number, from: unknown, to: unknown) {
+export function convertCurrency(amount: number, from: unknown, to: unknown, rates: ExchangeRates = DEFAULT_USD_RATES) {
   const source = normalizeCurrency(from);
   const target = normalizeCurrency(to);
   const value = Number(amount || 0);
   if (source === target) return value;
-  return Number(((value * RATES_TO_ILS[source]) / RATES_TO_ILS[target]).toFixed(2));
+  const usdAmount = value / (rates[source] || DEFAULT_USD_RATES[source]);
+  return Number((usdAmount * (rates[target] || DEFAULT_USD_RATES[target])).toFixed(2));
 }
 
 export function formatMoney(amount: number, currency: unknown) {

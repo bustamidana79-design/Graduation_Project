@@ -1,20 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { Minus, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Minus, Plus, Trash2, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 import { formatMoney, normalizeCurrency } from "@/lib/currency";
+import { AREAS_BY_CITY, ARAB_COUNTRY_NAMES, getCitiesByCountryName } from "@/lib/locations";
 
 type CartProduct = {
   id: string;
+  supplier_id?: string;
   name: string;
   wholesale_price: number;
   currency?: string;
   converted_wholesale_price?: number;
   min_order_quantity: number;
   stock_quantity: number;
+  supplier_country?: string;
+  supplier_shipping_company?: {
+    id: string;
+    user_id?: string;
+    company_name: string;
+    avg_delivery_time?: string;
+    shipping_fee?: number;
+  } | null;
   primary_image?: { image_url: string } | null;
 };
 
@@ -25,24 +35,10 @@ type CartItem = {
   product?: CartProduct | null;
 };
 
-type ShippingCompany = {
-  id: string;
-  user_id?: string;
-  company_name: string;
-  delivery_cities?: string[];
-  avg_delivery_time?: string;
-  shipping_fee?: number;
-};
+type CustomerType = "citizen" | "visitor";
 
-const palestinianCities = ["Nablus", "Ramallah", "Hebron", "Jerusalem", "Bethlehem", "Jenin", "Tulkarm", "Qalqilya", "Jericho", "Gaza"];
-
-function getShippingCompanyKey(company: ShippingCompany) {
-  return company.user_id || company.id;
-}
-
-function getCityOptionsForCompany(company?: ShippingCompany) {
-  const companyCities = company?.delivery_cities?.filter(Boolean) || [];
-  return companyCities.length > 0 ? companyCities : palestinianCities;
+function normalizeLocation(value?: string | null) {
+  return String(value || "").trim().toLowerCase();
 }
 
 async function getAuthHeaders() {
@@ -58,63 +54,81 @@ function getPublicImage(path?: string | null) {
   return supabase.storage.from(PRODUCT_IMAGES_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+const PENDING_CHECKOUT_ORDER_IDS_KEY = "pending_checkout_order_ids";
+
 export default function SmallBusinessCartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
+  const [country, setCountry] = useState("");
   const [city, setCity] = useState("");
   const [area, setArea] = useState("");
+  const [addressText, setAddressText] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [notes, setNotes] = useState("");
-  const [shippingCompanies, setShippingCompanies] = useState<ShippingCompany[]>([]);
-  const [shippingCompanyId, setShippingCompanyId] = useState("");
+  const [customerType, setCustomerType] = useState<CustomerType>("citizen");
+  const [nationalId, setNationalId] = useState("");
+  const [passportNumber, setPassportNumber] = useState("");
   const [currency, setCurrency] = useState("ILS");
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [shippingRateMap, setShippingRateMap] = useState<Record<string, number>>({});
+  const [shippingRateErrors, setShippingRateErrors] = useState<Record<string, string>>({});
+  const skipLocationResetCount = useRef(0);
 
   const itemCount = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantity || 0), 0), [items]);
-  const selectedShippingCompany = useMemo(
-    () => shippingCompanies.find((company) => getShippingCompanyKey(company) === shippingCompanyId),
-    [shippingCompanies, shippingCompanyId]
+  const countryOptions = useMemo(() => Object.values(ARAB_COUNTRY_NAMES), []);
+  const cityOptions = useMemo(() => getCitiesByCountryName(country), [country]);
+  const areaOptions = useMemo(() => AREAS_BY_CITY[city] || [], [city]);
+  const supplierCountries = useMemo(
+    () =>
+      Array.from(
+        new Set(items.map((item) => item.product?.supplier_country).filter((value): value is string => Boolean(value)))
+      ),
+    [items]
   );
-  const cityOptions = useMemo(() => getCityOptionsForCompany(selectedShippingCompany), [selectedShippingCompany]);
+  const isInternational = useMemo(
+    () => supplierCountries.some((supplierCountry) => normalizeLocation(supplierCountry) !== normalizeLocation(country)),
+    [supplierCountries, country]
+  );
+  const shippingAssignments = useMemo(() => {
+    const bySupplier = new Map<string, NonNullable<CartProduct["supplier_shipping_company"]> | null>();
+    for (const item of items) {
+      const product = item.product;
+      if (!product) continue;
+      const supplierId = product.supplier_id || product.id;
+      if (!bySupplier.has(supplierId)) {
+        bySupplier.set(supplierId, product.supplier_shipping_company || null);
+      }
+    }
+    return Array.from(bySupplier.entries()).map(([supplierId, company]) => ({ supplierId, company }));
+  }, [items]);
+  const missingSupplierShipping = shippingAssignments.some((assignment) => !assignment.company);
+  const missingShippingRate = Boolean(city && area) && shippingAssignments.some((assignment) => assignment.company && shippingRateMap[assignment.supplierId] === undefined);
+  const shippingFee = shippingAssignments.reduce((sum, assignment) => sum + Number(shippingRateMap[assignment.supplierId] || 0), 0);
+  const payableTotal = total + shippingFee;
 
   useEffect(() => {
     const loadProfileDefaults = async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      if (!auth.user?.id) return;
-      const { data } = await supabase
-        .from("profiles")
-        .select("phone, country, city, preferred_currency")
-        .eq("id", auth.user.id)
-        .maybeSingle();
+      const headers = await getAuthHeaders();
+      const response = await fetch("/api/profile", { headers });
+      if (!response.ok) return;
+      const result = await response.json();
+      const data = result.profile || {};
 
-      setPhone(data?.phone || "");
-      setCity(data?.city || "");
-      if (data?.preferred_currency) setCurrency(normalizeCurrency(data.preferred_currency));
+      setPhone(data.phone || "");
+      const nextCountry = countryOptions.includes(data.country || "") ? String(data.country) : "";
+      skipLocationResetCount.current = 2;
+      setCountry(nextCountry);
+      const nextCity = getCitiesByCountryName(nextCountry).includes(data.city || "") ? String(data.city) : "";
+      setCity(nextCity);
+      setArea(String(data.area || data.village || "").trim());
+      if (data.preferred_currency) setCurrency(normalizeCurrency(data.preferred_currency));
     };
 
     void loadProfileDefaults();
-  }, []);
-
-  useEffect(() => {
-    const loadShippingCompanies = async () => {
-      const headers = await getAuthHeaders();
-      const response = await fetch("/api/shipping/companies", { headers });
-      const result = await response.json();
-
-      if (!response.ok) {
-        setMessage(result.error || "Failed to load shipping companies.");
-        return;
-      }
-
-      const companies = (Array.isArray(result) ? result : result.companies || []) as ShippingCompany[];
-      setShippingCompanies(companies);
-      setShippingCompanyId((current) => current || (companies[0] ? getShippingCompanyKey(companies[0]) : ""));
-    };
-
-    void loadShippingCompanies();
-  }, []);
+  }, [countryOptions]);
 
   useEffect(() => {
     const load = async () => {
@@ -135,6 +149,65 @@ export default function SmallBusinessCartPage() {
 
     void load();
   }, [currency]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (skipLocationResetCount.current > 0) {
+        skipLocationResetCount.current -= 1;
+        return;
+      }
+      setCity((current) => (getCitiesByCountryName(country).includes(current) ? current : ""));
+      setArea("");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [country]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (skipLocationResetCount.current > 0) {
+        skipLocationResetCount.current -= 1;
+        return;
+      }
+      setArea((current) => (areaOptions.length === 0 || areaOptions.includes(current) ? current : ""));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [city, areaOptions]);
+
+  useEffect(() => {
+    const loadShippingRates = async () => {
+      if (!city || !area || shippingAssignments.length === 0) {
+        setShippingRateMap({});
+        setShippingRateErrors({});
+        return;
+      }
+
+      const headers = await getAuthHeaders();
+      const nextRates: Record<string, number> = {};
+      const nextErrors: Record<string, string> = {};
+
+      await Promise.all(
+        shippingAssignments.map(async (assignment) => {
+          if (!assignment.company) return;
+          const companyId = assignment.company.user_id || assignment.company.id;
+          const params = new URLSearchParams({ shippingCompanyId: companyId, city, area });
+          const response = await fetch(`/api/shipping/rates?${params.toString()}`, { headers });
+          const result = await response.json();
+
+          if (!response.ok) {
+            nextErrors[assignment.supplierId] = result.error || "شركة الشحن لا تغطي هذه المنطقة";
+            return;
+          }
+
+          nextRates[assignment.supplierId] = Number(result.rate?.price || 0);
+        })
+      );
+
+      setShippingRateMap(nextRates);
+      setShippingRateErrors(nextErrors);
+    };
+
+    void loadShippingRates();
+  }, [city, area, shippingAssignments]);
 
   const updateQuantity = async (item: CartItem, nextQuantity: number) => {
     const product = item.product;
@@ -182,32 +255,68 @@ export default function SmallBusinessCartPage() {
 
   const checkout = async () => {
     if (checkoutLoading) return;
-    if (!shippingCompanyId) {
-      setMessage("Select a shipping company before payment.");
-      return;
-    }
-    if (!city.trim()) {
-      setMessage("اختر مدينة الشحن قبل المتابعة للدفع.");
-      return;
-    }
-    if (!phone.trim()) {
-      setMessage("أدخل رقم الهاتف قبل المتابعة للدفع.");
-      return;
-    }
-    if (!area.trim()) {
-      setMessage("أدخل المنطقة قبل المتابعة للدفع.");
-      return;
-    }
+    if (!country) return setMessage("اختر الدولة قبل المتابعة للدفع.");
+    if (!city) return setMessage("اختر مدينة الشحن قبل المتابعة للدفع.");
+    if (!area) return setMessage("اختر القرية أو المنطقة قبل المتابعة للدفع.");
+    if (!addressText.trim()) return setMessage("أدخل العنوان التفصيلي قبل المتابعة للدفع.");
+    if (!phone.trim()) return setMessage("أدخل رقم الهاتف قبل المتابعة للدفع.");
+    if (missingSupplierShipping) return setMessage("هذا المورد لا يملك شركة توصيل حالياً");
+    if (Object.values(shippingRateErrors)[0]) return setMessage(Object.values(shippingRateErrors)[0]);
+    if (missingShippingRate) return setMessage("جاري تحميل رسوم الشحن لهذه المنطقة.");
+    if (isInternational && !postalCode.trim()) return setMessage("أدخل الرمز البريدي للطلبات الدولية.");
+    if (isInternational && customerType === "citizen" && !nationalId.trim()) return setMessage("أدخل رقم الهوية للطلبات الدولية.");
+    if (isInternational && customerType === "visitor" && !passportNumber.trim()) return setMessage("أدخل رقم جواز السفر للطلبات الدولية.");
 
     setCheckoutLoading(true);
     const headers = await getAuthHeaders();
+    const createPaymentForOrders = async (orderIds: string[]) => {
+      const paymentResponse = await fetch("/api/payment/create", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          orderIds,
+          currency,
+          returnUrl: `${window.location.origin}/dashboard/small-business/orders`,
+        }),
+      });
+      const paymentResult = await paymentResponse.json();
+
+      if (!paymentResponse.ok) {
+        setMessage(paymentResult.error || "تعذر إنشاء الدفع. يمكنك الضغط على الدفع مرة أخرى لإعادة المحاولة.");
+        setCheckoutLoading(false);
+        return false;
+      }
+
+      window.localStorage.removeItem(PENDING_CHECKOUT_ORDER_IDS_KEY);
+      setItems([]);
+      setTotal(0);
+      setMessage("تم إنشاء الدفع. إذا ظهر رصيد 0 KUDOS، افتح الدفع بنفس المتصفح وتأكد من تفعيل GNU Taler Wallet أو demo wallet.");
+      console.log("[Payment] Redirecting to payment_url", paymentResult.payment_url);
+      window.setTimeout(() => {
+        window.location.assign(paymentResult.payment_url || "/dashboard/small-business/orders");
+      }, 1800);
+      return true;
+    };
+
+    const pendingOrderIds = JSON.parse(window.localStorage.getItem(PENDING_CHECKOUT_ORDER_IDS_KEY) || "[]") as string[];
+    if (pendingOrderIds.length > 0) {
+      await createPaymentForOrders(pendingOrderIds);
+      return;
+    }
+
     const response = await fetch("/api/orders/create", {
       method: "POST",
       headers,
       body: JSON.stringify({
         phone: phone.trim(),
-        city: city.trim(),
-        area: area.trim(),
+        country,
+        city,
+        area,
+        addressText: addressText.trim(),
+        postalCode: postalCode.trim() || null,
+        customerType,
+        nationalId: nationalId.trim() || null,
+        passportNumber: passportNumber.trim() || null,
         notes: notes.trim() || null,
         currency,
       }),
@@ -216,54 +325,14 @@ export default function SmallBusinessCartPage() {
 
     if (response.ok) {
       const orders = (result.orders || []) as Array<{ id: string }>;
-      for (const order of orders) {
-        const shippingResponse = await fetch("/api/shipping/select", {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ orderId: order.id, shippingCompanyId }),
-        });
-        const shippingResult = await shippingResponse.json();
-
-        if (!shippingResponse.ok) {
-          setMessage(shippingResult.error || "Failed to select shipping company.");
-          setCheckoutLoading(false);
-          return;
-        }
-      }
-
-      const paymentResponse = await fetch("/api/payment/create", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          orderIds: orders.map((order) => order.id),
-          currency,
-          returnUrl: `${window.location.origin}/dashboard/small-business/orders`,
-        }),
-      });
-      const paymentResult = await paymentResponse.json();
-
-      if (!paymentResponse.ok) {
-        setMessage(paymentResult.error || "Failed to create payment.");
-        setCheckoutLoading(false);
-        return;
-      }
-
-      setItems([]);
-      setTotal(0);
-      setMessage("Payment created. Redirecting...");
-      window.location.href = paymentResult.payment_url || "/dashboard/small-business/orders";
+      const orderIds = orders.map((order) => order.id);
+      window.localStorage.setItem(PENDING_CHECKOUT_ORDER_IDS_KEY, JSON.stringify(orderIds));
+      await createPaymentForOrders(orderIds);
       return;
     }
 
-    if (!response.ok) {
-      setMessage(result.error || "تعذر إنشاء الطلب.");
-      setCheckoutLoading(false);
-      return;
-    }
-
-    setItems([]);
-    setTotal(0);
-    setMessage(`تم إنشاء ${result.orders?.length || 1} طلب بنجاح.`);
+    setMessage(result.error || "تعذر إنشاء الطلب.");
+    setCheckoutLoading(false);
   };
 
   return (
@@ -273,24 +342,24 @@ export default function SmallBusinessCartPage() {
           <h1 className="text-2xl font-bold text-[#273347]">السلة</h1>
           <p className="mt-1 text-sm text-[#273347]/60">راجع المنتجات والكميات قبل إنشاء الطلب.</p>
         </div>
-        <Link href="/dashboard/small-business/products" className="rounded-xl border border-[#bbd0e4] px-4 py-2 text-sm font-semibold text-[#273347]">
+        <Link href="/dashboard/small-business/products" className="rounded-lg border border-[#bbd0e4] px-4 py-2 text-sm font-semibold text-[#273347]">
           متابعة التسوق
         </Link>
       </div>
 
-      {message && <div className="rounded-xl border border-[#e6edf5] bg-white p-4 text-sm text-[#273347]">{message}</div>}
+      {message && <div className="rounded-lg border border-[#e6edf5] bg-white p-4 text-sm text-[#273347]">{message}</div>}
 
       {loading ? (
-        <div className="rounded-xl border border-[#e6edf5] bg-white p-6 text-sm text-[#273347]/60">جاري تحميل السلة...</div>
+        <div className="rounded-lg border border-[#e6edf5] bg-white p-6 text-sm text-[#273347]/60">جاري تحميل السلة...</div>
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-[#e6edf5] bg-white p-8 text-center">
+        <div className="rounded-lg border border-[#e6edf5] bg-white p-8 text-center">
           <p className="font-semibold text-[#273347]">السلة فارغة</p>
-          <Link href="/dashboard/small-business/products" className="mt-4 inline-flex rounded-xl bg-[#273347] px-4 py-2 text-sm font-semibold text-white">
+          <Link href="/dashboard/small-business/products" className="mt-4 inline-flex rounded-lg bg-[#273347] px-4 py-2 text-sm font-semibold text-white">
             تصفح المنتجات
           </Link>
         </div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
           <div className="space-y-4">
             {items.map((item) => {
               const product = item.product;
@@ -301,19 +370,20 @@ export default function SmallBusinessCartPage() {
               const stock = Number(product.stock_quantity || minimum);
 
               return (
-                <div key={item.id} className="grid gap-4 rounded-xl border border-[#e6edf5] bg-white p-4 md:grid-cols-[112px_1fr]">
+                <div key={item.id} className="grid gap-4 rounded-lg border border-[#e6edf5] bg-white p-4 md:grid-cols-[112px_1fr]">
                   <img src={getPublicImage(product.primary_image?.image_url)} alt={product.name} className="h-28 w-full rounded-lg object-cover md:w-28" />
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h2 className="font-bold text-[#273347]">{product.name}</h2>
                         <p className="text-sm text-[#546a85]">السعر: {formatMoney(price, currency)}</p>
+                        {product.supplier_country && <p className="text-xs text-[#273347]/45">بلد المورد: {product.supplier_country}</p>}
                       </div>
                       <p className="font-bold text-[#273347]">المجموع: {formatMoney(lineTotal, currency)}</p>
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 rounded-xl border border-[#e6edf5] p-2">
+                      <div className="flex items-center gap-2 rounded-lg border border-[#e6edf5] p-2">
                         <button
                           type="button"
                           title="إنقاص الكمية"
@@ -337,7 +407,7 @@ export default function SmallBusinessCartPage() {
                       <button
                         type="button"
                         onClick={() => void removeItem(item)}
-                        className="flex items-center gap-2 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700"
+                        className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700"
                       >
                         <Trash2 size={16} />
                         حذف
@@ -349,99 +419,229 @@ export default function SmallBusinessCartPage() {
             })}
           </div>
 
-          <aside className="h-fit space-y-4 rounded-xl border border-[#e6edf5] bg-white p-5">
+          <aside className="h-fit space-y-4 rounded-lg border border-[#e6edf5] bg-white p-5">
             <div className="flex items-center justify-between text-sm text-[#273347]">
               <span>عدد القطع</span>
               <span className="font-bold">{itemCount}</span>
             </div>
-            <div className="flex items-center justify-between text-lg font-bold text-[#273347]">
-              <span>الإجمالي</span>
-              <span>{formatMoney(total, currency)}</span>
+            <div className="flex items-center justify-between text-sm text-[#273347]">
+              <span>إجمالي المنتجات</span>
+              <span className="font-bold">{formatMoney(total, currency)}</span>
             </div>
+            <div className="flex items-center justify-between text-sm text-[#273347]">
+              <span>الشحن</span>
+              <span className="font-bold">{formatMoney(shippingFee, currency)}</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-[#e6edf5] pt-3 text-lg font-bold text-[#273347]">
+              <span>الإجمالي المتوقع</span>
+              <span>{formatMoney(payableTotal, currency)}</span>
+            </div>
+
             <label className="grid gap-2 text-sm font-semibold text-[#273347]">
               العملة
               <select
                 value={currency}
                 onChange={(event) => setCurrency(normalizeCurrency(event.target.value))}
-                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
+                className="w-full rounded-lg border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
               >
                 <option value="ILS">ILS</option>
                 <option value="USD">USD</option>
                 <option value="JOD">JOD</option>
               </select>
             </label>
-            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
-              Shipping company
-              <select
-                value={shippingCompanyId}
-                onChange={(event) => {
-                  const nextCompanyId = event.target.value;
-                  setShippingCompanyId(nextCompanyId);
-                }}
-                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
-              >
-                {shippingCompanies.length === 0 ? (
-                  <option value="">No shipping companies available</option>
-                ) : (
-                  shippingCompanies.map((company) => (
-                    <option key={getShippingCompanyKey(company)} value={getShippingCompanyKey(company)}>
-                      {company.company_name} - {company.avg_delivery_time || "Delivery time not set"}
+
+            <div className="space-y-3 rounded-lg border border-[#e6edf5] bg-[#f8fafc] p-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-[#273347]">
+                <Truck size={16} />
+                معلومات الشحن
+              </div>
+
+              <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                الدولة
+                <select
+                  value={country}
+                  onChange={(event) => setCountry(event.target.value)}
+                  className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+                >
+                  <option value="">اختر الدولة</option>
+                  {countryOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
                     </option>
+                  ))}
+                </select>
+              </label>
+              <p className="rounded-lg border border-[#d7eadf] bg-[#f2fbf5] px-3 py-2 text-xs font-semibold text-[#25633f]">
+                تم تعبئة الموقع تلقائياً من ملفك الشخصي
+              </p>
+
+              {isInternational && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+                  <AlertTriangle className="mt-0.5 shrink-0" size={16} />
+                  <span>هذا الطلب دولي، قد يتم تطبيق رسوم جمركية.</span>
+                </div>
+              )}
+
+              <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                المدينة
+                <select
+                  value={city}
+                  onChange={(event) => setCity(event.target.value)}
+                  className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+                >
+                  <option value="">اختر المدينة</option>
+                  {cityOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                القرية / المنطقة
+                {areaOptions.length > 0 ? (
+                  <select
+                    value={area}
+                    onChange={(event) => setArea(event.target.value)}
+                    disabled={!city}
+                    className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347] disabled:bg-[#eef3f8]"
+                  >
+                    <option value="">اختر المنطقة</option>
+                    {areaOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={area}
+                    onChange={(event) => setArea(event.target.value)}
+                    disabled={!city}
+                    placeholder="اكتب القرية أو المنطقة"
+                    className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347] disabled:bg-[#eef3f8]"
+                  />
+                )}
+              </label>
+
+              <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                العنوان التفصيلي
+                <textarea
+                  value={addressText}
+                  onChange={(event) => setAddressText(event.target.value)}
+                  rows={3}
+                  placeholder="الشارع، رقم المنزل، الشقة، أي تفاصيل إضافية"
+                  className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+                />
+              </label>
+
+              <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                رقم الهاتف
+                <input
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  placeholder="Phone number"
+                  className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+                />
+              </label>
+
+              {isInternational && (
+                <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                    الرمز البريدي
+                    <input
+                      value={postalCode}
+                      onChange={(event) => setPostalCode(event.target.value)}
+                      placeholder="Postal Code"
+                      className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+                    />
+                  </label>
+
+                  <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                    نوع المستخدم
+                    <select
+                      value={customerType}
+                      onChange={(event) => setCustomerType(event.target.value as CustomerType)}
+                      className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+                    >
+                      <option value="citizen">مواطن</option>
+                      <option value="visitor">زائر</option>
+                    </select>
+                  </label>
+
+                  {customerType === "citizen" ? (
+                    <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                      رقم الهوية
+                      <input
+                        value={nationalId}
+                        onChange={(event) => setNationalId(event.target.value)}
+                        placeholder="رقم الهوية"
+                        className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+                      />
+                    </label>
+                  ) : (
+                    <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                      رقم جواز السفر
+                      <input
+                        value={passportNumber}
+                        onChange={(event) => setPassportNumber(event.target.value)}
+                        placeholder="رقم جواز السفر"
+                        className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+                      />
+                    </label>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2 rounded-lg bg-white p-3 text-xs text-[#273347]">
+                <p className="font-bold">شركة التوصيل</p>
+                {shippingAssignments.length === 0 ? (
+                  <p className="text-[#273347]/60">ستظهر شركة الشحن بعد تحميل منتجات السلة.</p>
+                ) : (
+                  shippingAssignments.map((assignment) => (
+                    <div key={assignment.supplierId} className="rounded-lg border border-[#e6edf5] p-3">
+                      {assignment.company ? (
+                        <>
+                          <p className="font-bold">{assignment.company.company_name}</p>
+                          <p className="mt-1">الوقت المتوقع: {assignment.company.avg_delivery_time || "غير محدد"}</p>
+                          {shippingRateErrors[assignment.supplierId] ? (
+                            <p className="mt-1 font-semibold text-red-700">{shippingRateErrors[assignment.supplierId]}</p>
+                          ) : (
+                            <p className="mt-1">
+                              رسوم الشحن:{" "}
+                              {shippingRateMap[assignment.supplierId] === undefined
+                                ? "جاري التحميل..."
+                                : formatMoney(Number(shippingRateMap[assignment.supplierId] || 0), currency)}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="font-semibold text-red-700">هذا المورد لا يملك شركة توصيل حالياً</p>
+                      )}
+                    </div>
                   ))
                 )}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
-              Phone
-              <input
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-                placeholder="Phone number"
-                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
-              City
-              <input
-                value={city}
-                list="shipping-city-options"
-                onChange={(event) => setCity(event.target.value)}
-                placeholder="City"
-                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
-              />
-              <datalist id="shipping-city-options">
-                {cityOptions.map((cityOption) => (
-                  <option key={cityOption} value={cityOption}>
-                    {cityOption}
-                  </option>
-                ))}
-              </datalist>
-            </label>
-            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
-              Area
-              <input
-                value={area}
-                onChange={(event) => setArea(event.target.value)}
-                placeholder="Area"
-                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-semibold text-[#273347]">
-              Notes
-              <input
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Optional notes"
-                className="w-full rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347]"
-              />
-            </label>
+              </div>
+
+              <label className="grid gap-2 text-sm font-semibold text-[#273347]">
+                ملاحظات
+                <input
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="ملاحظات اختيارية"
+                  className="w-full rounded-lg border border-[#d8e1ec] bg-white px-4 py-3 text-sm text-[#273347]"
+                />
+              </label>
+            </div>
+
             <button
               type="button"
-              disabled={checkoutLoading}
+              disabled={checkoutLoading || missingSupplierShipping || missingShippingRate || Object.keys(shippingRateErrors).length > 0}
               onClick={() => void checkout()}
-              className="w-full rounded-xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+              className="w-full rounded-lg bg-[#273347] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
             >
-              {checkoutLoading ? "Processing..." : "Pay"}
+              {checkoutLoading ? "جاري المعالجة..." : "الدفع"}
             </button>
           </aside>
         </div>

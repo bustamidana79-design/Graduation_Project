@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { HeartOff, ShoppingCart } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
-import { convertCurrency, formatMoney, normalizeCurrency } from "@/lib/currency";
+import { DEFAULT_USD_RATES, convertCurrency, formatMoney, normalizeCurrency, type ExchangeRates } from "@/lib/currency";
 import type { Product } from "@/types/product";
 
 type FavoriteRow = {
@@ -37,6 +37,7 @@ export default function SmallBusinessFavoritesPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [userCurrency, setUserCurrency] = useState("ILS");
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_USD_RATES);
 
   useEffect(() => {
     const load = async () => {
@@ -48,6 +49,12 @@ export default function SmallBusinessFavoritesPage() {
           .eq("id", auth.user.id)
           .maybeSingle();
         setUserCurrency(normalizeCurrency(profile?.preferred_currency));
+      }
+
+      const ratesResponse = await fetch("/api/currency/rates");
+      if (ratesResponse.ok) {
+        const ratesResult = await ratesResponse.json();
+        setExchangeRates(ratesResult.rates || DEFAULT_USD_RATES);
       }
 
       const headers = await getAuthHeaders();
@@ -132,7 +139,7 @@ export default function SmallBusinessFavoritesPage() {
             const image = getPrimaryImage(product);
             const sourceCurrency = normalizeCurrency(product.currency);
             const sourcePrice = Number(product.price ?? product.wholesale_price ?? 0);
-            const convertedPrice = convertCurrency(sourcePrice, sourceCurrency, userCurrency);
+            const convertedPrice = convertCurrency(sourcePrice, sourceCurrency, userCurrency, exchangeRates);
             const isConverted = sourceCurrency !== userCurrency;
 
             return (
