@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabase, isAdminProfile } from "@/lib/api-auth";
+import { createServerSupabase } from "@/lib/api-auth";
 
 const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || "COREX_ADMIN_SECRET";
 
@@ -68,25 +68,6 @@ export async function POST(request: NextRequest) {
         { error: `Failed to save profile: ${profileError.message}` },
         { status: 500 }
       );
-    }
-
-    // Step 3: Get admin role and assign to user
-    try {
-      const { data: roleData } = await supabase
-        .from("roles")
-        .select("id")
-        .eq("name", "admin")
-        .single();
-
-      if (roleData) {
-        await supabase.from("profile_roles").insert({
-          user_id: userId,
-          role_id: roleData.id,
-        });
-      }
-    } catch (roleError) {
-      console.error("Error assigning admin role:", roleError);
-      // Continue anyway - profile is created
     }
 
     return NextResponse.json({

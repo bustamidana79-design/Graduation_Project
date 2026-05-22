@@ -4,7 +4,7 @@ import { createSupabaseAdmin } from "@/lib/supabase-admin";
 
 export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { profile } = await requireAuthProfile(request);
+    const { profile, user } = await requireAuthProfile(request);
     if (!isAdminProfile(profile)) {
       return NextResponse.json({ error: "غير مصرح لك بحذف هذا المنتج." }, { status: 403 });
     }
@@ -44,16 +44,52 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
 
+    const supportSubject = `حذف منتج: ${product.name}`;
+    const supportMessage = [
+      `تم حذف المنتج "${product.name}" من قبل الإدارة.`,
+      `سبب الحذف: ${reason}`,
+      "يمكنك متابعة الموضوع والرد من خلال مركز الدعم وخدمة العملاء.",
+    ].join("\n");
+
+    const { data: ticket, error: ticketError } = await supabase
+      .from("support_tickets")
+      .insert({
+        user_id: product.supplier_id,
+        subject: supportSubject,
+        user_role: "supplier",
+        status: "open",
+        priority: "medium",
+        last_sender_type: "admin",
+      })
+      .select("id")
+      .single();
+
+    if (ticketError || !ticket) {
+      return NextResponse.json({ error: ticketError?.message || "فشل إنشاء تذكرة الدعم." }, { status: 500 });
+    }
+
+    const { error: messageError } = await supabase.from("ticket_messages").insert({
+      ticket_id: ticket.id,
+      sender_id: user.id,
+      sender_type: "admin",
+      message: supportMessage,
+    });
+
+    if (messageError) {
+      return NextResponse.json({ error: messageError.message }, { status: 500 });
+    }
+
     const { error: notificationError } = await supabase.from("notifications").insert({
       user_id: product.supplier_id,
       title: "تم حذف منتجك",
-      body: `تم حذف المنتج "${product.name}". اضغط للتواصل مع خدمة العملاء.`,
+      body: `تم حذف المنتج "${product.name}". تم فتح رسالة في مركز الدعم لمتابعة السبب.`,
       notification_type: "product_deleted",
       data: {
         action: "contact_support",
         product_id: product.id,
         product_name: product.name,
         reason,
+        ticket_id: ticket.id,
       },
     });
 
@@ -61,7 +97,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       return NextResponse.json({ error: notificationError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, ticketId: ticket.id });
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل حذف المنتج.";
     const status = message === "UNAUTHORIZED" ? 401 : 500;

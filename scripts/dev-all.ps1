@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $root "venv\Scripts\python.exe"
 $aiUrl = "http://127.0.0.1:8000/health"
+$nextPort = 3000
 $aiJob = $null
 $startedAiHere = $false
 
@@ -15,10 +16,28 @@ function Test-AiHealth {
   }
 }
 
+function Get-PortProcessIds {
+  param([int]$Port)
+
+  try {
+    $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop
+    return @($connections | Select-Object -ExpandProperty OwningProcess -Unique)
+  } catch {
+    return @()
+  }
+}
+
 Set-Location $root
 
 if (-not (Test-Path $python)) {
   Write-Host "Python venv was not found. Run: python -m venv venv" -ForegroundColor Red
+  exit 1
+}
+
+$nextProcessIds = Get-PortProcessIds -Port $nextPort
+if ($nextProcessIds.Count -gt 0) {
+  Write-Host "Port $nextPort is already in use by process id(s): $($nextProcessIds -join ', ')." -ForegroundColor Yellow
+  Write-Host "Stop the existing Next.js dev server, then run: npm run dev:all" -ForegroundColor Yellow
   exit 1
 }
 

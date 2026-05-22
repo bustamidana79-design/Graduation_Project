@@ -1,5 +1,6 @@
 ﻿"use client";
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import TicketChatModal from "./TicketChatModal";
 
@@ -26,6 +27,8 @@ type CreateTicketResponse = {
 };
 
 export default function SupportServiceTemplate({ role, title }: Props) {
+  const searchParams = useSearchParams();
+  const ticketIdFromUrl = searchParams.get("ticket");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [myTickets, setMyTickets] = useState<SupportTicket[]>([]);
@@ -76,12 +79,18 @@ export default function SupportServiceTemplate({ role, title }: Props) {
           return;
         }
         
-        setMyTickets((data || []) as SupportTicket[]);
+        const nextTickets = (data || []) as SupportTicket[];
+        setMyTickets(nextTickets);
+
+        if (ticketIdFromUrl) {
+          const requestedTicket = nextTickets.find((ticket) => ticket.id === ticketIdFromUrl);
+          if (requestedTicket) setSelectedTicket(requestedTicket);
+        }
       }
     } catch (err) {
       console.error("Unexpected error in fetchMyTickets:", err);
     }
-  }, [role]);
+  }, [role, ticketIdFromUrl]);
 
   useEffect(() => {
     fetchMyTickets();

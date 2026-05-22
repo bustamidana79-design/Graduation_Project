@@ -52,42 +52,22 @@ export async function requireAuthProfile(request: NextRequest) {
   return { supabase, user, profile, token };
 }
 
-export function isAdminProfile(profile: { account_type?: string | null; email?: string | null }) {
-  if (profile.account_type === "admin") return true;
-  return Boolean(profile.email?.toLowerCase().includes("admin"));
+export function isAdminProfile(profile: { account_type?: string | null }) {
+  return profile.account_type === "admin";
 }
 
 /**
- * Check if user is admin using profile_roles table
+ * Check if user is admin from the profile account type.
  */
 export async function checkIsAdmin(supabase: ReturnType<typeof createServerSupabase>, userId: string): Promise<boolean> {
   try {
-    // First check account_type
     const { data: profile } = await supabase
       .from("profiles")
       .select("account_type")
       .eq("id", userId)
       .single();
 
-    if (profile?.account_type === "admin") {
-      return true;
-    }
-
-    // Then check profile_roles table
-    const { data: roleData } = await supabase
-      .from("profile_roles")
-      .select(`
-        roles (
-          name
-        )
-      `)
-      .eq("user_id", userId);
-
-    if (roleData && roleData.length > 0) {
-      return roleData.some((r: any) => r.roles?.name === "admin");
-    }
-
-    return false;
+    return isAdminProfile(profile || {});
   } catch (error) {
     console.error("Error checking admin status:", error);
     return false;

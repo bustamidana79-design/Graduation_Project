@@ -1,5 +1,6 @@
 ﻿"use client";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import TicketChatModal from "@/components/TicketChatModal";
 
@@ -16,6 +17,8 @@ interface Ticket {
 }
 
 export default function AdminCustomerService() {
+  const searchParams = useSearchParams();
+  const ticketIdFromUrl = searchParams.get("ticket");
   const tabs = [
     { id: "supplier", name: "التجار" },
     { id: "small_business", name: "المشاريع الصغيرة" },
@@ -45,6 +48,26 @@ export default function AdminCustomerService() {
 
     fetchTickets();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!ticketIdFromUrl) return;
+
+    const fetchTicket = async () => {
+      const { data, error } = await supabase
+        .from("support_tickets")
+        .select("*")
+        .eq("id", ticketIdFromUrl)
+        .maybeSingle();
+
+      if (!error && data) {
+        const ticket = data as Ticket;
+        setActiveTab(ticket.user_role);
+        setSelectedTicket(ticket);
+      }
+    };
+
+    void fetchTicket();
+  }, [ticketIdFromUrl]);
 
   const handleOpenTicket = async (ticket: Ticket) => {
     if (ticket.last_sender_type === "user") {

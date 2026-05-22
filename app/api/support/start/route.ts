@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthProfile } from "@/lib/api-auth";
 import { createSupabaseAdmin } from "@/lib/supabase-admin";
+import { notifyAdminsAboutSupportMessage } from "@/lib/services/support-notifications.service";
 
 const FIRST_MESSAGE = "مرحباً، لدي استفسار بخصوص حذف أحد منتجاتي";
 
@@ -58,6 +59,17 @@ export async function POST(request: NextRequest) {
       });
 
       if (messageError) throw messageError;
+
+      await notifyAdminsAboutSupportMessage(
+        supabase,
+        {
+          id: ticketId,
+          user_id: user.id,
+          subject,
+          user_role: profile.account_type === "merchant" ? "supplier" : profile.account_type,
+        },
+        details
+      );
     }
 
     return NextResponse.json({

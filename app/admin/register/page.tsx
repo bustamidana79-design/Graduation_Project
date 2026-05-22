@@ -93,28 +93,6 @@ function AdminRegisterContent() {
         return;
       }
 
-      // Step 3: Get admin role ID and assign to user
-      const { data: roleData, error: roleError } = await supabase
-        .from("roles")
-        .select("id")
-        .eq("name", "admin")
-        .single();
-
-      if (roleError) {
-        console.error("Error fetching admin role:", roleError);
-        // Continue anyway - profile is created
-      } else if (roleData) {
-        const { error: profileRoleError } = await supabase.from("profile_roles").insert({
-          user_id: userId,
-          role_id: roleData.id,
-        });
-
-        if (profileRoleError) {
-          console.error("Error assigning admin role:", profileRoleError);
-          // Continue anyway - profile is created
-        }
-      }
-
       setSuccessMsg("تم إنشاء حساب الأدمن بنجاح!");
       setLoading(false);
 

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { analyzeTicketWithAI } from '@/app/services/aiService';
+import { createSupabaseAdmin } from '@/lib/supabase-admin';
+import { notifyAdminsAboutSupportMessage } from '@/lib/services/support-notifications.service';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -75,6 +77,12 @@ export async function POST(req: Request) {
 
     // 3. تشغيل الـ AI لتحليل التذكرة وتوليد الـ Summary
     // ملاحظة: تأكدي أن هذه الدالة داخل aiService تقوم بتحديث عمود ai_summary في الداتابيز
+    try {
+      await notifyAdminsAboutSupportMessage(createSupabaseAdmin(), ticket, first_message);
+    } catch (notificationError) {
+      console.error("Support notification failed:", notificationError);
+    }
+
     try {
         await analyzeTicketWithAI(ticket.id, subject, first_message);
     } catch (aiError) {

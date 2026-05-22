@@ -70,7 +70,13 @@ const accountTypeLabels: Record<AccountType, string> = {
 
 const cardClass = "rounded-2xl border border-[#e6edf5] bg-white p-5 shadow-sm";
 
-export default function DashboardUserProfile({ backHref }: { backHref: string }) {
+export default function DashboardUserProfile({
+  backHref,
+  includeAllProfiles = false,
+}: {
+  backHref: string;
+  includeAllProfiles?: boolean;
+}) {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const userId = params?.id;
@@ -82,6 +88,10 @@ export default function DashboardUserProfile({ backHref }: { backHref: string })
   const [products, setProducts] = useState<SupplierProduct[]>([]);
   const [showcaseItems, setShowcaseItems] = useState<ShowcaseItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [supportSubject, setSupportSubject] = useState("");
+  const [supportMessage, setSupportMessage] = useState("");
+  const [supportStatus, setSupportStatus] = useState("");
+  const [sendingSupport, setSendingSupport] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -95,13 +105,16 @@ export default function DashboardUserProfile({ backHref }: { backHref: string })
       setProducts([]);
       setShowcaseItems([]);
 
-      const { data: profileData } = await supabase
+      let profileQuery = supabase
         .from("profiles")
         .select("id, full_name, country, city, account_type, status")
-        .eq("id", userId)
-        .eq("status", "approved")
-        .neq("account_type", "admin")
-        .maybeSingle();
+        .eq("id", userId);
+
+      if (!includeAllProfiles) {
+        profileQuery = profileQuery.eq("status", "approved").neq("account_type", "admin");
+      }
+
+      const { data: profileData } = await profileQuery.maybeSingle();
 
       const nextProfile = (profileData as PublicProfile | null) || null;
       setProfile(nextProfile);
@@ -171,7 +184,7 @@ export default function DashboardUserProfile({ backHref }: { backHref: string })
     };
 
     loadProfile();
-  }, [userId]);
+  }, [includeAllProfiles, userId]);
 
   const heading =
     supplierProfile?.store_name ||
@@ -199,6 +212,43 @@ export default function DashboardUserProfile({ backHref }: { backHref: string })
     router.push(`/chat/${result.conversationId}`);
   };
 
+  const sendSupportMessage = async () => {
+    if (!profile || !supportSubject.trim() || !supportMessage.trim() || sendingSupport) return;
+
+    setSendingSupport(true);
+    setSupportStatus("");
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const response = await fetch("/api/admin/support-tickets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${data.session?.access_token || ""}`,
+        },
+        body: JSON.stringify({
+          userId: profile.id,
+          subject: supportSubject.trim(),
+          message: supportMessage.trim(),
+        }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "تعذر إرسال الرسالة عبر مركز الدعم.");
+      }
+
+      setSupportStatus("تم إرسال الرسالة وفتح تذكرة في مركز الدعم.");
+      setSupportSubject("");
+      setSupportMessage("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "تعذر إرسال الرسالة عبر مركز الدعم.";
+      setSupportStatus(message);
+    } finally {
+      setSendingSupport(false);
+    }
+  };
+
   return (
     <section className="space-y-6" dir="rtl">
       <Link href={`${backHref}/users`} className="inline-block text-sm font-semibold text-[#273347]/60 hover:text-[#273347]">
@@ -217,7 +267,8 @@ export default function DashboardUserProfile({ backHref }: { backHref: string })
             <p className="mt-3 text-sm text-white/80">
               {[profile.city, profile.country].filter(Boolean).join(" - ") || "عضو معتمد داخل المنصة"}
             </p>
-            <div className="mt-5">
+            {!includeAllProfiles && (
+              <div className="mt-5">
               <button
                 type="button"
                 onClick={() => void startChat(profile.id).catch((error) => alert(error.message))}
@@ -225,8 +276,48 @@ export default function DashboardUserProfile({ backHref }: { backHref: string })
               >
                 راسل المستخدم
               </button>
-            </div>
+              </div>
+            )}
           </section>
+
+          {includeAllProfiles && profile.account_type !== "admin" && (
+            <section className={cardClass}>
+              <h2 className="text-lg font-bold text-[#273347]">إرسال رسالة عبر مركز الدعم</h2>
+              <p className="mt-1 text-sm text-[#273347]/60">
+                الرسالة ستصل للمستخدم كتذكرة دعم رسمية، ويمكن متابعة الردود من مركز الدعم وخدمة العملاء.
+              </p>
+
+              {supportStatus && (
+                <div className="mt-4 rounded-xl border border-[#e6edf5] bg-[#f8fafc] p-3 text-sm text-[#273347]">
+                  {supportStatus}
+                </div>
+              )}
+
+              <div className="mt-4 grid gap-3">
+                <input
+                  value={supportSubject}
+                  onChange={(event) => setSupportSubject(event.target.value)}
+                  className="rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347] outline-none focus:border-[#273347]"
+                  placeholder="عنوان الرسالة"
+                />
+                <textarea
+                  value={supportMessage}
+                  onChange={(event) => setSupportMessage(event.target.value)}
+                  rows={4}
+                  className="resize-none rounded-xl border border-[#d8e1ec] px-4 py-3 text-sm text-[#273347] outline-none focus:border-[#273347]"
+                  placeholder="اكتب رسالة الإدارة للمستخدم..."
+                />
+                <button
+                  type="button"
+                  onClick={() => void sendSupportMessage()}
+                  disabled={!supportSubject.trim() || !supportMessage.trim() || sendingSupport}
+                  className="w-fit rounded-xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#1f293a] disabled:opacity-50"
+                >
+                  {sendingSupport ? "جاري الإرسال..." : "إرسال عبر مركز الدعم"}
+                </button>
+              </div>
+            </section>
+          )}
 
           <section className="grid gap-4 lg:grid-cols-2">
             <div className={cardClass}>

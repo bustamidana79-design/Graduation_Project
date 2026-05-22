@@ -310,6 +310,81 @@ create index if not exists ai_chat_messages_session_created_idx
 on public.ai_chat_messages (session_id, created_at);
 
 -- ---------------------------------------------------------------------------
+-- Notifications.
+-- Used by support tickets, product moderation, orders, and realtime alerts.
+-- ---------------------------------------------------------------------------
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  body text not null,
+  notification_type text,
+  data jsonb not null default '{}'::jsonb,
+  is_read boolean not null default false,
+  read_at timestamptz,
+  created_at timestamptz not null default timezone('utc'::text, now())
+);
+
+alter table public.notifications add column if not exists notification_type text;
+alter table public.notifications add column if not exists data jsonb not null default '{}'::jsonb;
+alter table public.notifications add column if not exists is_read boolean not null default false;
+alter table public.notifications add column if not exists read_at timestamptz;
+alter table public.notifications add column if not exists created_at timestamptz not null default timezone('utc'::text, now());
+
+create index if not exists notifications_user_created_idx
+  on public.notifications (user_id, created_at desc);
+
+create index if not exists notifications_user_unread_idx
+  on public.notifications (user_id)
+  where is_read = false;
+
+do $$
+begin
+  if exists (
+    select 1 from pg_publication where pubname = 'supabase_realtime'
+  ) and not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'notifications'
+  ) then
+    alter publication supabase_realtime add table public.notifications;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Customer support center.
+-- Admin moderation actions, like product deletion, open a support ticket here.
+-- ---------------------------------------------------------------------------
+create table if not exists public.support_tickets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  subject text not null,
+  status text not null default 'open' check (status in ('open', 'closed', 'pending')),
+  user_role text not null,
+  priority text not null default 'medium' check (priority in ('low', 'medium', 'high')),
+  last_sender_type text not null default 'user' check (last_sender_type in ('user', 'admin')),
+  ai_summary text,
+  created_at timestamptz not null default timezone('utc'::text, now())
+);
+
+create table if not exists public.ticket_messages (
+  id uuid primary key default gen_random_uuid(),
+  ticket_id uuid not null references public.support_tickets(id) on delete cascade,
+  sender_id uuid not null references auth.users(id) on delete cascade,
+  sender_type text not null check (sender_type in ('user', 'admin')),
+  message text not null,
+  created_at timestamptz not null default timezone('utc'::text, now())
+);
+
+create index if not exists support_tickets_user_role_created_idx
+  on public.support_tickets (user_id, user_role, created_at desc);
+
+create index if not exists ticket_messages_ticket_created_idx
+  on public.ticket_messages (ticket_id, created_at);
+
+-- ---------------------------------------------------------------------------
 -- Helper for RLS policies.
 -- ---------------------------------------------------------------------------
 create or replace function public.is_admin()
@@ -323,13 +398,6 @@ as $$
     from public.profiles p
     where p.id = auth.uid()
       and p.account_type = 'admin'
-  )
-  or exists (
-    select 1
-    from public.profile_roles pr
-    join public.roles r on r.id = pr.role_id
-    where pr.user_id = auth.uid()
-      and r.name = 'admin'
   );
 $$;
 
@@ -342,11 +410,13 @@ alter table public.applications enable row level security;
 alter table public.ai_recommendation enable row level security;
 alter table public.verification_files enable row level security;
 alter table public.admin_reviews enable row level security;
-alter table public.profile_roles enable row level security;
 alter table public.upgrade_requests enable row level security;
 alter table public.daily_user_tips enable row level security;
 alter table public.ai_chat_sessions enable row level security;
 alter table public.ai_chat_messages enable row level security;
+alter table public.notifications enable row level security;
+alter table public.support_tickets enable row level security;
+alter table public.ticket_messages enable row level security;
 
 drop policy if exists profiles_select_own_public_or_admin on public.profiles;
 create policy profiles_select_own_public_or_admin
@@ -454,17 +524,6 @@ with check (
   )
 );
 
-drop policy if exists profile_roles_select_own_or_admin on public.profile_roles;
-create policy profile_roles_select_own_or_admin
-on public.profile_roles for select
-using (auth.uid() = user_id or public.is_admin());
-
-drop policy if exists profile_roles_admin_write on public.profile_roles;
-create policy profile_roles_admin_write
-on public.profile_roles for all
-using (public.is_admin())
-with check (public.is_admin());
-
 drop policy if exists upgrade_requests_select_own_or_admin on public.upgrade_requests;
 create policy upgrade_requests_select_own_or_admin
 on public.upgrade_requests for select
@@ -532,6 +591,60 @@ with check (
   or exists (
     select 1 from public.ai_chat_sessions s
     where s.id = session_id and s.profile_id = auth.uid()
+  )
+);
+
+drop policy if exists notifications_owner_select on public.notifications;
+create policy notifications_owner_select
+on public.notifications for select
+using (user_id = auth.uid());
+
+drop policy if exists notifications_owner_update on public.notifications;
+create policy notifications_owner_update
+on public.notifications for update
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+drop policy if exists notifications_owner_insert on public.notifications;
+create policy notifications_owner_insert
+on public.notifications for insert
+with check (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists support_tickets_select_own_or_admin on public.support_tickets;
+create policy support_tickets_select_own_or_admin
+on public.support_tickets for select
+using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists support_tickets_insert_own_or_admin on public.support_tickets;
+create policy support_tickets_insert_own_or_admin
+on public.support_tickets for insert
+with check (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists support_tickets_update_own_or_admin on public.support_tickets;
+create policy support_tickets_update_own_or_admin
+on public.support_tickets for update
+using (auth.uid() = user_id or public.is_admin())
+with check (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists ticket_messages_select_related_or_admin on public.ticket_messages;
+create policy ticket_messages_select_related_or_admin
+on public.ticket_messages for select
+using (
+  public.is_admin()
+  or exists (
+    select 1 from public.support_tickets t
+    where t.id = ticket_id and t.user_id = auth.uid()
+  )
+);
+
+drop policy if exists ticket_messages_insert_related_or_admin on public.ticket_messages;
+create policy ticket_messages_insert_related_or_admin
+on public.ticket_messages for insert
+with check (
+  public.is_admin()
+  or exists (
+    select 1 from public.support_tickets t
+    where t.id = ticket_id and t.user_id = auth.uid()
   )
 );
 
