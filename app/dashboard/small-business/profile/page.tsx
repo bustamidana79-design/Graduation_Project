@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import ProfileEditModal, { type EditableProfile } from "@/components/ProfileEditModal";
+import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 
 type SmallBusinessDetails = {
   user_id?: string | null;
@@ -15,16 +16,8 @@ type SmallBusinessDetails = {
   [key: string]: unknown;
 };
 
-type BaseProfile = {
+type BaseProfile = EditableProfile & {
   id?: string | null;
-  full_name: string | null;
-  email?: string | null;
-  phone?: string | null;
-  country?: string | null;
-  city?: string | null;
-  bio?: string | null;
-  avatar_url?: string | null;
-  status?: string | null;
 };
 
 type FullProfile = BaseProfile & Partial<SmallBusinessDetails>;
@@ -39,6 +32,13 @@ type ShowcaseItem = {
 
 const cardClass = "rounded-2xl border border-[#e6edf5] bg-white p-5 shadow-sm";
 
+const needOptions = [
+  { value: "suppliers", label: "موردين" },
+  { value: "marketing", label: "تسويق" },
+  { value: "funding", label: "تمويل" },
+  { value: "partnerships", label: "شراكات" },
+];
+
 export default function SmallBusinessProfilePage() {
   const { profile, loading } = useDashboardAccess({ requiredAccountType: "small_business" });
   const [baseProfile, setBaseProfile] = useState<BaseProfile | null>(null);
@@ -49,14 +49,19 @@ export default function SmallBusinessProfilePage() {
   const [saving, setSaving] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [needsText, setNeedsText] = useState("");
+  const [selectedNeed, setSelectedNeed] = useState("");
   const [toast, setToast] = useState("");
+  const [showcaseFile, setShowcaseFile] = useState<File | null>(null);
   const [form, setForm] = useState({
     title: "",
     description: "",
-    image_url: "",
     item_link: "",
   });
+
+  const showToast = (message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 3000);
+  };
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -69,16 +74,8 @@ export default function SmallBusinessProfilePage() {
       if (!userId) return;
 
       const [{ data: baseData }, { data: detailsData }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", userId)
-          .maybeSingle(),
-        supabase
-          .from("small_business_profiles")
-          .select("*")
-          .eq("user_id", userId)
-          .maybeSingle(),
+        supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
+        supabase.from("small_business_profiles").select("*").eq("user_id", userId).maybeSingle(),
       ]);
 
       const mergedProfile = {
@@ -86,12 +83,9 @@ export default function SmallBusinessProfilePage() {
         ...((detailsData as SmallBusinessDetails | null) || {}),
       } as FullProfile;
 
-      console.log("profile", baseData);
-      console.log("business", detailsData);
-      console.log("fullProfile", mergedProfile);
       setBaseProfile((baseData as BaseProfile | null) || null);
       setFullProfile(mergedProfile);
-      setNeedsText(((mergedProfile.needs || []) as string[]).join(", "));
+      setSelectedNeed(((mergedProfile.needs || []) as string[])[0] || "");
 
       const { data: itemsData, error: itemsError } = await supabase
         .from("small_business_showcase_items")
@@ -112,8 +106,22 @@ export default function SmallBusinessProfilePage() {
       setShowcaseItems((itemsData as ShowcaseItem[] | null) || []);
     };
 
-    loadProfileData();
+    void loadProfileData();
   }, [profile?.id]);
+
+  const uploadShowcaseImage = async () => {
+    if (!profile?.id || !showcaseFile) return null;
+
+    const extension = showcaseFile.name.split(".").pop()?.toLowerCase() || "jpg";
+    const path = `showcase/${profile.id}/${Date.now()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from(PRODUCT_IMAGES_BUCKET).upload(path, showcaseFile, {
+      cacheControl: "3600",
+      upsert: true,
+    });
+
+    if (uploadError) throw uploadError;
+    return supabase.storage.from(PRODUCT_IMAGES_BUCKET).getPublicUrl(path).data.publicUrl;
+  };
 
   const handleAddItem = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -122,34 +130,36 @@ export default function SmallBusinessProfilePage() {
     setSaving(true);
     setError(null);
 
-    const { data, error: insertError } = await supabase
-      .from("small_business_showcase_items")
-      .insert({
-        user_id: profile.id,
-        title: form.title.trim(),
-        description: form.description.trim() || null,
-        image_url: form.image_url.trim() || null,
-        item_link: form.item_link.trim() || null,
-      })
-      .select("id, title, description, image_url, item_link")
-      .single();
+    try {
+      const imageUrl = await uploadShowcaseImage();
+      const { data, error: insertError } = await supabase
+        .from("small_business_showcase_items")
+        .insert({
+          user_id: profile.id,
+          title: form.title.trim(),
+          description: form.description.trim() || null,
+          image_url: imageUrl,
+          item_link: form.item_link.trim() || null,
+        })
+        .select("id, title, description, image_url, item_link")
+        .single();
 
-    setSaving(false);
+      if (insertError) throw insertError;
 
-    if (insertError) {
-      setError(insertError.message);
-      return;
+      setShowcaseItems((current) => [data as ShowcaseItem, ...current]);
+      setForm({ title: "", description: "", item_link: "" });
+      setShowcaseFile(null);
+      setShowAddForm(false);
+      showToast("تمت إضافة العمل بنجاح");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر إضافة العمل إلى المعرض.");
+    } finally {
+      setSaving(false);
     }
-
-    setShowcaseItems((current) => [data as ShowcaseItem, ...current]);
-    setForm({ title: "", description: "", image_url: "", item_link: "" });
   };
 
   const handleDeleteItem = async (itemId: string) => {
-    const { error: deleteError } = await supabase
-      .from("small_business_showcase_items")
-      .delete()
-      .eq("id", itemId);
+    const { error: deleteError } = await supabase.from("small_business_showcase_items").delete().eq("id", itemId);
 
     if (deleteError) {
       setError(deleteError.message);
@@ -160,15 +170,19 @@ export default function SmallBusinessProfilePage() {
   };
 
   const handleSaveNeeds = async () => {
+    if (!selectedNeed) {
+      setError("يرجى اختيار الاحتياج الحالي.");
+      return;
+    }
+
     const { data } = await supabase.auth.getSession();
-    const needs = needsText.split(",").map((item) => item.trim()).filter(Boolean);
     const response = await fetch("/api/small-business/profile", {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${data.session?.access_token || ""}`,
       },
-      body: JSON.stringify({ needs }),
+      body: JSON.stringify({ needs: [selectedNeed] }),
     });
     const result = await response.json();
 
@@ -177,16 +191,15 @@ export default function SmallBusinessProfilePage() {
       return;
     }
 
-    setFullProfile((current) => ({ ...(current || {}), needs: result.profile?.needs || needs } as FullProfile));
-    setToast("تم التعديل بنجاح");
-    window.setTimeout(() => setToast(""), 3000);
+    setFullProfile((current) => ({ ...(current || {}), needs: result.profile?.needs || [selectedNeed] } as FullProfile));
+    showToast("تم التعديل بنجاح");
   };
 
   const fullName = fullProfile?.full_name || profile?.full_name || "صاحب المشروع";
 
   return (
     <div className="space-y-6" dir="rtl">
-      <section className="rounded-3xl bg-[#273347] px-8 py-8 text-white">
+      <section className="rounded-2xl bg-[#273347] px-8 py-8 text-white">
         <div className="mb-5 flex items-center justify-between gap-4">
           {fullProfile?.avatar_url ? (
             <img src={fullProfile.avatar_url} alt={fullName} className="h-16 w-16 rounded-2xl object-cover" />
@@ -198,7 +211,7 @@ export default function SmallBusinessProfilePage() {
           <button
             type="button"
             onClick={() => setEditOpen(true)}
-            className="rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-[#273347] transition hover:bg-[#eaf1f7]"
+            className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-[#273347] transition hover:bg-[#eaf1f7]"
           >
             تعديل المعلومات
           </button>
@@ -210,34 +223,17 @@ export default function SmallBusinessProfilePage() {
         </p>
         <div className="mt-5 flex flex-wrap gap-3 text-sm text-white/85">
           <span className="rounded-full bg-white/10 px-4 py-2">نوع الحساب: مشروع صغير</span>
-          <span className="rounded-full bg-white/10 px-4 py-2">
-            الحالة: {fullProfile?.status || "approved"}
-          </span>
-          <span className="rounded-full bg-white/10 px-4 py-2">
-            عدد عناصر المعرض: {showcaseItems.length}
-          </span>
+          <span className="rounded-full bg-white/10 px-4 py-2">الحالة: {fullProfile?.status || "معتمد"}</span>
+          <span className="rounded-full bg-white/10 px-4 py-2">عدد عناصر المعرض: {showcaseItems.length}</span>
         </div>
       </section>
 
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {toast && (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-          {toast}
-        </div>
-      )}
+      {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {toast && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{toast}</div>}
 
       {schemaHint && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          جدول معرض الأعمال غير موجود بعد. نفّذ الملف
-          {" "}
-          <span className="font-semibold">supabase/small-business-showcase.sql</span>
-          {" "}
-          أولًا.
+          جدول معرض الأعمال غير موجود بعد. نفّذ ملف `supabase/small-business-showcase.sql` أولاً.
         </div>
       )}
 
@@ -246,7 +242,7 @@ export default function SmallBusinessProfilePage() {
           <h2 className="text-lg font-bold text-[#273347]">المعلومات العامة</h2>
           <div className="mt-4 space-y-3 text-sm text-[#273347]/75">
             <p>الاسم: {fullName}</p>
-            <p>الإيميل: {fullProfile?.email ?? "غير متوفر"}</p>
+            <p>البريد الإلكتروني: {fullProfile?.email ?? "غير متوفر"}</p>
             <p>رقم الهاتف: {fullProfile?.phone ?? "غير متوفر"}</p>
             <p>الدولة: {fullProfile?.country ?? "غير متوفرة"}</p>
             <p>المدينة: {fullProfile?.city ?? "غير متوفرة"}</p>
@@ -260,48 +256,38 @@ export default function SmallBusinessProfilePage() {
             <p>اسم المشروع: {fullProfile?.project_name || fullName}</p>
             <p>مجال المشروع: {fullProfile?.project_field ?? "غير محدد"}</p>
             <p>مرحلة المشروع: {fullProfile?.project_stage ?? "غير محددة"}</p>
-            <p>
-              الرابط:
-              {" "}
-              {fullProfile?.social_link ? (
-                <a
-                  href={fullProfile.social_link}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-blue-600 hover:underline"
-                >
-                  فتح الرابط
-                </a>
-              ) : (
-                "غير متوفر"
-              )}
-            </p>
             <div className="pt-1">
               <p className="mb-2">الاحتياجات الحالية:</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="mb-3 flex flex-wrap gap-2">
                 {(fullProfile?.needs || []).length > 0 ? (
                   (fullProfile?.needs || []).map((need) => (
                     <span key={need} className="rounded-full bg-[#eef3f8] px-3 py-1 text-xs">
-                      {need}
+                      {needOptions.find((item) => item.value === need)?.label || need}
                     </span>
                   ))
                 ) : (
                   <span className="text-xs text-[#273347]/55">لا توجد احتياجات مضافة بعد.</span>
                 )}
               </div>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <input
-                  value={needsText}
-                  onChange={(event) => setNeedsText(event.target.value)}
-                  placeholder="مثال: تسويق، تغليف، تمويل"
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <select
+                  value={selectedNeed}
+                  onChange={(event) => setSelectedNeed(event.target.value)}
                   className="flex-1 rounded-lg border border-[#d9e3ee] px-3 py-2 text-sm"
-                />
+                >
+                  <option value="">اختر الاحتياج الحالي</option>
+                  {needOptions.map((need) => (
+                    <option key={need.value} value={need.value}>
+                      {need.label}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   onClick={() => void handleSaveNeeds()}
                   className="rounded-lg bg-[#273347] px-4 py-2 text-sm font-semibold text-white"
                 >
-                  حفظ الاحتياجات
+                  حفظ الاحتياج
                 </button>
               </div>
             </div>
@@ -311,58 +297,58 @@ export default function SmallBusinessProfilePage() {
 
       {!schemaHint && (
         <section className={cardClass}>
-          <h2 className="text-lg font-bold text-[#273347]">أضف عملاً أو منتجًا إلى المعرض</h2>
-          <p className="mt-1 text-sm text-[#273347]/60">
-            هذه العناصر ستفيد لاحقًا في صفحة المستخدمين العامة لعرض شغلك داخل المنصة.
-          </p>
+          <h2 className="text-lg font-bold text-[#273347]">معرض الأعمال</h2>
+          <p className="mt-1 text-sm text-[#273347]/60">أضف أعمالك أو منتجاتك ليظهر المشروع بشكل احترافي للزوار.</p>
 
           <button
             type="button"
             onClick={() => setShowAddForm((current) => !current)}
             className="mt-4 rounded-lg bg-[#273347] px-4 py-2 text-sm font-semibold text-white"
           >
-            إضافة جديد
+            {showAddForm ? "إغلاق النموذج" : "إضافة جديد"}
           </button>
 
-          <form onSubmit={handleAddItem} className={`mt-5 grid gap-3 md:grid-cols-2 ${showAddForm ? "" : "hidden"}`}>
-            <input
-              value={form.title}
-              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-              placeholder="اسم العمل أو المنتج"
-              className="rounded-2xl border border-[#d9e3ee] px-4 py-3 text-sm outline-none transition focus:border-[#273347]"
-            />
-            <input
-              value={form.image_url}
-              onChange={(event) => setForm((current) => ({ ...current, image_url: event.target.value }))}
-              placeholder="رابط الصورة"
-              className="rounded-2xl border border-[#d9e3ee] px-4 py-3 text-sm outline-none transition focus:border-[#273347]"
-            />
-            <textarea
-              value={form.description}
-              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-              placeholder="وصف مختصر"
-              rows={4}
-              className="min-h-[120px] rounded-2xl border border-[#d9e3ee] px-4 py-3 text-sm outline-none transition focus:border-[#273347] md:col-span-2"
-            />
-            <input
-              value={form.item_link}
-              onChange={(event) => setForm((current) => ({ ...current, item_link: event.target.value }))}
-              placeholder="رابط خارجي للعمل أو المنتج"
-              className="rounded-2xl border border-[#d9e3ee] px-4 py-3 text-sm outline-none transition focus:border-[#273347] md:col-span-2"
-            />
-            <button
-              type="submit"
-              disabled={!form.title.trim() || saving}
-              className="rounded-2xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#1e2735] disabled:cursor-not-allowed disabled:opacity-60 md:col-span-2 md:w-fit"
-            >
-              {saving ? "جاري الإضافة..." : "إضافة إلى المعرض"}
-            </button>
-          </form>
+          {showAddForm && (
+            <form onSubmit={handleAddItem} className="mt-5 grid gap-3 md:grid-cols-2">
+              <input
+                value={form.title}
+                onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+                placeholder="اسم العمل أو المنتج"
+                className="rounded-xl border border-[#d9e3ee] px-4 py-3 text-sm outline-none transition focus:border-[#273347]"
+              />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(event) => setShowcaseFile(event.target.files?.[0] || null)}
+                className="rounded-xl border border-[#d9e3ee] px-4 py-3 text-sm outline-none transition focus:border-[#273347]"
+              />
+              <textarea
+                value={form.description}
+                onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                placeholder="وصف مختصر"
+                rows={4}
+                className="min-h-[120px] rounded-xl border border-[#d9e3ee] px-4 py-3 text-sm outline-none transition focus:border-[#273347] md:col-span-2"
+              />
+              <input
+                value={form.item_link}
+                onChange={(event) => setForm((current) => ({ ...current, item_link: event.target.value }))}
+                placeholder="رابط خارجي اختياري"
+                className="rounded-xl border border-[#d9e3ee] px-4 py-3 text-sm outline-none transition focus:border-[#273347] md:col-span-2"
+              />
+              <button
+                type="submit"
+                disabled={!form.title.trim() || saving}
+                className="rounded-xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#1e2735] disabled:cursor-not-allowed disabled:opacity-60 md:col-span-2 md:w-fit"
+              >
+                {saving ? "جاري الإضافة..." : "إضافة إلى المعرض"}
+              </button>
+            </form>
+          )}
         </section>
       )}
 
       <section className={cardClass}>
-        <h2 className="text-lg font-bold text-[#273347]">معرض الأعمال</h2>
+        <h2 className="text-lg font-bold text-[#273347]">الأعمال المضافة</h2>
 
         {showcaseItems.length === 0 ? (
           <div className="mt-5 rounded-2xl border border-dashed border-[#d9e3ee] px-4 py-8 text-center text-sm text-[#273347]/55">
@@ -372,18 +358,13 @@ export default function SmallBusinessProfilePage() {
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {showcaseItems.map((item) => (
               <article key={item.id} className="overflow-hidden rounded-2xl border border-[#e6edf5] bg-[#fbfdff]">
-                <div
-                  className="h-44 w-full bg-[#dfe8f2]"
-                  style={
-                    item.image_url
-                      ? {
-                          backgroundImage: `url(${item.image_url})`,
-                          backgroundPosition: "center",
-                          backgroundSize: "cover",
-                        }
-                      : undefined
-                  }
-                />
+                <div className="flex h-44 w-full items-center justify-center bg-[#eef3f8]">
+                  {item.image_url ? (
+                    <img src={item.image_url} alt={item.title} className="h-full w-full object-contain" />
+                  ) : (
+                    <span className="text-sm text-[#273347]/45">بدون صورة</span>
+                  )}
+                </div>
                 <div className="space-y-3 p-4">
                   <div>
                     <h3 className="font-bold text-[#273347]">{item.title}</h3>
@@ -394,12 +375,7 @@ export default function SmallBusinessProfilePage() {
 
                   <div className="flex items-center justify-between gap-3">
                     {item.item_link ? (
-                      <a
-                        href={item.item_link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm font-medium text-blue-600 hover:underline"
-                      >
+                      <a href={item.item_link} target="_blank" rel="noreferrer" className="text-sm font-medium text-blue-600 hover:underline">
                         فتح الرابط
                       </a>
                     ) : (
@@ -408,7 +384,7 @@ export default function SmallBusinessProfilePage() {
 
                     <button
                       type="button"
-                      onClick={() => handleDeleteItem(item.id)}
+                      onClick={() => void handleDeleteItem(item.id)}
                       className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
                     >
                       حذف
@@ -420,6 +396,7 @@ export default function SmallBusinessProfilePage() {
           </div>
         )}
       </section>
+
       <ProfileEditModal
         open={editOpen}
         profile={fullProfile || baseProfile}
@@ -429,8 +406,7 @@ export default function SmallBusinessProfilePage() {
           setBaseProfile(nextProfile as BaseProfile);
           setFullProfile(nextFullProfile);
           setEditOpen(false);
-          setToast("تم التعديل بنجاح");
-          window.setTimeout(() => setToast(""), 3000);
+          showToast("تم التعديل بنجاح");
         }}
       />
     </div>

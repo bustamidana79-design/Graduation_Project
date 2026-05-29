@@ -85,6 +85,8 @@ export default function SmallBusinessProductDetailsPage() {
   const [currentImage, setCurrentImage] = useState(0);
   const [userCurrency, setUserCurrency] = useState("ILS");
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_USD_RATES);
+  const [canReview, setCanReview] = useState(false);
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -116,6 +118,17 @@ export default function SmallBusinessProductDetailsPage() {
       setQuantity(Number(loadedProduct.min_order_quantity || 1));
       addToRecentlyViewed(loadedProduct);
       void trackProductView(loadedProduct.id);
+
+      if (auth.user?.id) {
+        const { data: purchaseRows } = await supabase
+          .from("order_items")
+          .select("id, orders!inner(id, buyer_id, status)")
+          .eq("product_id", loadedProduct.id)
+          .eq("orders.buyer_id", auth.user.id)
+          .eq("orders.status", "paid")
+          .limit(1);
+        setCanReview(Boolean(purchaseRows && purchaseRows.length > 0));
+      }
 
       const category = loadedProduct.category || loadedProduct.category_id || "";
       if (category) {
@@ -176,6 +189,32 @@ export default function SmallBusinessProductDetailsPage() {
     });
     const result = await response.json();
     setMessage(response.ok ? "تم تحديث المفضلة." : result.error || "تعذر تحديث المفضلة.");
+  };
+
+  const submitRating = async (rating: number) => {
+    if (!product || submittingRating) return;
+    setSubmittingRating(true);
+    const token = await getAuthToken();
+    const response = await fetch(`/api/products/${product.id}/rating`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ rating }),
+    });
+    const result = await response.json();
+    setSubmittingRating(false);
+
+    if (!response.ok) {
+      setMessage(result.error || "تعذر حفظ التقييم.");
+      return;
+    }
+
+    setProduct((current) =>
+      current ? { ...current, rating_average: result.rating_average, rating_count: result.rating_count } : current
+    );
+    setMessage("تم حفظ تقييمك بنجاح.");
   };
 
   const images = useMemo(() => {
@@ -269,6 +308,27 @@ export default function SmallBusinessProductDetailsPage() {
           </div>
 
           <ProductRating value={product.rating_average} count={product.rating_count} />
+
+          <div className="rounded-lg border border-[#e6edf5] bg-[#fbfdff] p-4">
+            <p className="text-sm font-bold text-[#273347]">قيّم المنتج</p>
+            {canReview ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[1, 2, 3, 4, 5].map((rating) => (
+                  <button
+                    key={rating}
+                    type="button"
+                    disabled={submittingRating}
+                    onClick={() => void submitRating(rating)}
+                    className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-600 transition hover:bg-amber-50 disabled:opacity-60"
+                  >
+                    {rating} نجوم
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-[#273347]/55">يمكن تقييم المنتج بعد شرائه فقط.</p>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm text-[#273347]">
             <div className="rounded-lg bg-[#f8fafc] p-4">السعر: {isConverted ? "≈ " : ""}{formatMoney(convertedPrice, userCurrency)}</div>

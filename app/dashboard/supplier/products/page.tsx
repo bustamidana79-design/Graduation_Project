@@ -267,6 +267,10 @@ export default function SupplierProductsPage() {
                 <option value="ILS">ILS</option>
                 <option value="USD">USD</option>
                 <option value="JOD">JOD</option>
+                <option value="EUR">EUR</option>
+                <option value="SAR">SAR</option>
+                <option value="AED">AED</option>
+                <option value="EGP">EGP</option>
               </select>
               <p className="text-xs text-[#546a85]">العملة الافتراضية من الحساب ويمكن تغييرها.</p>
             </div>

@@ -65,7 +65,6 @@ export default function DirectMessagesPage() {
   });
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [conversations, setConversations] = useState<EnrichedConversation[]>([]);
-  const [availableUsers, setAvailableUsers] = useState<Profile[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -98,28 +97,7 @@ export default function DirectMessagesPage() {
     );
   }, [conversations, search]);
 
-  const filteredUsers = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return [];
-    const conversationUserIds = new Set(conversations.map((conversation) => conversation.otherUser?.id).filter(Boolean));
-    return availableUsers
-      .filter((user) => !conversationUserIds.has(user.id))
-      .filter((user) => `${user.full_name || ""} ${accountTypeLabels[user.account_type]}`.toLowerCase().includes(query))
-      .slice(0, 6);
-  }, [availableUsers, conversations, search]);
-
-  const fetchAvailableUsers = async (userId: string) => {
-    const { data, error: profilesError } = await supabase
-      .from("profiles")
-      .select("id, full_name, account_type, status")
-      .eq("status", "approved")
-      .neq("id", userId)
-      .neq("account_type", "admin")
-      .order("full_name", { ascending: true });
-
-    if (profilesError) throw profilesError;
-    setAvailableUsers((data || []) as Profile[]);
-  };
+  const filteredUsers: Profile[] = [];
 
   const fetchConversations = async (user: Profile) => {
     const { data, error: conversationsError } = await supabase
@@ -193,7 +171,7 @@ export default function DirectMessagesPage() {
 
         const typedProfile = profile as Profile;
         setCurrentUser(typedProfile);
-        await Promise.all([fetchAvailableUsers(user.id), fetchConversations(typedProfile)]);
+        await fetchConversations(typedProfile);
       } catch (err) {
         setError(err instanceof Error ? err.message : "حدث خطأ أثناء تحميل المحادثات.");
       } finally {

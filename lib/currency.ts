@@ -1,4 +1,4 @@
-export const SUPPORTED_CURRENCIES = ["ILS", "USD", "JOD"] as const;
+export const SUPPORTED_CURRENCIES = ["ILS", "USD", "JOD", "EUR", "SAR", "AED", "EGP"] as const;
 
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
 export type ExchangeRates = Record<SupportedCurrency, number>;
@@ -7,6 +7,10 @@ export const DEFAULT_USD_RATES: ExchangeRates = {
   USD: 1,
   ILS: 3.7,
   JOD: 0.71,
+  EUR: 0.92,
+  SAR: 3.75,
+  AED: 3.67,
+  EGP: 48,
 };
 
 export function normalizeCurrency(value: unknown): SupportedCurrency {

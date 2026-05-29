@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { ARAB_COUNTRY_NAMES, getCitiesByCountryName } from "@/lib/locations";
 
@@ -36,13 +37,12 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
     bio: "",
     avatar_url: "",
     preferred_currency: "ILS",
-    instagram: "",
-    facebook: "",
-    linkedin: "",
-    website: "",
+    main_channel: "",
+    followers_count: "",
+    reach_rate: "",
+    engagement_rate: "",
   });
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [newPassword, setNewPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -61,13 +61,12 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
       bio: profile.bio || "",
       avatar_url: profile.avatar_url || "",
       preferred_currency: profile.preferred_currency || "ILS",
-      instagram: socials.instagram || "",
-      facebook: socials.facebook || "",
-      linkedin: socials.linkedin || "",
-      website: socials.website || "",
+      main_channel: socials.main_channel || "",
+      followers_count: socials.followers_count || "",
+      reach_rate: socials.reach_rate || "",
+      engagement_rate: socials.engagement_rate || "",
     });
     setAvatarFile(null);
-    setNewPassword("");
     setMessage("");
   }, [profile, open]);
 
@@ -103,13 +102,6 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
 
     try {
       const avatarUrl = await uploadAvatar();
-
-      if (newPassword.trim()) {
-        if (newPassword.trim().length < 6) throw new Error("كلمة المرور يجب أن تكون 6 أحرف على الأقل.");
-        const { error: passwordError } = await supabase.auth.updateUser({ password: newPassword.trim() });
-        if (passwordError) throw passwordError;
-      }
-
       const { data } = await supabase.auth.getSession();
       const response = await fetch("/api/profile", {
         method: "PATCH",
@@ -126,10 +118,10 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
           avatar_url: avatarUrl,
           preferred_currency: form.preferred_currency,
           social_links: {
-            instagram: form.instagram,
-            facebook: form.facebook,
-            linkedin: form.linkedin,
-            website: form.website,
+            main_channel: form.main_channel,
+            followers_count: form.followers_count,
+            reach_rate: form.reach_rate,
+            engagement_rate: form.engagement_rate,
           },
         }),
       });
@@ -151,7 +143,9 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-[#273347]">تعديل المعلومات</h2>
-            <p className="mt-1 text-sm text-[#273347]/55">حدّث بياناتك العامة ومعلومات التواصل التي تساعد المساعد الذكي.</p>
+            <p className="mt-1 text-sm text-[#273347]/55">
+              حدّث بياناتك العامة وبيانات التسويق التي تساعد المساعد الذكي لاحقاً.
+            </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg border border-[#e6edf5] px-3 py-2 text-sm text-[#273347]">
             إغلاق
@@ -176,7 +170,9 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
             <select value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value, city: "" }))} className={inputClass}>
               <option value="">اختر الدولة</option>
               {countryOptions.map((country) => (
-                <option key={country} value={country}>{country}</option>
+                <option key={country} value={country}>
+                  {country}
+                </option>
               ))}
             </select>
           </label>
@@ -187,7 +183,9 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
               <select value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} className={inputClass}>
                 <option value="">اختر المدينة</option>
                 {cityOptions.map((city) => (
-                  <option key={city} value={city}>{city}</option>
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
                 ))}
               </select>
             ) : (
@@ -201,6 +199,10 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
               <option value="ILS">شيكل</option>
               <option value="USD">دولار</option>
               <option value="JOD">دينار</option>
+              <option value="EUR">يورو</option>
+              <option value="SAR">ريال سعودي</option>
+              <option value="AED">درهم إماراتي</option>
+              <option value="EGP">جنيه مصري</option>
             </select>
           </label>
 
@@ -215,17 +217,16 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
           </label>
 
           <div className="grid gap-4 rounded-lg border border-[#e6edf5] bg-[#f8fafc] p-4 md:col-span-2 md:grid-cols-2">
-            <p className="text-sm font-bold text-[#273347] md:col-span-2">معلومات السوشيال ميديا</p>
-            <input placeholder="إنستغرام" value={form.instagram} onChange={(event) => setForm((current) => ({ ...current, instagram: event.target.value }))} className={inputClass} />
-            <input placeholder="فيسبوك" value={form.facebook} onChange={(event) => setForm((current) => ({ ...current, facebook: event.target.value }))} className={inputClass} />
-            <input placeholder="لينكدإن" value={form.linkedin} onChange={(event) => setForm((current) => ({ ...current, linkedin: event.target.value }))} className={inputClass} />
-            <input placeholder="الموقع الإلكتروني" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} className={inputClass} />
+            <p className="text-sm font-bold text-[#273347] md:col-span-2">بيانات التسويق والسوشيال ميديا</p>
+            <input placeholder="القناة الأساسية" value={form.main_channel} onChange={(event) => setForm((current) => ({ ...current, main_channel: event.target.value }))} className={inputClass} />
+            <input type="number" min="0" placeholder="عدد المتابعين" value={form.followers_count} onChange={(event) => setForm((current) => ({ ...current, followers_count: event.target.value }))} className={inputClass} />
+            <input placeholder="نسبة الوصول" value={form.reach_rate} onChange={(event) => setForm((current) => ({ ...current, reach_rate: event.target.value }))} className={inputClass} />
+            <input placeholder="نسبة التفاعل" value={form.engagement_rate} onChange={(event) => setForm((current) => ({ ...current, engagement_rate: event.target.value }))} className={inputClass} />
           </div>
 
-          <label className="space-y-2 text-sm font-semibold text-[#273347] md:col-span-2">
-            تغيير كلمة المرور
-            <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="اتركها فارغة إذا لا تريد التغيير" className={inputClass} />
-          </label>
+          <Link href="/reset-password" className="rounded-lg border border-[#d9e3ee] px-4 py-3 text-sm font-semibold text-[#273347] md:col-span-2">
+            تغيير كلمة المرور من الصفحة المخصصة
+          </Link>
 
           <div className="flex flex-col gap-3 md:col-span-2 md:flex-row md:justify-end">
             <button type="button" onClick={onClose} className="rounded-lg border border-[#bbd0e4] px-5 py-3 text-sm font-semibold text-[#273347]">

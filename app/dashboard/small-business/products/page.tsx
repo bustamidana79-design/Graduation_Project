@@ -44,6 +44,11 @@ function getProductCategory(product: Product) {
   return normalizeCategory(product.category || product.category_id);
 }
 
+function shortDescription(value?: string | null) {
+  const text = String(value || "لا يوجد وصف متاح.").trim();
+  return text.length > 115 ? `${text.slice(0, 115).trim()}...` : text;
+}
+
 function sortRecommendedProducts(products: Product[], userType: string, recentlyViewed: Product[]) {
   const recommendedCategories = getRecommendedCategoriesForUserType(userType);
   const recentlyViewedCategories = new Set(
@@ -410,7 +415,12 @@ export default function SmallBusinessProductsPage() {
             </button>
           </div>
 
-          <p className="line-clamp-3 text-sm text-[#273347]/70">{product.description || "لا يوجد وصف متاح."}</p>
+          <p className="text-sm leading-6 text-[#273347]/70">
+            {shortDescription(product.description)}{" "}
+            <Link href={`/dashboard/small-business/products/${product.id}`} className="font-bold text-[#273347] underline underline-offset-4">
+              عرض المزيد
+            </Link>
+          </p>
           <ProductRating value={product.rating_average} count={product.rating_count} />
 
           <div className="grid grid-cols-2 gap-3 text-sm text-[#273347]">
@@ -585,7 +595,7 @@ export default function SmallBusinessProductsPage() {
                 <h2 className="text-lg font-bold text-[#273347]">شو شفت قبل 👀</h2>
                 <p className="text-sm text-[#273347]/60">آخر منتجات فتحتها عشان ترجع لها بسرعة.</p>
               </div>
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                 {recentlyViewed.map((product) => renderProductCard(product))}
               </div>
             </section>
@@ -597,7 +607,7 @@ export default function SmallBusinessProductsPage() {
                 <h2 className="text-lg font-bold text-[#273347]">مقترح إلك 🤖</h2>
                 <p className="text-sm text-[#273347]/60">منتجات مقترحة بناءً على اهتماماتك وتفاعل المستخدمين المشابهين.</p>
               </div>
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                 {recommendedProducts.map((product) => renderProductCard(product, "موصى به"))}
               </div>
             </section>

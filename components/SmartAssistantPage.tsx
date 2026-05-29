@@ -504,7 +504,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
             </div>
           </div>
           <p className="text-xs font-semibold text-[#273347]/50">اقتراحات سريعة</p>
-          <div className="grid gap-2">
+          <div className="hidden gap-2">
             {config.quickPrompts.map((prompt) => (
               <button
                 key={prompt}
@@ -526,6 +526,20 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
               </div>
             ) : (
               <div className="space-y-3">
+                {messages.length <= 1 && (
+                  <div className="grid gap-2 rounded-lg border border-[#e6edf5] bg-white p-3 md:grid-cols-2">
+                    {config.quickPrompts.map((prompt) => (
+                      <button
+                        key={prompt}
+                        onClick={() => sendMessage(prompt)}
+                        disabled={loading || sending || !sessionId}
+                        className="rounded-lg border border-[#e6edf5] bg-[#f8fafc] px-4 py-3 text-right text-sm font-medium text-[#273347] transition hover:border-[#bbd0e4] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {messages.map((msg, index) => {
                   const isUser = msg.role === "user";
 

@@ -36,7 +36,7 @@ function getPrimaryImage(product?: FavoriteRow["products"]) {
 
 function shortText(value?: string | null) {
   const text = String(value || "لا يوجد وصف متاح.").trim();
-  return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+  return text.length > 110 ? `${text.slice(0, 110).trim()}...` : text;
 }
 
 export default function SmallBusinessFavoritesPage() {
@@ -164,7 +164,12 @@ export default function SmallBusinessFavoritesPage() {
                   </div>
 
                   <ProductRating value={product.rating_average} count={product.rating_count} />
-                  <p className="text-sm leading-6 text-[#273347]/70">{shortText(product.description)}</p>
+                  <p className="text-sm leading-6 text-[#273347]/70">
+                    {shortText(product.description)}{" "}
+                    <Link href={`/dashboard/small-business/products/${product.id}`} className="font-bold text-[#273347] underline underline-offset-4">
+                      عرض المزيد
+                    </Link>
+                  </p>
 
                   <div className="flex gap-3">
                     <button
@@ -187,6 +192,7 @@ export default function SmallBusinessFavoritesPage() {
                       className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#273347] px-4 py-2 text-sm font-semibold text-white"
                     >
                       <ShoppingCart size={16} />
+                      <span>أضف إلى السلة</span>
                       للسلة
                     </button>
                   </div>

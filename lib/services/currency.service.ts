@@ -10,6 +10,10 @@ function pickSupportedRates(rates: Record<string, unknown>): ExchangeRates {
     USD: 1,
     ILS: Number(rates.ILS || DEFAULT_USD_RATES.ILS),
     JOD: Number(rates.JOD || DEFAULT_USD_RATES.JOD),
+    EUR: Number(rates.EUR || DEFAULT_USD_RATES.EUR),
+    SAR: Number(rates.SAR || DEFAULT_USD_RATES.SAR),
+    AED: Number(rates.AED || DEFAULT_USD_RATES.AED),
+    EGP: Number(rates.EGP || DEFAULT_USD_RATES.EGP),
   };
 }
 

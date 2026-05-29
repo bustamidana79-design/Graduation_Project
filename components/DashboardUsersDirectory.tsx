@@ -98,6 +98,7 @@ export default function DashboardUsersDirectory({ basePath }: { basePath: string
   const [smallBusinessProfiles, setSmallBusinessProfiles] = useState<Record<string, SmallBusinessProfile>>({});
   const [deliveryProfiles, setDeliveryProfiles] = useState<Record<string, DeliveryProfile>>({});
   const [supporterProfiles, setSupporterProfiles] = useState<Record<string, SupporterProfile>>({});
+  const [activityCategories, setActivityCategories] = useState<string[]>([]);
 
   useEffect(() => {
     const loadProfiles = async () => {
@@ -151,6 +152,33 @@ export default function DashboardUsersDirectory({ basePath }: { basePath: string
       setDeliveryProfiles(Object.fromEntries(((deliveryData as DeliveryProfile[] | null) || []).map((item) => [item.user_id, item])));
       setSupporterProfiles(Object.fromEntries(((supportersData as SupporterProfile[] | null) || []).map((item) => [item.user_id, item])));
 
+      if (user?.id) {
+        const categories = new Set<string>();
+        const [{ data: viewedRows }, { data: orderRows }] = await Promise.all([
+          supabase.from("product_views").select("products(category, category_id)").eq("user_id", user.id).limit(30),
+          supabase
+            .from("orders")
+            .select("order_items(products(category, category_id))")
+            .eq("buyer_id", user.id)
+            .eq("status", "paid")
+            .limit(20),
+        ]);
+
+        for (const row of (viewedRows || []) as Array<{ products?: { category?: string | null; category_id?: string | null } | null }>) {
+          const category = row.products?.category || row.products?.category_id;
+          if (category) categories.add(String(category).toLowerCase());
+        }
+
+        for (const row of (orderRows || []) as Array<{ order_items?: Array<{ products?: { category?: string | null; category_id?: string | null } | null }> }>) {
+          for (const item of row.order_items || []) {
+            const category = item.products?.category || item.products?.category_id;
+            if (category) categories.add(String(category).toLowerCase());
+          }
+        }
+
+        setActivityCategories(Array.from(categories));
+      }
+
       setLoading(false);
     };
 
@@ -183,6 +211,15 @@ export default function DashboardUsersDirectory({ basePath }: { basePath: string
         let score = 0;
         const priorityIndex = priorities.indexOf(profile.account_type);
         if (priorityIndex >= 0) score += 10 - priorityIndex;
+        const subtitle = getProfileSubtitle(profile, supplierProfiles, smallBusinessProfiles, deliveryProfiles, supporterProfiles).toLowerCase();
+        const currentInterest =
+          smallBusinessProfiles[currentProfile.id]?.project_field ||
+          supporterProfiles[currentProfile.id]?.interests ||
+          supplierProfiles[currentProfile.id]?.product_category ||
+          "";
+
+        if (currentInterest && subtitle.includes(String(currentInterest).toLowerCase())) score += 5;
+        if (activityCategories.some((category) => subtitle.includes(category))) score += 5;
         if (profile.city && currentProfile.city && profile.city === currentProfile.city) score += 4;
         if (profile.country && currentProfile.country && profile.country === currentProfile.country) score += 2;
         return { profile, score };
@@ -191,7 +228,7 @@ export default function DashboardUsersDirectory({ basePath }: { basePath: string
       .sort((a, b) => b.score - a.score)
       .slice(0, 3)
       .map((item) => item.profile);
-  }, [currentProfile, profiles]);
+  }, [activityCategories, currentProfile, deliveryProfiles, profiles, smallBusinessProfiles, supplierProfiles, supporterProfiles]);
 
   const renderProfileCard = (profile: PublicProfile, compact = false) => {
     const title = getProfileTitle(profile, supplierProfiles, smallBusinessProfiles, deliveryProfiles);

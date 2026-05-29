@@ -97,6 +97,10 @@ export default function ProductForm({
             <option value="ILS">ILS</option>
             <option value="USD">USD</option>
             <option value="JOD">JOD</option>
+            <option value="EUR">EUR</option>
+            <option value="SAR">SAR</option>
+            <option value="AED">AED</option>
+            <option value="EGP">EGP</option>
           </select>
         </div>
         <div className="grid gap-2">
