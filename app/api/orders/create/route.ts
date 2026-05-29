@@ -34,6 +34,11 @@ export async function POST(request: NextRequest) {
       body.passport_number || body.passportNumber ? String(body.passport_number || body.passportNumber).trim() : null;
     const notes = body.notes ? String(body.notes).trim() : null;
     const currency = normalizeCurrency(body.currency || profile.preferred_currency);
+    const selectedProductIds = Array.isArray(body.product_ids)
+      ? body.product_ids.map(String)
+      : Array.isArray(body.productIds)
+        ? body.productIds.map(String)
+        : [];
 
     requireSmallBusiness(profile);
 
@@ -53,7 +58,8 @@ export async function POST(request: NextRequest) {
         passportNumber,
         notes,
       },
-      currency
+      currency,
+      selectedProductIds
     );
 
     return NextResponse.json({ orders }, { status: 201 });

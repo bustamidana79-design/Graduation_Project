@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { categories } from "@/lib/categories";
 
 type ProductFormValues = {
   name: string;
@@ -56,6 +57,21 @@ export default function ProductForm({
           value={form.description}
           onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
         />
+      </div>
+      <div className="grid gap-2">
+        <label className="text-sm font-semibold text-[#273347]">الفئة</label>
+        <select
+          className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
+          value={form.category_id || ""}
+          onChange={(event) => setForm((prev) => ({ ...prev, category_id: event.target.value }))}
+        >
+          <option value="">اختر الفئة...</option>
+          {categories.map((category) => (
+            <option key={category.value} value={category.value}>
+              {category.label}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="grid gap-4 md:grid-cols-4">
         <div className="grid gap-2">

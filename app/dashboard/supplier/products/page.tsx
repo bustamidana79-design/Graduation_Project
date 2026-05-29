@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 import { formatMoney, normalizeCurrency } from "@/lib/currency";
+import { categories, getCategoryLabel } from "@/lib/categories";
 import type { Product } from "@/types/product";
 
 async function getAuthHeaders() {
@@ -295,6 +296,21 @@ export default function SupplierProductsPage() {
             </div>
           </div>
           <div className="grid gap-2">
+            <label className="text-sm font-semibold text-[#273347]">الفئة</label>
+            <select
+              className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
+              value={form.category_id}
+              onChange={(event) => setForm((prev) => ({ ...prev, category_id: event.target.value }))}
+            >
+              <option value="">اختر الفئة...</option>
+              {categories.map((category) => (
+                <option key={category.value} value={category.value}>
+                  {category.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-2">
             <label className="text-sm font-semibold text-[#273347]">صور المنتج</label>
             <input
               className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
@@ -341,6 +357,11 @@ export default function SupplierProductsPage() {
                     {product.is_published ? "منشور" : "مخفي"}
                   </span>
                 </div>
+                {getCategoryLabel(product.category || product.category_id) && (
+                  <p className="text-xs font-semibold text-[#546a85]">
+                    {getCategoryLabel(product.category || product.category_id)}
+                  </p>
+                )}
                 <p className="line-clamp-3 text-sm text-[#273347]/70">
                   {product.description || "لا يوجد وصف متاح."}
                 </p>

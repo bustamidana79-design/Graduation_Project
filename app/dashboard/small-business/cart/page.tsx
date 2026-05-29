@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 import { formatMoney, normalizeCurrency } from "@/lib/currency";
 import { AREAS_BY_CITY, ARAB_COUNTRY_NAMES, getCitiesByCountryName } from "@/lib/locations";
+import { Toast } from "@/components/Toast";
 
 type CartProduct = {
   id: string;
@@ -58,9 +59,9 @@ const PENDING_CHECKOUT_ORDER_IDS_KEY = "pending_checkout_order_ids";
 
 export default function SmallBusinessCartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [phone, setPhone] = useState("");
   const [country, setCountry] = useState("");
   const [city, setCity] = useState("");
@@ -77,16 +78,29 @@ export default function SmallBusinessCartPage() {
   const [shippingRateErrors, setShippingRateErrors] = useState<Record<string, string>>({});
   const skipLocationResetCount = useRef(0);
 
-  const itemCount = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantity || 0), 0), [items]);
+  const selectedItems = useMemo(
+    () => items.filter((item) => selectedProductIds.includes(item.product_id)),
+    [items, selectedProductIds]
+  );
+  const itemCount = useMemo(() => selectedItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0), [selectedItems]);
+  const selectedSubtotal = useMemo(
+    () =>
+      selectedItems.reduce((sum, item) => {
+        const product = item.product;
+        const price = Number(product?.converted_wholesale_price ?? product?.wholesale_price ?? 0);
+        return sum + price * Number(item.quantity || 0);
+      }, 0),
+    [selectedItems]
+  );
   const countryOptions = useMemo(() => Object.values(ARAB_COUNTRY_NAMES), []);
   const cityOptions = useMemo(() => getCitiesByCountryName(country), [country]);
   const areaOptions = useMemo(() => AREAS_BY_CITY[city] || [], [city]);
   const supplierCountries = useMemo(
     () =>
       Array.from(
-        new Set(items.map((item) => item.product?.supplier_country).filter((value): value is string => Boolean(value)))
+        new Set(selectedItems.map((item) => item.product?.supplier_country).filter((value): value is string => Boolean(value)))
       ),
-    [items]
+    [selectedItems]
   );
   const isInternational = useMemo(
     () => supplierCountries.some((supplierCountry) => normalizeLocation(supplierCountry) !== normalizeLocation(country)),
@@ -94,7 +108,7 @@ export default function SmallBusinessCartPage() {
   );
   const shippingAssignments = useMemo(() => {
     const bySupplier = new Map<string, NonNullable<CartProduct["supplier_shipping_company"]> | null>();
-    for (const item of items) {
+    for (const item of selectedItems) {
       const product = item.product;
       if (!product) continue;
       const supplierId = product.supplier_id || product.id;
@@ -103,11 +117,11 @@ export default function SmallBusinessCartPage() {
       }
     }
     return Array.from(bySupplier.entries()).map(([supplierId, company]) => ({ supplierId, company }));
-  }, [items]);
+  }, [selectedItems]);
   const missingSupplierShipping = shippingAssignments.some((assignment) => !assignment.company);
   const missingShippingRate = Boolean(city && area) && shippingAssignments.some((assignment) => assignment.company && shippingRateMap[assignment.supplierId] === undefined);
   const shippingFee = shippingAssignments.reduce((sum, assignment) => sum + Number(shippingRateMap[assignment.supplierId] || 0), 0);
-  const payableTotal = total + shippingFee;
+  const payableTotal = selectedSubtotal + shippingFee;
 
   useEffect(() => {
     const loadProfileDefaults = async () => {
@@ -139,10 +153,11 @@ export default function SmallBusinessCartPage() {
       if (!response.ok) {
         setMessage(result.error || "فشل تحميل السلة.");
         setItems([]);
-        setTotal(0);
+        setSelectedProductIds([]);
       } else {
-        setItems(result.items || []);
-        setTotal(Number(result.total_amount || result.subtotal || 0));
+        const nextItems = (result.items || []) as CartItem[];
+        setItems(nextItems);
+        setSelectedProductIds(nextItems.map((item) => item.product_id));
       }
       setLoading(false);
     };
@@ -229,8 +244,9 @@ export default function SmallBusinessCartPage() {
       return;
     }
 
-    setItems(result.cart.items || []);
-    setTotal(Number(result.cart.total_amount || result.cart.subtotal || 0));
+    const nextItems = (result.cart.items || []) as CartItem[];
+    setItems(nextItems);
+    setSelectedProductIds((current) => current.filter((id) => nextItems.some((item) => item.product_id === id)));
     setMessage("تم تحديث السلة.");
   };
 
@@ -248,13 +264,15 @@ export default function SmallBusinessCartPage() {
       return;
     }
 
-    setItems(result.cart.items || []);
-    setTotal(Number(result.cart.total_amount || result.cart.subtotal || 0));
+    const nextItems = (result.cart.items || []) as CartItem[];
+    setItems(nextItems);
+    setSelectedProductIds((current) => current.filter((id) => id !== item.product_id));
     setMessage("تم حذف المنتج من السلة.");
   };
 
   const checkout = async () => {
     if (checkoutLoading) return;
+    if (selectedProductIds.length === 0) return setMessage("حدد منتجًا واحدًا على الأقل قبل إنشاء الطلب.");
     if (!country) return setMessage("اختر الدولة قبل المتابعة للدفع.");
     if (!city) return setMessage("اختر مدينة الشحن قبل المتابعة للدفع.");
     if (!area) return setMessage("اختر القرية أو المنطقة قبل المتابعة للدفع.");
@@ -289,7 +307,7 @@ export default function SmallBusinessCartPage() {
 
       window.localStorage.removeItem(PENDING_CHECKOUT_ORDER_IDS_KEY);
       setItems([]);
-      setTotal(0);
+      setSelectedProductIds([]);
       setMessage("تم إنشاء الدفع. إذا ظهر رصيد 0 KUDOS، افتح الدفع بنفس المتصفح وتأكد من تفعيل GNU Taler Wallet أو demo wallet.");
       console.log("[Payment] Redirecting to payment_url", paymentResult.payment_url);
       window.setTimeout(() => {
@@ -319,6 +337,7 @@ export default function SmallBusinessCartPage() {
         passportNumber: passportNumber.trim() || null,
         notes: notes.trim() || null,
         currency,
+        productIds: selectedProductIds,
       }),
     });
     const result = await response.json();
@@ -337,6 +356,7 @@ export default function SmallBusinessCartPage() {
 
   return (
     <div className="space-y-6 p-6" dir="rtl">
+      <Toast message={message} onClose={() => setMessage("")} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-[#273347]">السلة</h1>
@@ -346,8 +366,6 @@ export default function SmallBusinessCartPage() {
           متابعة التسوق
         </Link>
       </div>
-
-      {message && <div className="rounded-lg border border-[#e6edf5] bg-white p-4 text-sm text-[#273347]">{message}</div>}
 
       {loading ? (
         <div className="rounded-lg border border-[#e6edf5] bg-white p-6 text-sm text-[#273347]/60">جاري تحميل السلة...</div>
@@ -361,6 +379,20 @@ export default function SmallBusinessCartPage() {
       ) : (
         <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
           <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#e6edf5] bg-white p-4">
+              <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#273347]">
+                <input
+                  type="checkbox"
+                  checked={items.length > 0 && selectedProductIds.length === items.length}
+                  onChange={(event) => setSelectedProductIds(event.target.checked ? items.map((item) => item.product_id) : [])}
+                  className="h-4 w-4 accent-[#273347]"
+                />
+                تحديد كل المنتجات
+              </label>
+              <p className="text-sm font-semibold text-[#546a85]">
+                المحدد: {selectedProductIds.length} من {items.length}
+              </p>
+            </div>
             {items.map((item) => {
               const product = item.product;
               if (!product) return null;
@@ -370,12 +402,29 @@ export default function SmallBusinessCartPage() {
               const stock = Number(product.stock_quantity || minimum);
 
               return (
-                <div key={item.id} className="grid gap-4 rounded-lg border border-[#e6edf5] bg-white p-4 md:grid-cols-[112px_1fr]">
-                  <img src={getPublicImage(product.primary_image?.image_url)} alt={product.name} className="h-28 w-full rounded-lg object-cover md:w-28" />
+                <div key={item.id} className="grid gap-4 rounded-lg border border-[#e6edf5] bg-white p-4 md:grid-cols-[28px_112px_1fr]">
+                  <input
+                    type="checkbox"
+                    checked={selectedProductIds.includes(item.product_id)}
+                    onChange={(event) =>
+                      setSelectedProductIds((current) =>
+                        event.target.checked
+                          ? Array.from(new Set([...current, item.product_id]))
+                          : current.filter((id) => id !== item.product_id)
+                      )
+                    }
+                    className="mt-2 h-4 w-4 accent-[#273347]"
+                    aria-label="تحديد المنتج للطلب"
+                  />
+                  <Link href={`/dashboard/small-business/products/${product.id}`}>
+                    <img src={getPublicImage(product.primary_image?.image_url)} alt={product.name} className="h-28 w-full rounded-lg object-cover md:w-28" />
+                  </Link>
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h2 className="font-bold text-[#273347]">{product.name}</h2>
+                        <Link href={`/dashboard/small-business/products/${product.id}`} className="font-bold text-[#273347] hover:underline">
+                          {product.name}
+                        </Link>
                         <p className="text-sm text-[#546a85]">السعر: {formatMoney(price, currency)}</p>
                         {product.supplier_country && <p className="text-xs text-[#273347]/45">بلد المورد: {product.supplier_country}</p>}
                       </div>
@@ -425,8 +474,8 @@ export default function SmallBusinessCartPage() {
               <span className="font-bold">{itemCount}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-[#273347]">
-              <span>إجمالي المنتجات</span>
-              <span className="font-bold">{formatMoney(total, currency)}</span>
+              <span>إجمالي المنتجات المحددة</span>
+              <span className="font-bold">{formatMoney(selectedSubtotal, currency)}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-[#273347]">
               <span>الشحن</span>

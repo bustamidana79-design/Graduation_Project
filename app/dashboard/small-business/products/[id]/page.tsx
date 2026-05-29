@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Heart, Minus, Plus, ShoppingCart } from "lucide-react";
+import { ArrowRight, Heart, Minus, Plus, ShoppingCart } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 import { getProfileRoute } from "@/lib/profile-routes";
 import { DEFAULT_USD_RATES, convertCurrency, formatMoney, normalizeCurrency, type ExchangeRates } from "@/lib/currency";
+import { Toast } from "@/components/Toast";
+import { ProductRating } from "@/components/products/ProductRating";
 import type { Product } from "@/types/product";
 
 async function getAuthToken() {
@@ -20,9 +22,64 @@ function getPublicImage(path?: string | null) {
   return supabase.storage.from(PRODUCT_IMAGES_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+function addToRecentlyViewed(product: Product) {
+  const primaryImage = product.primary_image || product.images?.find((image) => image.is_primary) || product.images?.[0] || null;
+  const viewedProduct: Product = {
+    ...product,
+    primary_image: primaryImage,
+    supplier_store_name: product.supplier_store_name || product.supplier_name || product.supplier?.store_name,
+  };
+
+  try {
+    let viewed = JSON.parse(localStorage.getItem("recentlyViewed") || "[]") as Product[];
+    if (!Array.isArray(viewed)) viewed = [];
+    viewed = viewed.filter((item) => item.id !== product.id);
+    viewed.unshift(viewedProduct);
+    localStorage.setItem("recentlyViewed", JSON.stringify(viewed.slice(0, 10)));
+  } catch {
+    localStorage.setItem("recentlyViewed", JSON.stringify([viewedProduct]));
+  }
+}
+
+async function trackProductView(productId: string) {
+  const token = await getAuthToken();
+  if (!token) return;
+
+  await fetch("/api/products/view", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ productId }),
+  });
+}
+
+function ProductMiniCard({ product, userCurrency, exchangeRates }: { product: Product; userCurrency: string; exchangeRates: ExchangeRates }) {
+  const sourceCurrency = normalizeCurrency(product.currency);
+  const sourcePrice = Number(product.price ?? product.wholesale_price ?? 0);
+  const convertedPrice = convertCurrency(sourcePrice, sourceCurrency, userCurrency, exchangeRates);
+  const image = product.primary_image || product.images?.find((item) => item.is_primary) || product.images?.[0] || null;
+
+  return (
+    <Link href={`/dashboard/small-business/products/${product.id}`} className="block overflow-hidden rounded-lg border border-[#e6edf5] bg-white transition hover:border-[#bbd0e4]">
+      <div className="bg-[#f8fafc]">
+        <img src={getPublicImage(image?.image_url)} alt={product.name} className="h-40 w-full object-contain" />
+      </div>
+      <div className="space-y-2 p-4">
+        <h3 className="line-clamp-2 text-sm font-bold text-[#273347]">{product.name}</h3>
+        <ProductRating value={product.rating_average} count={product.rating_count} compact />
+        <p className="text-sm font-semibold text-[#273347]">{formatMoney(convertedPrice, userCurrency)}</p>
+      </div>
+    </Link>
+  );
+}
+
 export default function SmallBusinessProductDetailsPage() {
   const params = useParams<{ id: string }>();
   const [product, setProduct] = useState<Product | null>(null);
+  const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
+  const [recommendedProducts, setRecommendedProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [message, setMessage] = useState("");
   const [currentImage, setCurrentImage] = useState(0);
@@ -53,9 +110,32 @@ export default function SmallBusinessProductDetailsPage() {
         setMessage(result.error || "تعذر تحميل المنتج.");
         return;
       }
+
       const loadedProduct = result.product as Product;
       setProduct(loadedProduct);
       setQuantity(Number(loadedProduct.min_order_quantity || 1));
+      addToRecentlyViewed(loadedProduct);
+      void trackProductView(loadedProduct.id);
+
+      const category = loadedProduct.category || loadedProduct.category_id || "";
+      if (category) {
+        const similarResponse = await fetch(`/api/products?category=${encodeURIComponent(category)}`);
+        if (similarResponse.ok) {
+          const similarResult = await similarResponse.json();
+          setSimilarProducts(((similarResult.products || []) as Product[]).filter((item) => item.id !== loadedProduct.id).slice(0, 4));
+        }
+      }
+
+      const token = await getAuthToken();
+      if (token) {
+        const recommendationsResponse = await fetch("/api/products/recommendations?limit=4", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (recommendationsResponse.ok) {
+          const recommendationsResult = await recommendationsResponse.json();
+          setRecommendedProducts(((recommendationsResult.products || []) as Product[]).filter((item) => item.id !== loadedProduct.id).slice(0, 4));
+        }
+      }
     };
 
     void load();
@@ -77,10 +157,7 @@ export default function SmallBusinessProductDetailsPage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        productId: product.id,
-        quantity,
-      }),
+      body: JSON.stringify({ productId: product.id, quantity }),
     });
     const result = await response.json();
     setMessage(response.ok ? "تمت إضافة المنتج إلى السلة." : result.error || "تعذر إضافة المنتج.");
@@ -101,9 +178,15 @@ export default function SmallBusinessProductDetailsPage() {
     setMessage(response.ok ? "تم تحديث المفضلة." : result.error || "تعذر تحديث المفضلة.");
   };
 
+  const images = useMemo(() => {
+    if (!product) return [];
+    return product.images && product.images.length > 0 ? product.images : product.primary_image ? [product.primary_image] : [];
+  }, [product]);
+
   if (!product) {
     return (
       <div className="p-6" dir="rtl">
+        <Toast message={message} onClose={() => setMessage("")} />
         <p className="text-sm text-[#273347]/60">{message || "جاري تحميل تفاصيل المنتج..."}</p>
       </div>
     );
@@ -111,7 +194,6 @@ export default function SmallBusinessProductDetailsPage() {
 
   const minimum = Number(product.min_order_quantity || 1);
   const stock = Number(product.stock_quantity || 0);
-  const images = product.images && product.images.length > 0 ? product.images : product.primary_image ? [product.primary_image] : [];
   const activeImage = images[currentImage] || images[0] || null;
   const sourceCurrency = normalizeCurrency(product.currency);
   const sourcePrice = Number(product.price ?? product.wholesale_price ?? 0);
@@ -122,17 +204,24 @@ export default function SmallBusinessProductDetailsPage() {
 
   return (
     <div className="space-y-6 p-6" dir="rtl">
-      {message && <div className="rounded-xl border border-[#e6edf5] bg-white p-4 text-sm text-[#273347]">{message}</div>}
+      <Toast message={message} onClose={() => setMessage("")} />
+
+      <Link href="/dashboard/small-business/products" className="inline-flex items-center gap-2 text-sm font-semibold text-[#546a85]">
+        <ArrowRight size={16} />
+        الرجوع لتصفح المنتجات
+      </Link>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="relative overflow-hidden rounded-xl border border-[#e6edf5] bg-white">
-          {activeImage && (
-            <img
-              src={getPublicImage(activeImage.image_url)}
-              alt={product.name}
-              className="h-[420px] w-full object-cover"
-            />
-          )}
+        <div className="relative overflow-hidden rounded-lg border border-[#e6edf5] bg-white">
+          <div className="bg-[#f8fafc]">
+            {activeImage && (
+              <img
+                src={getPublicImage(activeImage.image_url)}
+                alt={product.name}
+                className="h-[420px] w-full object-contain"
+              />
+            )}
+          </div>
           {images.length > 1 && (
             <>
               <button
@@ -141,7 +230,7 @@ export default function SmallBusinessProductDetailsPage() {
                 className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-xl font-bold text-[#273347] shadow"
                 aria-label="الصورة السابقة"
               >
-                →
+                ←
               </button>
               <button
                 type="button"
@@ -149,13 +238,13 @@ export default function SmallBusinessProductDetailsPage() {
                 className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-xl font-bold text-[#273347] shadow"
                 aria-label="الصورة التالية"
               >
-                ←
+                →
               </button>
             </>
           )}
         </div>
 
-        <div className="space-y-4 rounded-xl border border-[#e6edf5] bg-white p-6">
+        <div className="space-y-4 rounded-lg border border-[#e6edf5] bg-white p-6">
           <div className="flex items-start justify-between gap-3">
             <div>
               <h1 className="text-3xl font-bold text-[#273347]">{product.name}</h1>
@@ -179,14 +268,16 @@ export default function SmallBusinessProductDetailsPage() {
             </button>
           </div>
 
+          <ProductRating value={product.rating_average} count={product.rating_count} />
+
           <div className="grid grid-cols-2 gap-3 text-sm text-[#273347]">
-            <div className="rounded-xl bg-[#f8fafc] p-4">السعر: {isConverted ? "≈ " : ""}{formatMoney(convertedPrice, userCurrency)}</div>
-            <div className="rounded-xl bg-[#f8fafc] p-4">المخزون: {product.stock_quantity}</div>
+            <div className="rounded-lg bg-[#f8fafc] p-4">السعر: {isConverted ? "≈ " : ""}{formatMoney(convertedPrice, userCurrency)}</div>
+            <div className="rounded-lg bg-[#f8fafc] p-4">المخزون: {product.stock_quantity}</div>
           </div>
 
-          <div className="rounded-xl bg-[#f8fafc] p-4 text-sm text-[#273347]">الحد الأدنى للطلب: {minimum}</div>
+          <div className="rounded-lg bg-[#f8fafc] p-4 text-sm text-[#273347]">الحد الأدنى للطلب: {minimum}</div>
 
-          <div className="flex items-center justify-between rounded-xl border border-[#e6edf5] p-2">
+          <div className="flex items-center justify-between rounded-lg border border-[#e6edf5] p-2">
             <button
               type="button"
               title="إنقاص الكمية"
@@ -224,13 +315,35 @@ export default function SmallBusinessProductDetailsPage() {
           <button
             type="button"
             onClick={() => void addToCart()}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#273347] px-5 py-3 text-sm font-semibold text-white"
           >
             <ShoppingCart size={17} />
             إضافة إلى السلة
           </button>
         </div>
       </div>
+
+      {similarProducts.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-bold text-[#273347]">منتجات مشابهة</h2>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {similarProducts.map((item) => (
+              <ProductMiniCard key={item.id} product={item} userCurrency={userCurrency} exchangeRates={exchangeRates} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {recommendedProducts.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-bold text-[#273347]">منتجات موصى بها</h2>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {recommendedProducts.map((item) => (
+              <ProductMiniCard key={item.id} product={item} userCurrency={userCurrency} exchangeRates={exchangeRates} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

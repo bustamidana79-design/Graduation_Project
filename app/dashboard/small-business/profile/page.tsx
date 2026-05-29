@@ -48,6 +48,8 @@ export default function SmallBusinessProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [needsText, setNeedsText] = useState("");
   const [toast, setToast] = useState("");
   const [form, setForm] = useState({
     title: "",
@@ -89,6 +91,7 @@ export default function SmallBusinessProfilePage() {
       console.log("fullProfile", mergedProfile);
       setBaseProfile((baseData as BaseProfile | null) || null);
       setFullProfile(mergedProfile);
+      setNeedsText(((mergedProfile.needs || []) as string[]).join(", "));
 
       const { data: itemsData, error: itemsError } = await supabase
         .from("small_business_showcase_items")
@@ -154,6 +157,29 @@ export default function SmallBusinessProfilePage() {
     }
 
     setShowcaseItems((current) => current.filter((item) => item.id !== itemId));
+  };
+
+  const handleSaveNeeds = async () => {
+    const { data } = await supabase.auth.getSession();
+    const needs = needsText.split(",").map((item) => item.trim()).filter(Boolean);
+    const response = await fetch("/api/small-business/profile", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${data.session?.access_token || ""}`,
+      },
+      body: JSON.stringify({ needs }),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      setError(result.error || "تعذر تحديث الاحتياجات الحالية.");
+      return;
+    }
+
+    setFullProfile((current) => ({ ...(current || {}), needs: result.profile?.needs || needs } as FullProfile));
+    setToast("تم التعديل بنجاح");
+    window.setTimeout(() => setToast(""), 3000);
   };
 
   const fullName = fullProfile?.full_name || profile?.full_name || "صاحب المشروع";
@@ -263,6 +289,21 @@ export default function SmallBusinessProfilePage() {
                   <span className="text-xs text-[#273347]/55">لا توجد احتياجات مضافة بعد.</span>
                 )}
               </div>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={needsText}
+                  onChange={(event) => setNeedsText(event.target.value)}
+                  placeholder="مثال: تسويق، تغليف، تمويل"
+                  className="flex-1 rounded-lg border border-[#d9e3ee] px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSaveNeeds()}
+                  className="rounded-lg bg-[#273347] px-4 py-2 text-sm font-semibold text-white"
+                >
+                  حفظ الاحتياجات
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -275,7 +316,15 @@ export default function SmallBusinessProfilePage() {
             هذه العناصر ستفيد لاحقًا في صفحة المستخدمين العامة لعرض شغلك داخل المنصة.
           </p>
 
-          <form onSubmit={handleAddItem} className="mt-5 grid gap-3 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setShowAddForm((current) => !current)}
+            className="mt-4 rounded-lg bg-[#273347] px-4 py-2 text-sm font-semibold text-white"
+          >
+            إضافة جديد
+          </button>
+
+          <form onSubmit={handleAddItem} className={`mt-5 grid gap-3 md:grid-cols-2 ${showAddForm ? "" : "hidden"}`}>
             <input
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
@@ -380,7 +429,7 @@ export default function SmallBusinessProfilePage() {
           setBaseProfile(nextProfile as BaseProfile);
           setFullProfile(nextFullProfile);
           setEditOpen(false);
-          setToast("Profile updated successfully");
+          setToast("تم التعديل بنجاح");
           window.setTimeout(() => setToast(""), 3000);
         }}
       />

@@ -167,6 +167,7 @@ export async function selectShippingCompany(
     title: "طلب توصيل جديد",
     body: `تم إسناد طلب توصيل جديد إليك. رقم التتبع: ${deliveryOrder.tracking_number}`,
     type: "shipping_assigned",
+    data: { order_id: orderId, delivery_order_id: deliveryOrder.id, route: "/dashboard/shipping-company/orders" },
   });
 
   return deliveryOrder;
@@ -180,7 +181,7 @@ export async function getDeliveryOrders(supabase: SupabaseClient, shippingCompan
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
-  return data || [];
+  return (data || []).filter((order: any) => order.orders?.status !== "pending_payment");
 }
 
 export async function updateDeliveryStatus(
@@ -213,13 +214,14 @@ export async function updateDeliveryStatus(
 
   const { data: order } = await supabase.from("orders").select("buyer_id").eq("id", data.order_id).single();
   if (order?.buyer_id) {
-    await createNotification({
-      supabase,
-      userId: order.buyer_id,
-      title: "تحديث التوصيل",
-      body: status === "delivered" ? "تم تسليم طلبك بنجاح." : `طلبك الآن بحالة ${status}.`,
-      type: "delivery_status_updated",
-    });
+      await createNotification({
+        supabase,
+        userId: order.buyer_id,
+        title: "تحديث التوصيل",
+        body: status === "delivered" ? "تم تسليم طلبك بنجاح." : `طلبك الآن بحالة ${status}.`,
+        type: "delivery_status_updated",
+        data: { order_id: data.order_id, delivery_order_id: deliveryOrderId, route: `/dashboard/small-business/orders/${data.order_id}` },
+      });
   }
 
   return data;

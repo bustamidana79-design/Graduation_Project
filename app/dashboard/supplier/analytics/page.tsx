@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 
@@ -15,7 +16,7 @@ type SupplierOrder = {
   order_items?: {
     quantity: number | string | null;
     unit_price: number | string | null;
-    products?: { name: string | null } | null;
+    products?: { id: string; name: string | null } | null;
   }[];
 };
 
@@ -66,8 +67,9 @@ export default function SupplierAnalyticsPage() {
       const [ordersResult, productsResult] = await Promise.all([
         supabase
           .from("orders")
-          .select("id, status, total_amount, subtotal, currency, created_at, buyer_id, order_items(quantity, unit_price, products(name))")
+          .select("id, status, total_amount, subtotal, currency, created_at, buyer_id, order_items(quantity, unit_price, products(id, name))")
           .eq("supplier_id", profile.id)
+          .neq("status", "pending_payment")
           .order("created_at", { ascending: false }),
         supabase
           .from("products")
@@ -141,15 +143,16 @@ export default function SupplierAnalyticsPage() {
   }, [orders]);
 
   const topProducts = useMemo(() => {
-    const totals = new Map<string, { name: string; quantity: number; amount: number }>();
+    const totals = new Map<string, { id: string | null; name: string; quantity: number; amount: number }>();
     orders.forEach((order) => {
       (order.order_items || []).forEach((item) => {
         const name = item.products?.name || "منتج غير محدد";
-        const current = totals.get(name) || { name, quantity: 0, amount: 0 };
+        const key = item.products?.id || name;
+        const current = totals.get(key) || { id: item.products?.id || null, name, quantity: 0, amount: 0 };
         const quantity = toNumber(item.quantity);
         current.quantity += quantity;
         current.amount += toNumber(item.unit_price) * quantity;
-        totals.set(name, current);
+        totals.set(key, current);
       });
     });
     return Array.from(totals.values()).sort((a, b) => b.amount - a.amount).slice(0, 5);
@@ -227,13 +230,17 @@ export default function SupplierAnalyticsPage() {
               ) : (
                 <div className="space-y-3">
                   {topProducts.map((item) => (
-                    <div key={item.name} className="rounded-2xl bg-[#f6f8fb] px-4 py-3">
+                    <Link
+                      key={item.id || item.name}
+                      href={item.id ? `/dashboard/supplier/products/${item.id}` : "/dashboard/supplier/products"}
+                      className="block rounded-2xl bg-[#f6f8fb] px-4 py-3 transition hover:bg-[#eef3f8]"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-semibold text-[#273347]">{item.name}</span>
                         <span className="text-sm text-[#273347]/60">{formatAmount(item.amount, currency)}</span>
                       </div>
                       <p className="mt-1 text-xs text-[#273347]/45">{item.quantity.toLocaleString("ar")} قطعة</p>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}
@@ -262,10 +269,14 @@ export default function SupplierAnalyticsPage() {
               ) : (
                 <div className="space-y-3">
                   {lowStockProducts.map((product) => (
-                    <div key={product.id} className="flex items-center justify-between rounded-2xl bg-[#fff8ed] px-4 py-3">
+                    <Link
+                      key={product.id}
+                      href={`/dashboard/supplier/products/${product.id}`}
+                      className="flex items-center justify-between rounded-2xl bg-[#fff8ed] px-4 py-3 transition hover:bg-[#fff1d6]"
+                    >
                       <span className="font-semibold text-[#273347]">{product.name || "منتج غير مسمى"}</span>
                       <span className="text-sm text-amber-700">{toNumber(product.stock_quantity).toLocaleString("ar")} متبقي</span>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}

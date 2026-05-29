@@ -11,6 +11,7 @@ type TrackingItem = {
 };
 
 const statusLabels: Record<string, string> = {
+  pending_payment: "بانتظار الدفع",
   pending: "بانتظار المعالجة",
   confirmed: "تم تأكيد الدفع",
   processing: "قيد التجهيز",
@@ -44,7 +45,7 @@ export function StatusPill({ status }: { status?: string | null }) {
   const tone =
     value === "delivered" || value === "paid" || value === "confirmed"
       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : value === "pending"
+      : value === "pending" || value === "pending_payment"
         ? "border-amber-200 bg-amber-50 text-amber-700"
         : "border-sky-200 bg-sky-50 text-sky-700";
 

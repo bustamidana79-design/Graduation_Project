@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { ARAB_COUNTRY_NAMES, getCitiesByCountryName } from "@/lib/locations";
 
 export type EditableProfile = {
   full_name: string | null;
@@ -13,6 +14,7 @@ export type EditableProfile = {
   avatar_url?: string | null;
   status?: string | null;
   preferred_currency?: string | null;
+  social_links?: Record<string, string> | null;
 };
 
 type ProfileEditModalProps = {
@@ -22,10 +24,8 @@ type ProfileEditModalProps = {
   onUpdated: (profile: EditableProfile) => void;
 };
 
-const palestinianCities = ["Nablus", "Ramallah", "Hebron", "Jerusalem", "Bethlehem", "Jenin", "Tulkarm", "Qalqilya", "Jericho", "Gaza"];
-
 const inputClass =
-  "w-full rounded-xl border border-[#d9e3ee] bg-white px-4 py-3 text-sm text-[#273347] outline-none transition focus:border-[#273347]";
+  "w-full rounded-lg border border-[#d9e3ee] bg-white px-4 py-3 text-sm text-[#273347] outline-none transition focus:border-[#273347]";
 
 export default function ProfileEditModal({ open, profile, onClose, onUpdated }: ProfileEditModalProps) {
   const [form, setForm] = useState({
@@ -36,13 +36,22 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
     bio: "",
     avatar_url: "",
     preferred_currency: "ILS",
+    instagram: "",
+    facebook: "",
+    linkedin: "",
+    website: "",
   });
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [newPassword, setNewPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
+  const countryOptions = useMemo(() => Object.values(ARAB_COUNTRY_NAMES), []);
+  const cityOptions = useMemo(() => getCitiesByCountryName(form.country), [form.country]);
+
   useEffect(() => {
     if (!profile) return;
+    const socials = profile.social_links || {};
 
     setForm({
       full_name: profile.full_name || "",
@@ -52,8 +61,13 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
       bio: profile.bio || "",
       avatar_url: profile.avatar_url || "",
       preferred_currency: profile.preferred_currency || "ILS",
+      instagram: socials.instagram || "",
+      facebook: socials.facebook || "",
+      linkedin: socials.linkedin || "",
+      website: socials.website || "",
     });
     setAvatarFile(null);
+    setNewPassword("");
     setMessage("");
   }, [profile, open]);
 
@@ -67,9 +81,7 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
       error: userError,
     } = await supabase.auth.getUser();
 
-    if (userError || !user) {
-      throw new Error("يجب تسجيل الدخول.");
-    }
+    if (userError || !user) throw new Error("يجب تسجيل الدخول.");
 
     const extension = avatarFile.name.split(".").pop()?.toLowerCase() || "jpg";
     const path = `avatars/${user.id}/${Date.now()}.${extension}`;
@@ -78,10 +90,7 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
       upsert: true,
     });
 
-    if (uploadError) {
-      throw uploadError;
-    }
-
+    if (uploadError) throw uploadError;
     return supabase.storage.from("documents").getPublicUrl(path).data.publicUrl;
   };
 
@@ -94,6 +103,13 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
 
     try {
       const avatarUrl = await uploadAvatar();
+
+      if (newPassword.trim()) {
+        if (newPassword.trim().length < 6) throw new Error("كلمة المرور يجب أن تكون 6 أحرف على الأقل.");
+        const { error: passwordError } = await supabase.auth.updateUser({ password: newPassword.trim() });
+        if (passwordError) throw passwordError;
+      }
+
       const { data } = await supabase.auth.getSession();
       const response = await fetch("/api/profile", {
         method: "PATCH",
@@ -102,18 +118,26 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
           Authorization: `Bearer ${data.session?.access_token || ""}`,
         },
         body: JSON.stringify({
-          ...form,
+          full_name: form.full_name,
+          phone: form.phone,
+          country: form.country,
+          city: form.city,
+          bio: form.bio,
           avatar_url: avatarUrl,
+          preferred_currency: form.preferred_currency,
+          social_links: {
+            instagram: form.instagram,
+            facebook: form.facebook,
+            linkedin: form.linkedin,
+            website: form.website,
+          },
         }),
       });
       const result = await response.json();
 
-      if (!response.ok) {
-        throw new Error(result.error || "تعذر تحديث الملف الشخصي.");
-      }
-
+      if (!response.ok) throw new Error(result.error || "تعذر تحديث الملف الشخصي.");
       onUpdated(result.profile as EditableProfile);
-      setMessage("Profile updated successfully");
+      setMessage("تم التعديل بنجاح");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "تعذر تحديث الملف الشخصي.");
     } finally {
@@ -123,113 +147,91 @@ export default function ProfileEditModal({ open, profile, onClose, onUpdated }: 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" dir="rtl">
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-[#273347]">تعديل المعلومات</h2>
-            <p className="mt-1 text-sm text-[#273347]/55">حدّث معلوماتك العامة التي تظهر في ملفك.</p>
+            <p className="mt-1 text-sm text-[#273347]/55">حدّث بياناتك العامة ومعلومات التواصل التي تساعد المساعد الذكي.</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-xl border border-[#e6edf5] px-3 py-2 text-sm text-[#273347]">
+          <button type="button" onClick={onClose} className="rounded-lg border border-[#e6edf5] px-3 py-2 text-sm text-[#273347]">
             إغلاق
           </button>
         </div>
 
-        {message && (
-          <div className="mt-4 rounded-xl border border-[#e6edf5] bg-[#f8fafc] px-4 py-3 text-sm text-[#273347]">
-            {message}
-          </div>
-        )}
+        {message && <div className="mt-4 rounded-lg border border-[#e6edf5] bg-[#f8fafc] px-4 py-3 text-sm text-[#273347]">{message}</div>}
 
         <form onSubmit={handleSubmit} className="mt-5 grid gap-4 md:grid-cols-2">
           <label className="space-y-2 text-sm font-semibold text-[#273347]">
             الاسم
-            <input
-              value={form.full_name}
-              onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))}
-              className={inputClass}
-            />
+            <input value={form.full_name} onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))} className={inputClass} />
           </label>
 
           <label className="space-y-2 text-sm font-semibold text-[#273347]">
             رقم الهاتف
-            <input
-              value={form.phone}
-              onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
-              className={inputClass}
-            />
+            <input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} className={inputClass} />
           </label>
 
           <label className="space-y-2 text-sm font-semibold text-[#273347]">
             الدولة
-            <input
-              value={form.country}
-              onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))}
-              className={inputClass}
-            />
-          </label>
-
-          <label className="space-y-2 text-sm font-semibold text-[#273347]">
-            المدينة
-            <select
-              value={form.city}
-              onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))}
-              className={inputClass}
-            >
-              <option value="">اختر المدينة</option>
-              {palestinianCities.map((city) => (
-                <option key={city} value={city}>
-                  {city}
-                </option>
+            <select value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value, city: "" }))} className={inputClass}>
+              <option value="">اختر الدولة</option>
+              {countryOptions.map((country) => (
+                <option key={country} value={country}>{country}</option>
               ))}
             </select>
           </label>
 
           <label className="space-y-2 text-sm font-semibold text-[#273347]">
+            المدينة
+            {cityOptions.length > 0 ? (
+              <select value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} className={inputClass}>
+                <option value="">اختر المدينة</option>
+                {cityOptions.map((city) => (
+                  <option key={city} value={city}>{city}</option>
+                ))}
+              </select>
+            ) : (
+              <input value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} className={inputClass} />
+            )}
+          </label>
+
+          <label className="space-y-2 text-sm font-semibold text-[#273347]">
             العملة المفضلة
-            <select
-              value={form.preferred_currency}
-              onChange={(event) => setForm((current) => ({ ...current, preferred_currency: event.target.value }))}
-              className={inputClass}
-            >
-              <option value="ILS">ILS</option>
-              <option value="USD">USD</option>
-              <option value="JOD">JOD</option>
+            <select value={form.preferred_currency} onChange={(event) => setForm((current) => ({ ...current, preferred_currency: event.target.value }))} className={inputClass}>
+              <option value="ILS">شيكل</option>
+              <option value="USD">دولار</option>
+              <option value="JOD">دينار</option>
             </select>
+          </label>
+
+          <label className="space-y-2 text-sm font-semibold text-[#273347]">
+            صورة الملف
+            <input type="file" accept="image/*" onChange={(event) => setAvatarFile(event.target.files?.[0] || null)} className={inputClass} />
           </label>
 
           <label className="space-y-2 text-sm font-semibold text-[#273347] md:col-span-2">
             النبذة
-            <textarea
-              value={form.bio}
-              onChange={(event) => setForm((current) => ({ ...current, bio: event.target.value }))}
-              rows={4}
-              className={`${inputClass} min-h-[120px] resize-none`}
-            />
+            <textarea value={form.bio} onChange={(event) => setForm((current) => ({ ...current, bio: event.target.value }))} rows={4} className={`${inputClass} min-h-[120px] resize-none`} />
           </label>
 
+          <div className="grid gap-4 rounded-lg border border-[#e6edf5] bg-[#f8fafc] p-4 md:col-span-2 md:grid-cols-2">
+            <p className="text-sm font-bold text-[#273347] md:col-span-2">معلومات السوشيال ميديا</p>
+            <input placeholder="إنستغرام" value={form.instagram} onChange={(event) => setForm((current) => ({ ...current, instagram: event.target.value }))} className={inputClass} />
+            <input placeholder="فيسبوك" value={form.facebook} onChange={(event) => setForm((current) => ({ ...current, facebook: event.target.value }))} className={inputClass} />
+            <input placeholder="لينكدإن" value={form.linkedin} onChange={(event) => setForm((current) => ({ ...current, linkedin: event.target.value }))} className={inputClass} />
+            <input placeholder="الموقع الإلكتروني" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} className={inputClass} />
+          </div>
+
           <label className="space-y-2 text-sm font-semibold text-[#273347] md:col-span-2">
-            الصورة الشخصية
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(event) => setAvatarFile(event.target.files?.[0] || null)}
-              className={inputClass}
-            />
+            تغيير كلمة المرور
+            <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="اتركها فارغة إذا لا تريد التغيير" className={inputClass} />
           </label>
 
           <div className="flex flex-col gap-3 md:col-span-2 md:flex-row md:justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl border border-[#bbd0e4] px-5 py-3 text-sm font-semibold text-[#273347]"
-            >
+            <button type="button" onClick={onClose} className="rounded-lg border border-[#bbd0e4] px-5 py-3 text-sm font-semibold text-[#273347]">
               إلغاء
             </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-xl bg-[#273347] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
-            >
+            <button type="submit" disabled={saving} className="rounded-lg bg-[#273347] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">
               {saving ? "جاري الحفظ..." : "حفظ التغييرات"}
             </button>
           </div>

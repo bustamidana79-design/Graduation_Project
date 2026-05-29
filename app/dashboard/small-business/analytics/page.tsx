@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 
@@ -14,7 +15,7 @@ type BuyerOrder = {
   order_items?: {
     quantity: number | string | null;
     unit_price: number | string | null;
-    products?: { name: string | null } | null;
+    products?: { id: string; name: string | null } | null;
   }[];
   delivery_orders?: {
     status: string | null;
@@ -57,8 +58,9 @@ export default function SmallBusinessAnalyticsPage() {
 
       const { data, error: loadError } = await supabase
         .from("orders")
-        .select("id, status, total_amount, subtotal, currency, created_at, order_items(quantity, unit_price, products(name)), delivery_orders(status, shipping_fee)")
+        .select("id, status, total_amount, subtotal, currency, created_at, order_items(quantity, unit_price, products(id, name)), delivery_orders(status, shipping_fee)")
         .eq("buyer_id", profile.id)
+        .eq("status", "paid")
         .order("created_at", { ascending: false });
 
       if (loadError) {
@@ -120,15 +122,16 @@ export default function SmallBusinessAnalyticsPage() {
   }, [orders]);
 
   const topProducts = useMemo(() => {
-    const totals = new Map<string, { name: string; quantity: number; amount: number }>();
+    const totals = new Map<string, { id: string | null; name: string; quantity: number; amount: number }>();
     orders.forEach((order) => {
       (order.order_items || []).forEach((item) => {
         const name = item.products?.name || "منتج غير محدد";
-        const current = totals.get(name) || { name, quantity: 0, amount: 0 };
+        const key = item.products?.id || name;
+        const current = totals.get(key) || { id: item.products?.id || null, name, quantity: 0, amount: 0 };
         const quantity = toNumber(item.quantity);
         current.quantity += quantity;
         current.amount += toNumber(item.unit_price) * quantity;
-        totals.set(name, current);
+        totals.set(key, current);
       });
     });
     return Array.from(totals.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
@@ -199,10 +202,14 @@ export default function SmallBusinessAnalyticsPage() {
               ) : (
                 <div className="space-y-3">
                   {topProducts.map((item) => (
-                    <div key={item.name} className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3">
+                    <Link
+                      key={item.id || item.name}
+                      href={item.id ? `/dashboard/small-business/products/${item.id}` : "/dashboard/small-business/products"}
+                      className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3 transition hover:bg-[#eef3f8]"
+                    >
                       <span className="font-semibold text-[#273347]">{item.name}</span>
                       <span className="text-sm text-[#273347]/60">{item.quantity.toLocaleString("ar")} قطعة</span>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}
@@ -224,6 +231,26 @@ export default function SmallBusinessAnalyticsPage() {
               )}
             </section>
           </div>
+
+          {orders.length > 0 && (
+            <section className="mt-6 rounded-2xl border border-[#e6edf5] bg-white p-6">
+              <h2 className="mb-4 text-sm font-bold text-[#273347]">آخر الطلبات المدفوعة</h2>
+              <div className="grid gap-3 md:grid-cols-2">
+                {orders.slice(0, 4).map((order) => (
+                  <Link
+                    key={order.id}
+                    href={`/dashboard/small-business/orders/${order.id}`}
+                    className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3 text-sm transition hover:bg-[#eef3f8]"
+                  >
+                    <span className="font-semibold text-[#273347]">طلب #{order.id.slice(0, 8)}</span>
+                    <span className="text-[#273347]/60">
+                      {formatAmount(toNumber(order.total_amount || order.subtotal), order.currency || currency)}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
         </>
       )}
     </main>

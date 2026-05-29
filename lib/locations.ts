@@ -1,6 +1,14 @@
 import { City } from "country-state-city";
+import countries from "world-countries";
+
+const WORLD_ARAB_COUNTRY_NAMES = Object.fromEntries(
+  countries
+    .map((country) => [country.cca2, country.translations?.ara?.common || country.name.common] as const)
+    .sort(([, firstName], [, secondName]) => firstName.localeCompare(secondName, "ar"))
+);
 
 export const ARAB_COUNTRY_NAMES: Record<string, string> = {
+  ...WORLD_ARAB_COUNTRY_NAMES,
   PS: "فلسطين",
   JO: "الأردن",
   SA: "السعودية",

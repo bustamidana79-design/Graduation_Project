@@ -28,7 +28,7 @@ export default function AdminSidebar() {
   };
 
   return (
-    <aside className="w-64 min-h-screen bg-[#273347] flex flex-col" dir="rtl">
+    <aside className="w-64 min-h-dvh bg-[#273347] flex flex-col" dir="rtl">
       <div className="px-6 py-6 border-b border-white/10">
         <h1 className="text-xl font-bold text-white">منصة الأعمال الذكية</h1>
         <p className="text-white/40 text-xs mt-1">لوحة الإدارة</p>

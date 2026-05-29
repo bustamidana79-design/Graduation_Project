@@ -295,10 +295,11 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
   await verifyTalerPayment(talerPaymentId);
 
   for (const payment of payments) {
+    const wasAlreadyPaid = payment.payment_status === "paid";
     const paid = await supabase.from("payments").update({ payment_status: "paid" }).eq("id", payment.id);
     if (paid.error) throw new Error(paid.error.message);
 
-    const orderUpdate = await supabase.from("orders").update({ status: "confirmed" }).eq("id", payment.order_id);
+    const orderUpdate = await supabase.from("orders").update({ status: "paid" }).eq("id", payment.order_id);
     if (orderUpdate.error) throw new Error(orderUpdate.error.message);
 
     const existingTx = await supabase
@@ -320,9 +321,11 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
       if (tx.error) throw new Error(tx.error.message);
     }
 
+    if (wasAlreadyPaid) continue;
+
     const { data: order } = await supabase
       .from("orders")
-      .select("id, buyer_id, supplier_id")
+      .select("id, buyer_id, supplier_id, shipping_company_id")
       .eq("id", payment.order_id)
       .single();
 
@@ -333,6 +336,7 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
         title: "Payment confirmed",
         body: `Payment was confirmed successfully for order ${order.id}.`,
         type: "payment_confirmed",
+        data: { order_id: order.id, route: `/dashboard/small-business/orders/${order.id}` },
       });
     }
 
@@ -343,6 +347,18 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
         title: "Order paid",
         body: `Order ${order.id} was paid.`,
         type: "supplier_order_paid",
+        data: { order_id: order.id, route: "/dashboard/supplier/orders" },
+      });
+    }
+
+    if (order?.shipping_company_id) {
+      await createNotification({
+        supabase,
+        userId: order.shipping_company_id,
+        title: "Delivery order ready",
+        body: `Order ${order.id} was paid and is ready for delivery follow-up.`,
+        type: "shipping_assigned",
+        data: { order_id: order.id, route: "/dashboard/shipping-company/orders" },
       });
     }
   }

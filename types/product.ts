@@ -17,6 +17,9 @@ export type Product = {
   original_currency?: string;
   min_order_quantity: number;
   stock_quantity: number;
+  rating_average?: number | null;
+  rating_count?: number | null;
+  category?: string | null;
   category_id?: string | null;
   is_published?: boolean;
   created_at: string;

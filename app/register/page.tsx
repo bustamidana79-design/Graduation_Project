@@ -12,6 +12,7 @@ type AccountType = "merchant" | "small_business" | "delivery" | "supporter";
 import ar from "react-phone-number-input/locale/ar.json";
 import countries from "world-countries";
 import { ARAB_COUNTRY_NAMES, getCitiesByCountryCode } from "@/lib/locations";
+import { categories } from "@/lib/categories";
 
 const disposableDomains = [
   "10minutemail.com",
@@ -824,17 +825,11 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
     className="w-full border border-gray-300 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
   >
     <option value="">اختر التصنيف...</option>
-    <option value="clothing">ملابس وأزياء</option>
-    <option value="perfumes">عطور ومستحضرات</option>
-    <option value="electronics">إلكترونيات</option>
-    <option value="food">مواد غذائية</option>
-    <option value="furniture">أثاث ومفروشات</option>
-    <option value="toys">ألعاب وأطفال</option>
-    <option value="sports">رياضة ولياقة</option>
-    <option value="books">كتب وقرطاسية</option>
-    <option value="jewelry">مجوهرات وإكسسوارات</option>
-    <option value="health">صحة وعناية</option>
-    <option value="tools">أدوات ومعدات</option>
+    {categories.map((category) => (
+      <option key={category.value} value={category.value}>
+        {category.label}
+      </option>
+    ))}
     <option value="other">أخرى</option>
   </select>
   {productCategory === "other" && (

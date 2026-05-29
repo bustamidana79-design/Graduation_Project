@@ -78,7 +78,7 @@ export default function SupplierDashboardPage() {
 
   const stats = useMemo(() => {
     const totalSales = orders.reduce((sum, order) => sum + toNumber(order.total_amount || order.subtotal), 0);
-    const incomingOrders = orders.filter((order) => ["pending", "confirmed", "processing"].includes(order.status)).length;
+    const incomingOrders = orders.filter((order) => ["pending", "confirmed", "paid", "processing"].includes(order.status)).length;
     const completedOrders = orders.filter((order) => ["delivered", "shipped"].includes(order.status)).length;
     const lowStock = products.filter((product) => toNumber(product.stock_quantity) <= 5).length;
 

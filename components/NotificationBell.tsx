@@ -7,6 +7,9 @@ import { supabase } from "@/lib/supabase";
 
 type NotificationData = {
   action?: string;
+  route?: string;
+  order_id?: string;
+  delivery_order_id?: string;
   product_id?: string;
   product_name?: string;
   reason?: string;
@@ -198,6 +201,24 @@ export default function NotificationBell() {
     router.push(`/dashboard/${dashboard}/customer-service${ticketId ? `?ticket=${ticketId}` : ""}`);
   };
 
+  const openNotification = (notification: NotificationItem) => {
+    if (notification.notification_type === "support_ticket_message") {
+      openSupportNotification(notification);
+      return;
+    }
+
+    if (notification.data?.route) {
+      setOpen(false);
+      router.push(notification.data.route);
+      return;
+    }
+
+    if (notification.data?.order_id) {
+      setOpen(false);
+      router.push(`/dashboard/small-business/orders/${notification.data.order_id}`);
+    }
+  };
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
@@ -225,7 +246,16 @@ export default function NotificationBell() {
               <div className="px-4 py-6 text-sm text-[#273347]/50">لا توجد إشعارات حالياً.</div>
             ) : (
               latest.map((item) => (
-                <div key={item.id} className="border-b border-[#f0f4f8] px-4 py-3 last:border-b-0">
+                <div
+                  key={item.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openNotification(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") openNotification(item);
+                  }}
+                  className="cursor-pointer border-b border-[#f0f4f8] px-4 py-3 transition last:border-b-0 hover:bg-[#f8fafc]"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-sm font-bold text-[#273347]">{item.title}</p>
                     {!item.is_read && !item.read_at && <span className="mt-1 h-2 w-2 rounded-full bg-red-600" />}
@@ -234,7 +264,10 @@ export default function NotificationBell() {
                   {item.notification_type === "product_deleted" && item.data?.action === "contact_support" && (
                     <button
                       type="button"
-                      onClick={() => void handleContactSupport(item)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleContactSupport(item);
+                      }}
                       disabled={supportLoadingId === item.id}
                       className="mt-3 w-full rounded-xl bg-[#273347] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1e2735] disabled:cursor-not-allowed disabled:opacity-60"
                     >
@@ -246,7 +279,10 @@ export default function NotificationBell() {
                   {item.notification_type === "support_ticket_message" && (
                     <button
                       type="button"
-                      onClick={() => openSupportNotification(item)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openSupportNotification(item);
+                      }}
                       className="mt-3 w-full rounded-xl bg-[#273347] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1e2735]"
                     >
                       فتح مركز الدعم

@@ -1,6 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase, requireAuthProfile } from "@/lib/api-auth";
 import { currencyFromCountry, normalizeCurrency } from "@/lib/currency";
+import { categoryMatches, getRecommendedCategoriesForUserType, normalizeCategory } from "@/lib/categories";
+
+function getProductCategory(product: Record<string, unknown>) {
+  return String(product.category || product.category_id || product.supplier_product_category || "").trim();
+}
+
+function smartSortProducts(products: Record<string, unknown>[], search: string, userType: string, recentlyViewedCategories: string[]) {
+  const normalizedSearch = search.toLowerCase();
+  const recommendedCategories = getRecommendedCategoriesForUserType(userType);
+  const normalizedRecentlyViewedCategories = recentlyViewedCategories.map((category) => normalizeCategory(category));
+
+  const score = (product: Record<string, unknown>) => {
+    let value = 0;
+    const category = getProductCategory(product);
+    const name = String(product.name || "").toLowerCase();
+
+    if (recommendedCategories.some((recommendedCategory) => recommendedCategory === normalizeCategory(category))) value += 5;
+    if (normalizedRecentlyViewedCategories.includes(normalizeCategory(category))) value += 3;
+    if (normalizedSearch && name.includes(normalizedSearch)) value += 3;
+
+    return value;
+  };
+
+  return [...products].sort((a, b) => score(b) - score(a));
+}
 
 async function enrichProducts(products: Record<string, unknown>[]) {
   if (products.length === 0) return [];
@@ -17,7 +42,7 @@ async function enrichProducts(products: Record<string, unknown>[]) {
       .in("product_id", products.map((product) => String(product.id))),
     supabase
       .from("supplier_profiles")
-      .select("user_id, store_name")
+      .select("user_id, store_name, product_category")
       .in("user_id", supplierIds),
     supabase
       .from("profiles")
@@ -32,9 +57,12 @@ async function enrichProducts(products: Record<string, unknown>[]) {
     imageMap.set(String(image.product_id), list);
   }
 
-  const supplierMap = new Map<string, string>();
+  const supplierMap = new Map<string, { store_name: string; product_category: string }>();
   for (const supplier of suppliers || []) {
-    supplierMap.set(String(supplier.user_id), String(supplier.store_name || ""));
+    supplierMap.set(String(supplier.user_id), {
+      store_name: String(supplier.store_name || ""),
+      product_category: String(supplier.product_category || ""),
+    });
   }
 
   const profileMap = new Map<string, { full_name: string; account_type: string }>();
@@ -51,38 +79,69 @@ async function enrichProducts(products: Record<string, unknown>[]) {
       const primaryImage =
         productImages.find((image) => Boolean(image.is_primary)) || productImages[0] || null;
       const supplierId = String(product.supplier_id);
-      const supplierName = supplierMap.get(supplierId) || profileMap.get(supplierId)?.full_name || "متجر المورد";
+      const supplier = supplierMap.get(supplierId);
+      const supplierName = supplier?.store_name || profileMap.get(supplierId)?.full_name || "متجر المورد";
+      const category = String(product.category || product.category_id || supplier?.product_category || "");
 
       return {
         ...product,
+        category,
         price: Number(product.wholesale_price || 0),
         currency: product.currency || "ILS",
         supplier_id: supplierId,
         supplier_name: supplierName,
         supplier_type: profileMap.get(supplierId)?.account_type || "merchant",
         supplier_store_name: supplierName,
+        supplier_product_category: supplier?.product_category || "",
         primary_image: primaryImage,
       };
     })
     .filter((product) => Boolean(product.primary_image));
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const search = String(searchParams.get("search") || "").trim();
+    const category = String(searchParams.get("category") || "").trim();
+    const minPrice = Number(searchParams.get("minPrice") || 0);
+    const maxPrice = Number(searchParams.get("maxPrice") || 0);
+    const userType = String(searchParams.get("userType") || "").trim();
+    const recentlyViewedCategories = String(searchParams.get("recentlyViewedCategories") || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
     const supabase = createServerSupabase();
-    const { data, error } = await supabase
+
+    let query = supabase
       .from("products")
       .select("*")
       .gt("stock_quantity", 0)
       .eq("is_published", true)
       .order("created_at", { ascending: false });
 
+    if (search) {
+      query = query.ilike("name", `%${search}%`);
+    }
+
+    if (Number.isFinite(minPrice) && minPrice > 0) {
+      query = query.gte("wholesale_price", minPrice);
+    }
+
+    if (Number.isFinite(maxPrice) && maxPrice > 0) {
+      query = query.lte("wholesale_price", maxPrice);
+    }
+
+    const { data, error } = await query;
+
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const products = await enrichProducts((data || []) as Record<string, unknown>[]);
-    return NextResponse.json({ products });
+    const products = (await enrichProducts((data || []) as Record<string, unknown>[])).filter((product) =>
+      categoryMatches(getProductCategory(product), category)
+    );
+    return NextResponse.json({ products: smartSortProducts(products, search, userType, recentlyViewedCategories) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "فشل تحميل المنتجات." },

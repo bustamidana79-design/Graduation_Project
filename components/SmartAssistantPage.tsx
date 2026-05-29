@@ -18,6 +18,7 @@ type ChatSession = {
   id: string;
   created_at: string;
   preview: string;
+  title?: string | null;
 };
 
 const assistantConfig: Record<
@@ -118,6 +119,9 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [input, setInput] = useState("");
+  const [sessionSearch, setSessionSearch] = useState("");
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [loading, setLoading] = useState(true);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -166,7 +170,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
 
     const { data: sessionRows, error: sessionsError } = await supabase
       .from("ai_chat_sessions")
-      .select("id, created_at")
+      .select("id, created_at, title")
       .eq("profile_id", profileIdValue)
       .order("created_at", { ascending: false })
       .limit(30);
@@ -175,7 +179,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
 
     if (sessionsError) throw sessionsError;
 
-    const rows = (sessionRows || []) as Array<{ id: string; created_at: string }>;
+    const rows = (sessionRows || []) as Array<{ id: string; created_at: string; title?: string | null }>;
     const ids = rows.map((item) => item.id);
     const previewsBySession = new Map<string, string>();
 
@@ -197,7 +201,8 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
     const nextSessions = rows.map((item, index) => ({
       id: item.id,
       created_at: item.created_at,
-      preview: previewsBySession.get(item.id) || `محادثة ${rows.length - index}`,
+      title: item.title || null,
+      preview: item.title || previewsBySession.get(item.id) || `محادثة ${rows.length - index}`,
     }));
 
     setChatSessions(nextSessions);
@@ -278,6 +283,27 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
     }
   };
 
+  const renameSession = async (nextSessionId: string) => {
+    const title = renameValue.trim();
+    if (!title) return;
+
+    const { error: renameError } = await supabase
+      .from("ai_chat_sessions")
+      .update({ title, updated_at: new Date().toISOString() })
+      .eq("id", nextSessionId);
+
+    if (renameError) {
+      setError("تعذر إعادة تسمية المحادثة.");
+      return;
+    }
+
+    setChatSessions((current) =>
+      current.map((item) => (item.id === nextSessionId ? { ...item, title, preview: title } : item))
+    );
+    setRenamingSessionId(null);
+    setRenameValue("");
+  };
+
   const rateMessage = async (messageId: string, rating: 1 | -1) => {
     setMessages((current) =>
       current.map((item) => (item.id === messageId ? { ...item, rating } : item))
@@ -352,6 +378,14 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
     }
   };
 
+  const visibleChatSessions = useMemo(() => {
+    const query = sessionSearch.trim().toLowerCase();
+    if (!query) return chatSessions;
+    return chatSessions.filter((item) =>
+      [item.title, item.preview].filter(Boolean).some((value) => value!.toLowerCase().includes(query))
+    );
+  }, [chatSessions, sessionSearch]);
+
   return (
     <div className="mx-auto flex min-h-[calc(100vh-90px)] w-full max-w-6xl flex-col gap-5 px-5 py-6" dir="rtl">
       <header className="flex flex-col gap-4 border-b border-[#e6edf5] pb-5 md:flex-row md:items-end md:justify-between">
@@ -375,8 +409,8 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
         </div>
       )}
 
-      <div className="grid flex-1 gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="space-y-3">
+      <div className="grid flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <aside className="space-y-3 lg:order-2">
           <div className="rounded-lg border border-[#e6edf5] bg-white p-3 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-2">
               <p className="text-xs font-semibold text-[#273347]/50">المحادثات السابقة</p>
@@ -389,33 +423,81 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
               </button>
             </div>
 
+            <input
+              value={sessionSearch}
+              onChange={(event) => setSessionSearch(event.target.value)}
+              placeholder="ابحث داخل المحادثات..."
+              className="mb-3 w-full rounded-lg border border-[#d9e3ee] px-3 py-2 text-xs text-[#273347] outline-none focus:border-[#273347]"
+            />
+
             <div className="max-h-[260px] space-y-2 overflow-y-auto">
               {sessionsLoading ? (
                 <div className="rounded-lg bg-[#f6f9fc] px-3 py-4 text-center text-xs text-[#273347]/50">
                   جاري تحميل المحادثات...
                 </div>
-              ) : chatSessions.length === 0 ? (
+              ) : visibleChatSessions.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-[#d9e3ee] px-3 py-4 text-center text-xs text-[#273347]/50">
                   لا توجد محادثات بعد.
                 </div>
               ) : (
-                chatSessions.map((item) => {
+                visibleChatSessions.map((item) => {
                   const isActive = item.id === sessionId;
 
                   return (
-                    <button
+                    <div
                       key={item.id}
-                      onClick={() => openChatSession(item.id)}
-                      disabled={sending}
                       className={`w-full rounded-lg border px-3 py-2 text-right transition ${
                         isActive
                           ? "border-[#bbd0e4] bg-[#f4f8fc]"
                           : "border-transparent bg-white hover:border-[#e6edf5] hover:bg-[#fafcff]"
                       }`}
                     >
-                      <p className="line-clamp-1 text-sm font-semibold text-[#273347]">{item.preview}</p>
+                      {renamingSessionId === item.id ? (
+                        <div className="flex gap-2">
+                          <input
+                            value={renameValue}
+                            onChange={(event) => setRenameValue(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void renameSession(item.id);
+                              }
+                            }}
+                            autoFocus
+                            className="min-w-0 flex-1 rounded-md border border-[#d9e3ee] px-2 py-1 text-xs text-[#273347]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void renameSession(item.id)}
+                            className="text-xs font-semibold text-[#273347]"
+                          >
+                            حفظ
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openChatSession(item.id)}
+                          disabled={sending}
+                          className="block w-full text-right disabled:opacity-60"
+                        >
+                          <p className="line-clamp-1 text-sm font-semibold text-[#273347]">{item.preview}</p>
+                        </button>
+                      )}
                       <p className="mt-1 text-[11px] text-[#273347]/45">{formatSessionTime(item.created_at)}</p>
-                    </button>
+                      {renamingSessionId !== item.id && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRenamingSessionId(item.id);
+                            setRenameValue(item.title || item.preview);
+                          }}
+                          className="mt-2 text-xs font-semibold text-[#273347]/55 hover:text-[#273347]"
+                        >
+                          إعادة تسمية
+                        </button>
+                      )}
+                    </div>
                   );
                 })
               )}
@@ -436,7 +518,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
           </div>
         </aside>
 
-        <section className="flex min-h-[640px] flex-col overflow-hidden rounded-lg border border-[#e6edf5] bg-white shadow-sm">
+        <section className="flex min-h-[640px] flex-col overflow-hidden rounded-lg border border-[#e6edf5] bg-white shadow-sm lg:order-1">
           <div className="flex-1 overflow-y-auto bg-[#f6f9fc] px-4 py-5">
             {loading ? (
               <div className="py-16 text-center text-sm text-[#273347]/50">

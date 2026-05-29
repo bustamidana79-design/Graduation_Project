@@ -38,7 +38,7 @@ type Order = {
   }>;
 };
 
-const supplierStatuses = ["pending", "confirmed", "processing", "shipped"];
+const supplierStatuses = ["paid", "processing", "shipped"];
 
 async function getAuthHeaders() {
   const { data } = await supabase.auth.getSession();

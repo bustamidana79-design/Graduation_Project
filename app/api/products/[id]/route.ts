@@ -18,7 +18,7 @@ async function buildProductDetails(productId: string) {
       .order("is_primary", { ascending: false }),
     supabase
       .from("supplier_profiles")
-      .select("user_id, store_name")
+      .select("user_id, store_name, product_category")
       .eq("user_id", product.supplier_id)
       .single(),
     supabase
@@ -28,14 +28,18 @@ async function buildProductDetails(productId: string) {
       .maybeSingle(),
   ]);
   const supplierName = supplier?.store_name || profile?.full_name || "متجر المورد";
+  const category = String(product.category || product.category_id || supplier?.product_category || "");
 
   return {
     product: {
       ...product,
+      category,
       price: Number(product.wholesale_price || 0),
       currency: product.currency || "ILS",
       supplier_name: supplierName,
+      supplier_store_name: supplierName,
       supplier_type: profile?.account_type || "merchant",
+      supplier_product_category: supplier?.product_category || "",
       images: images || [],
       supplier: supplier ? { ...supplier, account_type: profile?.account_type || "merchant" } : null,
     },

@@ -221,3 +221,11 @@ export async function clearCart(supabase: SupabaseClient, cartId: string) {
   const { error } = await supabase.from("cart_items").delete().eq("cart_id", cartId);
   if (error) throw new Error(error.message);
 }
+
+export async function clearCartProducts(supabase: SupabaseClient, cartId: string, productIds: string[]) {
+  const ids = Array.from(new Set(productIds.filter(Boolean)));
+  if (ids.length === 0) return;
+
+  const { error } = await supabase.from("cart_items").delete().eq("cart_id", cartId).in("product_id", ids);
+  if (error) throw new Error(error.message);
+}

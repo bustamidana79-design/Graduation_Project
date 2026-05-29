@@ -59,10 +59,10 @@ export default function SupplierSidebar({
   return (
     <aside
       className={`
-        fixed top-0 right-0 z-30 flex h-full w-64 flex-col bg-[#273347] text-white
+        fixed top-0 right-0 z-30 flex min-h-dvh w-64 flex-col bg-[#273347] text-white
         transform transition-transform duration-300
         ${sidebarOpen ? "translate-x-0" : "translate-x-full"}
-        md:static md:h-screen md:translate-x-0
+        md:static md:translate-x-0
       `}
     >
       <div className="border-b border-white/10 px-6 py-6">
@@ -70,7 +70,7 @@ export default function SupplierSidebar({
         <p className="mt-1 text-xs text-white/50">لوحة المورد</p>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-6">
+      <nav className="flex-1 space-y-1 px-4 py-6">
         {navItems.map((item) => (
           <Link
             key={item.href}

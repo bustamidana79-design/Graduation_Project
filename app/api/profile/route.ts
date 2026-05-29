@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuthProfile } from "@/lib/api-auth";
 import { normalizeCurrency } from "@/lib/currency";
 
-const editableFields = ["full_name", "phone", "country", "city", "area", "village", "bio", "avatar_url", "preferred_currency"] as const;
+const editableFields = ["full_name", "phone", "country", "city", "area", "village", "bio", "avatar_url", "preferred_currency", "social_links"] as const;
 
 function cleanText(value: unknown) {
   if (typeof value !== "string") return undefined;
@@ -28,10 +28,15 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const patch: Record<string, string> = {};
+    const patch: Record<string, unknown> = {};
     for (const field of editableFields) {
       if (field in body) {
-        const value = field === "preferred_currency" ? normalizeCurrency(body[field]) : cleanText(body[field]);
+        const value =
+          field === "preferred_currency"
+            ? normalizeCurrency(body[field])
+            : field === "social_links"
+              ? body[field] || {}
+              : cleanText(body[field]);
         if (value !== undefined) {
           patch[field] = value;
         }
@@ -49,7 +54,7 @@ export async function PATCH(request: NextRequest) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", user.id)
-      .select("full_name, email, phone, country, city, bio, avatar_url, status, preferred_currency")
+      .select("full_name, email, phone, country, city, bio, avatar_url, status, preferred_currency, social_links")
       .single();
 
     if (error) {
@@ -69,14 +74,14 @@ export async function GET(request: NextRequest) {
     const { supabase, user, profile } = await requireAuthProfile(request);
     let { data, error } = await supabase
       .from("profiles")
-      .select("full_name, email, phone, country, city, area, village, bio, avatar_url, status, preferred_currency")
+        .select("full_name, email, phone, country, city, area, village, bio, avatar_url, status, preferred_currency, social_links")
       .eq("id", user.id)
       .single();
 
     if (error) {
       const fallback = await supabase
         .from("profiles")
-        .select("full_name, email, phone, country, city, bio, avatar_url, status, preferred_currency")
+        .select("full_name, email, phone, country, city, bio, avatar_url, status, preferred_currency, social_links")
         .eq("id", user.id)
         .single();
       data = fallback.data ? { ...fallback.data, area: null, village: null } : null;

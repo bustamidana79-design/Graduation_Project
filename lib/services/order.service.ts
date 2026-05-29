@@ -1,4 +1,4 @@
-import { clearCart, getCart } from "./cart.service";
+import { clearCart, clearCartProducts, getCart } from "./cart.service";
 import { createNotification } from "./notification.service";
 import { convertCurrency, normalizeCurrency } from "@/lib/currency";
 import { getExchangeRates } from "./currency.service";
@@ -21,13 +21,14 @@ type OrderShippingDetails = {
   notes?: string | null;
 };
 
-const SUPPLIER_STATUSES = ["pending", "confirmed", "processing", "shipped"] as const;
+const SUPPLIER_STATUSES = ["paid", "processing", "shipped"] as const;
 
 export async function createOrdersFromCart(
   supabase: SupabaseClient,
   buyerId: string,
   shippingDetails: OrderShippingDetails,
-  targetCurrency = "ILS"
+  targetCurrency = "ILS",
+  selectedProductIds: string[] = []
 ) {
   const phone = shippingDetails.phone.trim();
   const country = shippingDetails.country.trim();
@@ -44,7 +45,8 @@ export async function createOrdersFromCart(
   const currency = normalizeCurrency(targetCurrency);
   const rates = await getExchangeRates();
   const { items, cart } = await getCart(supabase, buyerId, currency);
-  const validItems = items.filter((item) => item.product) as any[];
+  const selectedIds = new Set(selectedProductIds.filter(Boolean));
+  const validItems = items.filter((item) => item.product && (selectedIds.size === 0 || selectedIds.has(item.product_id))) as any[];
   if (validItems.length === 0) throw new Error("CART_EMPTY");
 
   const supplierIds = Array.from(
@@ -154,7 +156,7 @@ export async function createOrdersFromCart(
         national_id: isInternational && customerType === "citizen" ? nationalId : null,
         passport_number: isInternational && customerType === "visitor" ? passportNumber : null,
         notes: shippingDetails.notes?.trim() || null,
-        status: "pending",
+        status: "pending_payment",
         subtotal,
         total_amount: subtotal + shippingFee,
         currency,
@@ -225,24 +227,13 @@ export async function createOrdersFromCart(
 
     createdOrders.push({ ...order, delivery_order: deliveryOrderInsert.data, items: orderItemsInsert.data || [] });
 
-    await createNotification({
-      supabase,
-      userId: supplierId,
-      title: "طلب جديد",
-      body: `تم إنشاء طلب جديد يحتوي على منتجاتك. رقم الطلب: ${order.id}`,
-      type: "order_created",
-    });
-
-    await createNotification({
-      supabase,
-      userId: shippingCompanyId,
-      title: "طلب توصيل جديد",
-      body: `تم إسناد طلب توصيل جديد إليك. رقم التتبع: ${deliveryOrderInsert.data.tracking_number}`,
-      type: "shipping_assigned",
-    });
   }
 
-  await clearCart(supabase, cart.id);
+  if (selectedIds.size > 0) {
+    await clearCartProducts(supabase, cart.id, Array.from(selectedIds));
+  } else {
+    await clearCart(supabase, cart.id);
+  }
   return createdOrders;
 }
 
@@ -251,6 +242,7 @@ export async function getBuyerOrders(supabase: SupabaseClient, buyerId: string) 
     .from("orders")
     .select("*, order_items(*), delivery_orders(*, delivery_tracking(*)), payments(*)")
     .eq("buyer_id", buyerId)
+    .eq("status", "paid")
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -263,6 +255,7 @@ export async function getBuyerOrderById(supabase: SupabaseClient, buyerId: strin
     .select("*, order_items(*, products(*)), delivery_orders(*, delivery_tracking(*)), payments(*)")
     .eq("id", orderId)
     .eq("buyer_id", buyerId)
+    .eq("status", "paid")
     .single();
 
   if (error || !data) throw new Error("ORDER_NOT_FOUND");
@@ -274,6 +267,7 @@ export async function getSupplierOrders(supabase: SupabaseClient, supplierId: st
     .from("orders")
     .select("*, order_items(*, products(*)), delivery_orders(*)")
     .eq("supplier_id", supplierId)
+    .neq("status", "pending_payment")
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -304,6 +298,7 @@ export async function updateSupplierOrderStatus(
     title: "تحديث حالة الطلب",
     body: `تم تحديث حالة الطلب إلى ${status}. رقم الطلب: ${data.id}`,
     type: "order_status_updated",
+    data: { order_id: data.id, route: `/dashboard/small-business/orders/${data.id}` },
   });
 
   return data;
