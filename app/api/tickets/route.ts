@@ -32,7 +32,73 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const { data: ticket, error: ticketError } = await supabase
+    const token = req.headers.get("authorization")?.replace("Bearer ", "");
+    const {
+      data: { user },
+      error: authError,
+    } = token ? await supabase.auth.getUser(token) : { data: { user: null }, error: null };
+
+    if (authError || !user || user.id !== user_id) {
+      return NextResponse.json(
+        { error: "انتهت الجلسة، يرجى تسجيل الدخول مرة أخرى" },
+        { status: 401 }
+      );
+    }
+
+    const supabaseAdmin = createSupabaseAdmin();
+    const { data: existingTicket, error: existingTicketError } = await supabaseAdmin
+      .from('support_tickets')
+      .select('*')
+      .eq('user_id', user_id)
+      .eq('user_role', user_role)
+      .eq('subject', subject)
+      .eq('status', 'open')
+      .maybeSingle();
+
+    if (existingTicketError) {
+      return NextResponse.json(
+        { error: "تعذر فحص التذاكر السابقة: " + existingTicketError.message },
+        { status: 500 }
+      );
+    }
+
+    if (existingTicket) {
+      const { error: existingMessageError } = await supabaseAdmin
+        .from('ticket_messages')
+        .insert([{
+          ticket_id: existingTicket.id,
+          sender_id: user_id,
+          message: first_message,
+          sender_type: 'user'
+        }]);
+
+      if (existingMessageError) {
+        return NextResponse.json(
+          { error: "فشل في إضافة الرسالة للتذكرة الموجودة: " + existingMessageError.message },
+          { status: 500 }
+        );
+      }
+
+      await supabaseAdmin
+        .from('support_tickets')
+        .update({ last_sender_type: 'user', status: 'open' })
+        .eq('id', existingTicket.id);
+
+      try {
+        await notifyAdminsAboutSupportMessage(supabaseAdmin, existingTicket, first_message);
+      } catch (notificationError) {
+        console.error("Support notification failed:", notificationError);
+      }
+
+      return NextResponse.json({
+        success: true,
+        ticketId: existingTicket.id,
+        reused: true,
+        message: "تمت إضافة الرسالة على التذكرة الموجودة"
+      });
+    }
+
+    const { data: ticket, error: ticketError } = await supabaseAdmin
       .from('support_tickets')
       .insert([{
         user_id,
@@ -54,7 +120,7 @@ export async function POST(req: Request) {
     }
 
     // 2. إدخال أول رسالة في جدول الرسائل
-    const { error: messageError } = await supabase
+    const { error: messageError } = await supabaseAdmin
       .from('ticket_messages')
       .insert([{
         ticket_id: ticket.id,
@@ -78,7 +144,7 @@ export async function POST(req: Request) {
     // 3. تشغيل الـ AI لتحليل التذكرة وتوليد الـ Summary
     // ملاحظة: تأكدي أن هذه الدالة داخل aiService تقوم بتحديث عمود ai_summary في الداتابيز
     try {
-      await notifyAdminsAboutSupportMessage(createSupabaseAdmin(), ticket, first_message);
+      await notifyAdminsAboutSupportMessage(supabaseAdmin, ticket, first_message);
     } catch (notificationError) {
       console.error("Support notification failed:", notificationError);
     }

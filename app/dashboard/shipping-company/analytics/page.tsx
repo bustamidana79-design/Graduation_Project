@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { HorizontalBarChart, VerticalBarChart } from "@/components/SimpleCharts";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
+import { supabase } from "@/lib/supabase";
 
 type DeliveryOrder = {
   id: string;
@@ -124,7 +125,13 @@ export default function ShippingAnalyticsPage() {
     return Array.from(totals.entries()).map(([status, count]) => ({ status, count }));
   }, [orders]);
 
-  const maxDeliveries = Math.max(...monthly.map((item) => item.deliveries), 1);
+  const monthlyChart = monthly.map((item) => ({
+    key: item.key,
+    label: item.month,
+    value: item.deliveries,
+    hint: `الرسوم: ${formatAmount(item.fees, currency)}`,
+    color: "#52789f",
+  }));
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-6xl flex-1 px-6 py-8" dir="rtl">
@@ -132,7 +139,7 @@ export default function ShippingAnalyticsPage() {
         <p className="text-sm text-white/60">تحليلات شركة الشحن</p>
         <h1 className="mt-2 text-3xl font-bold">أداء التوصيل</h1>
         <p className="mt-2 max-w-3xl text-sm text-white/70">
-          تابع حجم طلبات التوصيل، الرسوم، المدن الأكثر نشاطًا، وحالات الشحن الحالية.
+          تابع حجم طلبات التوصيل، الرسوم، المدن الأكثر نشاطا، وحالات الشحن الحالية.
         </p>
       </section>
 
@@ -157,54 +164,26 @@ export default function ShippingAnalyticsPage() {
             ))}
           </div>
 
-          <div className="mb-6 rounded-2xl border border-[#e6edf5] bg-white p-6">
+          <section className="mb-6 rounded-2xl border border-[#e6edf5] bg-white p-6">
             <h2 className="mb-4 text-sm font-bold text-[#273347]">الطلبات الشهرية</h2>
-            <div className="flex h-40 items-end gap-2">
-              {monthly.map((item) => (
-                <div key={item.key} className="flex flex-1 flex-col items-center gap-1">
-                  <p className="text-xs font-bold text-[#273347]/50">{item.deliveries}</p>
-                  <div
-                    className="w-full rounded-t-md bg-[#bbd0e4] transition hover:bg-[#273347]"
-                    title={`الرسوم: ${formatAmount(item.fees, currency)}`}
-                    style={{ height: `${Math.max((item.deliveries / maxDeliveries) * 100, item.deliveries ? 8 : 2)}%` }}
-                  />
-                  <p className="text-[10px] text-[#273347]/50">{item.month}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+            <VerticalBarChart data={monthlyChart} heightClass="h-44" />
+          </section>
 
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="rounded-2xl border border-[#e6edf5] bg-white p-6">
-              <h2 className="mb-4 text-sm font-bold text-[#273347]">المدن الأكثر طلبًا</h2>
-              {topCities.length === 0 ? (
-                <p className="text-sm text-[#273347]/45">لا توجد بيانات مدن بعد.</p>
-              ) : (
-                <div className="space-y-3">
-                  {topCities.map((item) => (
-                    <div key={item.city} className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3">
-                      <span className="font-semibold text-[#273347]">{item.city}</span>
-                      <span className="text-sm text-[#273347]/60">{item.count.toLocaleString("ar")} طلب</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <h2 className="mb-4 text-sm font-bold text-[#273347]">المدن الأكثر طلبا</h2>
+              <HorizontalBarChart data={topCities.map((item) => ({ key: item.city, label: item.city, value: item.count }))} />
             </section>
 
             <section className="rounded-2xl border border-[#e6edf5] bg-white p-6">
               <h2 className="mb-4 text-sm font-bold text-[#273347]">حالات التوصيل</h2>
-              {statusBreakdown.length === 0 ? (
-                <p className="text-sm text-[#273347]/45">لا توجد حالات بعد.</p>
-              ) : (
-                <div className="space-y-3">
-                  {statusBreakdown.map((item) => (
-                    <div key={item.status} className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3">
-                      <span className="font-semibold text-[#273347]">{statusLabels[item.status] || item.status}</span>
-                      <span className="text-sm text-[#273347]/60">{item.count.toLocaleString("ar")}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <HorizontalBarChart
+                data={statusBreakdown.map((item) => ({
+                  key: item.status,
+                  label: statusLabels[item.status] || item.status,
+                  value: item.count,
+                }))}
+              />
             </section>
           </div>
         </>

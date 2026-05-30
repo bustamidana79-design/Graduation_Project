@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { GroupedBarChart, HorizontalBarChart } from "@/components/SimpleCharts";
 import { supabase } from "@/lib/supabase";
 
 type ReportsPayload = {
@@ -95,9 +96,18 @@ export default function ReportsPage() {
     void Promise.resolve().then(loadReports);
   }, []);
 
-  const maxMonthly = useMemo(() => {
-    if (!reports) return 1;
-    return Math.max(...reports.monthly.map((item) => item.users + item.orders + item.deliveryOrders + item.investments), 1);
+  const monthlyChart = useMemo(() => {
+    if (!reports) return [];
+    return reports.monthly.map((item) => ({
+      key: item.key,
+      label: item.month,
+      segments: [
+        { key: "users", label: "مستخدمون", value: item.users, color: "#273347" },
+        { key: "orders", label: "طلبات", value: item.orders, color: "#52789f" },
+        { key: "delivery", label: "شحن", value: item.deliveryOrders, color: "#6f9cc3" },
+        { key: "investments", label: "استثمارات", value: item.investments, color: "#8fb1cf" },
+      ],
+    }));
   }, [reports]);
 
   return (
@@ -134,25 +144,18 @@ export default function ReportsPage() {
             ))}
           </div>
 
-          <div className="mb-6 rounded-2xl border border-[#e6edf5] bg-white p-6">
+          <section className="mb-6 rounded-2xl border border-[#e6edf5] bg-white p-6">
             <h2 className="mb-4 text-sm font-bold text-[#273347]">النشاط الشهري</h2>
-            <div className="flex h-44 items-end gap-2">
-              {reports.monthly.map((item) => {
-                const total = item.users + item.orders + item.deliveryOrders + item.investments;
-                return (
-                  <div key={item.key} className="flex flex-1 flex-col items-center gap-1">
-                    <p className="text-xs font-bold text-[#273347]/50">{total}</p>
-                    <div
-                      className="w-full rounded-t-md bg-[#bbd0e4] transition hover:bg-[#273347]"
-                      title={`مستخدمون: ${item.users} | طلبات: ${item.orders} | شحن: ${item.deliveryOrders} | استثمارات: ${item.investments}`}
-                      style={{ height: `${Math.max((total / maxMonthly) * 100, total ? 8 : 2)}%` }}
-                    />
-                    <p className="text-[10px] text-[#273347]/50">{item.month}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+            <GroupedBarChart
+              data={monthlyChart}
+              legend={[
+                { key: "users", label: "مستخدمون", color: "#273347" },
+                { key: "orders", label: "طلبات", color: "#52789f" },
+                { key: "delivery", label: "شحن", color: "#6f9cc3" },
+                { key: "investments", label: "استثمارات", color: "#8fb1cf" },
+              ]}
+            />
+          </section>
 
           <div className="grid gap-6 lg:grid-cols-2">
             {[
@@ -163,18 +166,13 @@ export default function ReportsPage() {
             ].map((section) => (
               <section key={section.title} className="rounded-2xl border border-[#e6edf5] bg-white p-6">
                 <h2 className="mb-4 text-sm font-bold text-[#273347]">{section.title}</h2>
-                {section.data.length === 0 ? (
-                  <p className="text-sm text-[#273347]/45">لا توجد بيانات بعد.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {section.data.map((item) => (
-                      <div key={item.key} className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3">
-                        <span className="font-semibold text-[#273347]">{section.labels[item.key] || item.key}</span>
-                        <span className="text-sm text-[#273347]/60">{item.value.toLocaleString("ar")}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <HorizontalBarChart
+                  data={section.data.map((item) => ({
+                    key: item.key,
+                    label: section.labels[item.key] || item.key,
+                    value: item.value,
+                  }))}
+                />
               </section>
             ))}
           </div>

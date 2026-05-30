@@ -136,9 +136,16 @@ export default function SupportServiceTemplate({ role, title }: Props) {
         return;
       }
 
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
       const response = await fetch('/api/tickets', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || ""}`,
+        },
         body: JSON.stringify({
           user_id: user.id,
           subject: subject.trim(),
@@ -232,7 +239,7 @@ export default function SupportServiceTemplate({ role, title }: Props) {
                 <span className={`w-3 h-3 rounded-full ${ticket.last_sender_type === 'admin' ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
                 <div>
                   <h3 className="font-bold text-gray-800 group-hover:text-blue-600">{ticket.subject}</h3>
-                  <p className="text-xs text-purple-600 mt-1 font-medium italic">AI: {ticket.ai_summary || "جاري التلخيص..."}</p>
+                  <p className="mt-1 text-xs font-medium italic text-[#52789f]">AI: {ticket.ai_summary || "جاري التلخيص..."}</p>
                 </div>
               </div>
               <div className="text-left">

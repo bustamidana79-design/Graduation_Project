@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { HorizontalBarChart, VerticalBarChart } from "@/components/SimpleCharts";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
+import { supabase } from "@/lib/supabase";
 
 type BuyerOrder = {
   id: string;
@@ -30,6 +31,7 @@ const statusLabels: Record<string, string> = {
   shipped: "تم الشحن",
   delivered: "تم التسليم",
   cancelled: "ملغي",
+  paid: "مدفوع",
 };
 
 const monthFormatter = new Intl.DateTimeFormat("ar", { month: "short" });
@@ -143,7 +145,13 @@ export default function SmallBusinessAnalyticsPage() {
     return Array.from(totals.entries()).map(([status, count]) => ({ status, count }));
   }, [orders]);
 
-  const maxOrders = Math.max(...monthly.map((item) => item.orders), 1);
+  const monthlyChart = monthly.map((item) => ({
+    key: item.key,
+    label: item.month,
+    value: item.orders,
+    hint: `القيمة: ${formatAmount(item.amount, currency)}`,
+    color: "#52789f",
+  }));
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-6xl flex-1 px-6 py-8" dir="rtl">
@@ -151,7 +159,7 @@ export default function SmallBusinessAnalyticsPage() {
         <p className="text-sm text-white/60">تحليلات المشروع</p>
         <h1 className="mt-2 text-3xl font-bold">تحليل المشتريات والطلبات</h1>
         <p className="mt-2 max-w-3xl text-sm text-white/70">
-          راقب مشتريات مشروعك، متوسط الطلب، رسوم الشحن، والمنتجات الأكثر شراءً.
+          راقب مشتريات مشروعك، متوسط الطلب، رسوم الشحن، والمنتجات الأكثر شراء.
         </p>
       </section>
 
@@ -177,58 +185,33 @@ export default function SmallBusinessAnalyticsPage() {
             ))}
           </div>
 
-          <div className="mb-6 rounded-2xl border border-[#e6edf5] bg-white p-6">
+          <section className="mb-6 rounded-2xl border border-[#e6edf5] bg-white p-6">
             <h2 className="mb-4 text-sm font-bold text-[#273347]">الطلبات الشهرية</h2>
-            <div className="flex h-40 items-end gap-2">
-              {monthly.map((item) => (
-                <div key={item.key} className="flex flex-1 flex-col items-center gap-1">
-                  <p className="text-xs font-bold text-[#273347]/50">{item.orders}</p>
-                  <div
-                    className="w-full rounded-t-md bg-[#bbd0e4] transition hover:bg-[#273347]"
-                    title={`القيمة: ${formatAmount(item.amount, currency)}`}
-                    style={{ height: `${Math.max((item.orders / maxOrders) * 100, item.orders ? 8 : 2)}%` }}
-                  />
-                  <p className="text-[10px] text-[#273347]/50">{item.month}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+            <VerticalBarChart data={monthlyChart} heightClass="h-44" />
+          </section>
 
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="rounded-2xl border border-[#e6edf5] bg-white p-6">
-              <h2 className="mb-4 text-sm font-bold text-[#273347]">المنتجات الأكثر شراءً</h2>
-              {topProducts.length === 0 ? (
-                <p className="text-sm text-[#273347]/45">لا توجد منتجات مشتراة بعد.</p>
-              ) : (
-                <div className="space-y-3">
-                  {topProducts.map((item) => (
-                    <Link
-                      key={item.id || item.name}
-                      href={item.id ? `/dashboard/small-business/products/${item.id}` : "/dashboard/small-business/products"}
-                      className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3 transition hover:bg-[#eef3f8]"
-                    >
-                      <span className="font-semibold text-[#273347]">{item.name}</span>
-                      <span className="text-sm text-[#273347]/60">{item.quantity.toLocaleString("ar")} قطعة</span>
-                    </Link>
-                  ))}
-                </div>
-              )}
+              <h2 className="mb-4 text-sm font-bold text-[#273347]">المنتجات الأكثر شراء</h2>
+              <HorizontalBarChart
+                data={topProducts.map((item) => ({
+                  key: item.id || item.name,
+                  label: item.name,
+                  value: item.quantity,
+                  hint: formatAmount(item.amount, currency),
+                }))}
+              />
             </section>
 
             <section className="rounded-2xl border border-[#e6edf5] bg-white p-6">
               <h2 className="mb-4 text-sm font-bold text-[#273347]">حالات الطلبات</h2>
-              {statusBreakdown.length === 0 ? (
-                <p className="text-sm text-[#273347]/45">لا توجد حالات بعد.</p>
-              ) : (
-                <div className="space-y-3">
-                  {statusBreakdown.map((item) => (
-                    <div key={item.status} className="flex items-center justify-between rounded-2xl bg-[#f6f8fb] px-4 py-3">
-                      <span className="font-semibold text-[#273347]">{statusLabels[item.status] || item.status}</span>
-                      <span className="text-sm text-[#273347]/60">{item.count.toLocaleString("ar")}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <HorizontalBarChart
+                data={statusBreakdown.map((item) => ({
+                  key: item.status,
+                  label: statusLabels[item.status] || item.status,
+                  value: item.count,
+                }))}
+              />
             </section>
           </div>
 

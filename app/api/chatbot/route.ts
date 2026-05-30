@@ -26,6 +26,30 @@ type ProductPerformance = {
   stock: number | null;
 };
 
+type SupplierProductMatch = {
+  productId: string;
+  productName: string;
+  description: string | null;
+  category: string | null;
+  price: number;
+  currency: string;
+  stock: number;
+  minOrderQuantity: number;
+  supplierId: string;
+  supplierName: string;
+  supplierCity: string | null;
+  supplierCountry: string | null;
+  supplierCategory: string | null;
+  score: number;
+};
+
+type InternalMarketSearch = {
+  triggered: boolean;
+  query: string;
+  matches: SupplierProductMatch[];
+  warnings: string[];
+};
+
 type AnalysisResult = {
   userId: string;
   userType: UserType;
@@ -54,6 +78,7 @@ type AnalysisResult = {
     lowStockProducts: Array<{ id: string | null; name: string; stock: number }>;
     customerBehavior: string[];
     externalSignals: ExternalSignals;
+    internalMarketSearch: InternalMarketSearch;
   };
   recommendations: string[];
   previousInsights: DbRow[];
@@ -216,6 +241,226 @@ function getOrderProductId(row: DbRow): string | null {
 
 function getProductName(row: DbRow, fallback = "منتج غير محدد"): string {
   return getString(row, ["product_name", "name", "title", "product_title"], fallback);
+}
+
+function normalizeSearchText(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[^\u0600-\u06ff\w\s.-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function includesAny(text: string, terms: string[]) {
+  return terms.some((term) => text.includes(term));
+}
+
+function shouldSearchInternalMarket(message: string, userType: UserType) {
+  if (userType !== "merchant" && userType !== "admin") return false;
+
+  const normalized = normalizeSearchText(message);
+  const intentTerms = [
+    "مورد",
+    "موردين",
+    "منتج",
+    "منتجات",
+    "بضاعة",
+    "جملة",
+    "سعر",
+    "اسعار",
+    "أسعار",
+    "متوفر",
+    "متوفرة",
+    "اشتري",
+    "شراء",
+    "وين",
+    "اين",
+    "أين",
+    "supplier",
+    "product",
+    "products",
+    "wholesale",
+    "price",
+  ];
+
+  return includesAny(normalized, intentTerms);
+}
+
+function extractMarketSearchTerms(message: string) {
+  const stopWords = new Set([
+    "بدي",
+    "اريد",
+    "أريد",
+    "بدنا",
+    "اعطيني",
+    "اقترح",
+    "مورد",
+    "موردين",
+    "منتج",
+    "منتجات",
+    "سعر",
+    "اسعار",
+    "أسعار",
+    "جملة",
+    "وين",
+    "اين",
+    "أين",
+    "متوفر",
+    "متوفرة",
+    "مناسب",
+    "مناسبه",
+    "مناسبين",
+    "مناسبة",
+    "افضل",
+    "أفضل",
+    "كويس",
+    "كويسه",
+    "جيد",
+    "جيده",
+    "للمشروع",
+    "مشروعي",
+    "في",
+    "من",
+    "على",
+    "عن",
+    "او",
+    "أو",
+    "و",
+    "the",
+    "a",
+    "an",
+    "for",
+    "with",
+    "supplier",
+    "suppliers",
+    "product",
+    "products",
+    "price",
+  ]);
+
+  return Array.from(new Set(normalizeSearchText(message).split(" ")))
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2 && !stopWords.has(term))
+    .slice(0, 8);
+}
+
+async function fetchInternalMarketSearch(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  message: string,
+  userType: UserType
+): Promise<InternalMarketSearch> {
+  const triggered = shouldSearchInternalMarket(message, userType);
+  const terms = extractMarketSearchTerms(message);
+  const query = terms.join(" ");
+  const emptyResult = { triggered, query, matches: [], warnings: [] };
+
+  if (!triggered) return emptyResult;
+
+  const { data: products, error: productsError } = await supabase
+    .from("products")
+    .select("*")
+    .eq("is_published", true)
+    .gt("stock_quantity", 0)
+    .order("created_at", { ascending: false })
+    .limit(120);
+
+  if (productsError) {
+    return {
+      ...emptyResult,
+      warnings: [`products: ${productsError.message}`],
+    };
+  }
+
+  const productRows = ((products || []) as DbRow[]).filter((product) => String(product.supplier_id || ""));
+  const supplierIds = Array.from(new Set(productRows.map((product) => String(product.supplier_id))));
+
+  if (supplierIds.length === 0) return emptyResult;
+
+  const [{ data: supplierProfiles, error: supplierError }, { data: profiles, error: profileError }] = await Promise.all([
+    supabase
+      .from("supplier_profiles")
+      .select("user_id, store_name, product_category")
+      .in("user_id", supplierIds),
+    supabase
+      .from("profiles")
+      .select("id, full_name, country, city, account_type, status, is_active")
+      .in("id", supplierIds),
+  ]);
+
+  const warnings = [supplierError ? `supplier_profiles: ${supplierError.message}` : null, profileError ? `profiles: ${profileError.message}` : null].filter(Boolean) as string[];
+  const supplierMap = new Map<string, DbRow>();
+  const profileMap = new Map<string, DbRow>();
+
+  for (const supplier of (supplierProfiles || []) as DbRow[]) {
+    supplierMap.set(String(supplier.user_id), supplier);
+  }
+
+  for (const profile of (profiles || []) as DbRow[]) {
+    profileMap.set(String(profile.id), profile);
+  }
+
+  const matches = productRows
+    .map((product): SupplierProductMatch | null => {
+      const supplierId = String(product.supplier_id || "");
+      const supplier = supplierMap.get(supplierId) || {};
+      const profile = profileMap.get(supplierId) || {};
+      const status = String(profile.status || "").toLowerCase();
+      const accountType = String(profile.account_type || "").toLowerCase();
+      const isActive = profile.is_active !== false;
+
+      if (!isActive || status !== "approved" || accountType === "admin") return null;
+
+      const productName = getProductName(product, "منتج بدون اسم");
+      const supplierName = getString(supplier, ["store_name"], getString(profile, ["full_name"], "مورد بدون اسم"));
+      const category = getString(product, ["category", "category_id"], getString(supplier, ["product_category"], ""));
+      const haystack = normalizeSearchText([
+        productName,
+        product.description,
+        category,
+        supplierName,
+        supplier.product_category,
+        profile.city,
+        profile.country,
+      ].join(" "));
+
+      const score =
+        terms.length === 0
+          ? 1
+          : terms.reduce((sum, term) => {
+              if (!haystack.includes(term)) return sum;
+              if (normalizeSearchText(productName).includes(term)) return sum + 5;
+              if (normalizeSearchText(category).includes(term)) return sum + 4;
+              if (normalizeSearchText(supplierName).includes(term)) return sum + 3;
+              return sum + 1;
+            }, 0);
+
+      if (terms.length > 0 && score === 0) return null;
+
+      return {
+        productId: String(product.id || ""),
+        productName,
+        description: product.description ? String(product.description) : null,
+        category: category || null,
+        price: toNumber(product.wholesale_price),
+        currency: String(product.currency || "ILS"),
+        stock: toNumber(product.stock_quantity),
+        minOrderQuantity: Math.max(1, toNumber(product.min_order_quantity) || 1),
+        supplierId,
+        supplierName,
+        supplierCity: profile.city ? String(profile.city) : null,
+        supplierCountry: profile.country ? String(profile.country) : null,
+        supplierCategory: supplier.product_category ? String(supplier.product_category) : null,
+        score,
+      };
+    })
+    .filter((match): match is SupplierProductMatch => Boolean(match))
+    .sort((a, b) => b.score - a.score || b.stock - a.stock || a.price - b.price)
+    .slice(0, 8);
+
+  return { triggered, query, matches, warnings };
 }
 
 function percentChange(current: number, previous: number): number | null {
@@ -770,7 +1015,10 @@ export async function POST(req: NextRequest) {
       weakProducts: productAnalysis.weakProducts,
       lowStockProducts: productAnalysis.lowStockProducts,
     });
-    const externalSignals = await getExternalSignals(message, productAnalysis.topProducts);
+    const [externalSignals, internalMarketSearch] = await Promise.all([
+      getExternalSignals(message, productAnalysis.topProducts),
+      fetchInternalMarketSearch(supabase, message, userType),
+    ]);
 
     const analysisResult: AnalysisResult = {
       userId,
@@ -786,6 +1034,7 @@ export async function POST(req: NextRequest) {
         lowStockProducts: productAnalysis.lowStockProducts,
         customerBehavior: generated.customerBehavior,
         externalSignals,
+        internalMarketSearch,
       },
       recommendations: generated.recommendations,
       previousInsights: roleData.aiInsights.slice(0, 10),
@@ -795,7 +1044,7 @@ export async function POST(req: NextRequest) {
         aiInsightsLoaded: roleData.aiInsights.length,
         primaryTable: roleData.primaryTable,
         secondaryTable: roleData.secondaryTable,
-        warnings: [...roleData.warnings, ...externalSignals.warnings],
+        warnings: [...roleData.warnings, ...externalSignals.warnings, ...internalMarketSearch.warnings],
       },
     };
 
@@ -836,6 +1085,9 @@ ${JSON.stringify(analysisResult)}
 - اذكر أرقاما محددة من analysisResult عندما تكون متاحة.
 - قدم تحليل الأداء، اقتراحات عملية، أفكار تسويق، وتنبيهات.
 - إذا كانت البيانات ناقصة، وضح ذلك باختصار واقترح ما يلزم لتصبح التوصيات أدق.
+- إذا كان analysisResult.marketingIntelligence.internalMarketSearch.triggered يساوي true، أجب على أسئلة الموردين والمنتجات من matches فقط لأنها نتائج حقيقية من المنصة.
+- عند ذكر أي نتيجة من internalMarketSearch.matches اذكر اسم المورد، اسم المنتج، السعر والعملة، أقل كمية طلب، المخزون، والمدينة أو الدولة عند توفرها.
+- إذا كان internalMarketSearch.triggered يساوي true لكن matches فارغة، قل إن النظام لم يجد منتجات منشورة مطابقة واقترح تغيير كلمات البحث أو تصفح صفحة المنتجات.
 - اكتب باللغة العربية فقط.
 - لا تستخدم رموزا غريبة أو زخارف أو أحرفا غير عربية.
           `.trim(),

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { VerticalBarChart } from "@/components/SimpleCharts";
 import { supabase } from "@/lib/supabase";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 
@@ -174,8 +175,14 @@ export default function InvestmentsPage() {
     return buckets;
   }, [investments]);
 
-  const maxMonthlyRequests = Math.max(...monthlyAnalytics.map((item) => item.requests), 1);
   const primaryCurrency = investments.find(isCountedInvestment)?.currency || investments[0]?.currency || "ILS";
+  const monthlyChart = monthlyAnalytics.map((item) => ({
+    key: item.key,
+    label: item.month,
+    value: item.requests,
+    hint: `المقبولة: ${item.accepted} | القيمة: ${formatAmount(item.amount, primaryCurrency)}`,
+    color: "#52789f",
+  }));
 
   return (
     <div className="space-y-6 p-8" dir="rtl">
@@ -225,22 +232,7 @@ export default function InvestmentsPage() {
                 إضافة استثمار
               </Link>
             </div>
-            <div className="flex h-48 items-end gap-2">
-              {monthlyAnalytics.map((item) => (
-                <div key={item.key} className="flex flex-1 flex-col items-center gap-1">
-                  <p className="text-xs font-bold text-[#273347]/60">{item.requests}</p>
-                  <div
-                    className="w-full rounded-t-md bg-[#bbd0e4] transition hover:bg-[#273347]"
-                    title={`الطلبات: ${item.requests} | المقبولة: ${item.accepted} | القيمة: ${formatAmount(item.amount, primaryCurrency)}`}
-                    style={{ height: `${Math.max((item.requests / maxMonthlyRequests) * 100, item.requests ? 8 : 2)}%` }}
-                  />
-                  <p className="min-h-4 text-[10px] font-semibold text-[#273347]/45">
-                    {item.amount ? formatAmount(item.amount, primaryCurrency) : "-"}
-                  </p>
-                  <p className="text-[10px] text-[#273347]/50">{item.month}</p>
-                </div>
-              ))}
-            </div>
+            <VerticalBarChart data={monthlyChart} heightClass="h-48" />
           </div>
 
           <div className="rounded-2xl border border-[#e6edf5] bg-white p-6">

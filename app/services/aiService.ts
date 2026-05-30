@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
 import Groq from "groq-sdk";
+import { createSupabaseAdmin } from "@/lib/supabase-admin";
 
 interface AIAnalysis {
   summary: string;
@@ -7,23 +7,51 @@ interface AIAnalysis {
   category: string;
 }
 
+const validPriorities = new Set(["high", "medium", "low"]);
+
+const normalizePriority = (priority?: string): AIAnalysis["priority"] => {
+  const normalizedPriority = priority?.toLowerCase();
+  return validPriorities.has(normalizedPriority || "")
+    ? (normalizedPriority as AIAnalysis["priority"])
+    : "medium";
+};
+
+const buildFallbackSummary = (subject: string, messageContent: string) => {
+  const fallback = subject.trim() || messageContent.trim() || "تذكرة دعم تحتاج متابعة";
+  return fallback.length > 90 ? `${fallback.slice(0, 87)}...` : fallback;
+};
+
+const buildSafeAnalysis = (
+  analysis: Partial<AIAnalysis>,
+  subject: string,
+  messageContent: string
+): Pick<AIAnalysis, "summary" | "priority"> => {
+  const summary =
+    typeof analysis.summary === "string" && analysis.summary.trim()
+      ? analysis.summary.trim()
+      : buildFallbackSummary(subject, messageContent);
+
+  return {
+    summary,
+    priority: normalizePriority(analysis.priority),
+  };
+};
+
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-// ضفنا subject كباراميتر اختياري عشان الـ AI يفهم السياق أكتر
-export const analyzeTicketWithAI = async (ticketId: string, subject: string, messageContent: string) => {
+export const analyzeTicketWithAI = async (
+  ticketId: string,
+  subject: string,
+  messageContent: string
+) => {
   try {
-    console.log("--- بداية عملية تحليل الذكاء الاصطناعي ---");
+    console.log("--- Starting AI ticket analysis ---");
 
     const chatCompletion = await groq.chat.completions.create({
       messages: [
         {
           role: "system",
-          content: `You are a professional B2B support assistant. 
+          content: `You are a professional B2B support assistant.
           Analyze the support ticket and return ONLY a valid JSON object.
           The 'summary' must be a very short sentence in Arabic (max 7 words).
           The 'priority' must be one of: 'high', 'medium', 'low'.
@@ -39,24 +67,45 @@ export const analyzeTicketWithAI = async (ticketId: string, subject: string, mes
     });
 
     const content = chatCompletion.choices[0]?.message?.content;
-    const analysis: AIAnalysis = JSON.parse(content || "{}");
+    const analysis = buildSafeAnalysis(
+      JSON.parse(content || "{}") as Partial<AIAnalysis>,
+      subject,
+      messageContent
+    );
 
-    // تحديث Supabase
-    const { data, error } = await supabase
+    const supabaseAdmin = createSupabaseAdmin();
+    const { data, error } = await supabaseAdmin
       .from('support_tickets')
       .update({
         ai_summary: analysis.summary,
-        priority: analysis.priority.toLowerCase(),
-        // إذا حابة تضيفي تصنيف المشكلة مستقبلاً:
-        // category: analysis.category 
+        priority: analysis.priority,
       })
       .eq('id', ticketId)
       .select();
 
     if (error) throw error;
-    console.log("✅ تم التحديث بنجاح:", data);
+    console.log("Ticket AI summary updated successfully:", data);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("AI ticket summary failed:", errorMessage);
 
-  } catch (error: any) {
-    console.error("❌ خطأ في خدمة الـ AI:", error.message);
+    try {
+      const supabaseAdmin = createSupabaseAdmin();
+      const { error: fallbackError } = await supabaseAdmin
+        .from('support_tickets')
+        .update({
+          ai_summary: buildFallbackSummary(subject, messageContent),
+          priority: "medium",
+        })
+        .eq('id', ticketId);
+
+      if (fallbackError) {
+        console.error("Failed to save fallback ticket summary:", fallbackError.message);
+      }
+    } catch (fallbackError: unknown) {
+      const fallbackErrorMessage =
+        fallbackError instanceof Error ? fallbackError.message : "Unknown error";
+      console.error("Fallback ticket summary failed:", fallbackErrorMessage);
+    }
   }
-}
+};

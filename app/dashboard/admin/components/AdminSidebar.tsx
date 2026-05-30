@@ -15,7 +15,6 @@ const navItems = [
   { label: "المساعد الذكي", href: "/dashboard/admin/assistant", icon: "AI" },
   { label: "مراقبة الحسابات", href: "/dashboard/admin/permissions", icon: "🔎" },
   { label: "مركز الدعم ", href: "/dashboard/admin/customer-service", icon: "💬" },
-  { label: "الملف الشخصي", href: "/dashboard/admin/profile", icon: "👤" },
 ];
 
 export default function AdminSidebar() {

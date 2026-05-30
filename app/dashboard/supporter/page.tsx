@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import DailyTipCard from "@/components/DailyTipCard";
+import { VerticalBarChart } from "@/components/SimpleCharts";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import { supabase } from "@/lib/supabase";
 
@@ -109,7 +110,13 @@ export default function SupporterDashboard() {
     { label: "استثمارات نشطة", value: stats.activeInvestments.toLocaleString("ar"), color: "border-r-4 border-yellow-400" },
   ];
 
-  const maxMonthlyRequests = Math.max(...analytics.map((a) => a.requests), 1);
+  const monthlyChart = analytics.map((item) => ({
+    key: item.key,
+    label: item.month,
+    value: item.requests,
+    hint: `المقبولة: ${item.accepted}`,
+    color: "#52789f",
+  }));
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-5xl flex-1 px-6 py-8" dir="rtl">
@@ -149,19 +156,7 @@ export default function SupporterDashboard() {
                 عرض التفاصيل
               </Link>
             </div>
-            <div className="flex h-36 items-end gap-2">
-              {analytics.map((item) => (
-                <div key={item.key} className="flex flex-1 flex-col items-center gap-1">
-                  <p className="text-xs font-bold text-[#273347]/50">{item.requests}</p>
-                  <div
-                    className="w-full rounded-t-md bg-[#bbd0e4] transition hover:bg-[#273347]"
-                    title={`الطلبات: ${item.requests} | المقبولة: ${item.accepted}`}
-                    style={{ height: `${Math.max((item.requests / maxMonthlyRequests) * 100, item.requests ? 8 : 2)}%` }}
-                  />
-                  <p className="text-[10px] text-[#273347]/50">{item.month}</p>
-                </div>
-              ))}
-            </div>
+            <VerticalBarChart data={monthlyChart} heightClass="h-40" />
           </div>
 
           {investments.length === 0 && (

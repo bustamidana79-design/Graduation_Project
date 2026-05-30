@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import DailyTipCard from "@/components/DailyTipCard";
+import { VerticalBarChart } from "@/components/SimpleCharts";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import { supabase } from "@/lib/supabase";
 
@@ -113,7 +114,13 @@ export default function SupplierDashboardPage() {
     return buckets;
   }, [orders]);
 
-  const maxSales = Math.max(...monthly.map((item) => item.sales), 1);
+  const monthlyChart = monthly.map((item) => ({
+    key: item.key,
+    label: item.month,
+    value: item.orders,
+    hint: formatAmount(item.sales, currency),
+    color: "#52789f",
+  }));
 
   return (
     <>
@@ -165,19 +172,7 @@ export default function SupplierDashboardPage() {
 
           <div className="mb-6 rounded-2xl border border-[#e6edf5] bg-white p-6">
             <h3 className="mb-4 text-sm font-bold text-[#273347]">المبيعات خلال آخر 6 أشهر</h3>
-            <div className="flex h-36 items-end gap-2">
-              {monthly.map((item) => (
-                <div key={item.key} className="flex flex-1 flex-col items-center gap-1">
-                  <p className="text-xs font-bold text-[#273347]/50">{item.orders}</p>
-                  <div
-                    className="w-full rounded-t-md bg-[#bbd0e4] transition hover:bg-[#273347]"
-                    title={formatAmount(item.sales, currency)}
-                    style={{ height: `${Math.max((item.sales / maxSales) * 100, item.sales ? 8 : 2)}%` }}
-                  />
-                  <p className="text-[10px] text-[#273347]/50">{item.month}</p>
-                </div>
-              ))}
-            </div>
+            <VerticalBarChart data={monthlyChart} heightClass="h-40" />
           </div>
         </>
       )}

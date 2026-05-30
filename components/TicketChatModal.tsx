@@ -237,11 +237,11 @@ export default function TicketChatModal({
         <div className="flex items-center justify-between border-b bg-gray-50 p-4">
           <div className="flex-1 text-right">
             <h2 className="line-clamp-1 text-lg font-bold text-gray-800">{ticket.subject}</h2>
-            <div className="mt-1 flex items-center gap-2">
-              <span className="rounded-md bg-purple-600 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
+            <div className="mt-1 flex items-center gap-2 rounded-lg border border-[#c9d9e8] bg-[#f1f7fc] px-2 py-1">
+              <span className="rounded-md bg-[#52789f] px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
                 AI Summary
               </span>
-              <p className="line-clamp-1 text-xs italic text-gray-500">
+              <p className="line-clamp-1 text-xs italic text-[#42617f]">
                 {ticket.ai_summary || "لا يوجد ملخص"}
               </p>
             </div>

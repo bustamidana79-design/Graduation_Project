@@ -51,25 +51,43 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       "يمكنك متابعة الموضوع والرد من خلال مركز الدعم وخدمة العملاء.",
     ].join("\n");
 
-    const { data: ticket, error: ticketError } = await supabase
+    const { data: existingTicket, error: existingTicketError } = await supabase
       .from("support_tickets")
-      .insert({
-        user_id: product.supplier_id,
-        subject: supportSubject,
-        user_role: "supplier",
-        status: "open",
-        priority: "medium",
-        last_sender_type: "admin",
-      })
       .select("id")
-      .single();
+      .eq("user_id", product.supplier_id)
+      .eq("subject", supportSubject)
+      .eq("status", "open")
+      .maybeSingle();
 
-    if (ticketError || !ticket) {
-      return NextResponse.json({ error: ticketError?.message || "فشل إنشاء تذكرة الدعم." }, { status: 500 });
+    if (existingTicketError) {
+      return NextResponse.json({ error: existingTicketError.message }, { status: 500 });
+    }
+
+    let ticketId = existingTicket?.id;
+
+    if (!ticketId) {
+      const { data: ticket, error: ticketError } = await supabase
+        .from("support_tickets")
+        .insert({
+          user_id: product.supplier_id,
+          subject: supportSubject,
+          user_role: "supplier",
+          status: "open",
+          priority: "medium",
+          last_sender_type: "admin",
+        })
+        .select("id")
+        .single();
+
+      if (ticketError || !ticket) {
+        return NextResponse.json({ error: ticketError?.message || "فشل إنشاء تذكرة الدعم." }, { status: 500 });
+      }
+
+      ticketId = ticket.id;
     }
 
     const { error: messageError } = await supabase.from("ticket_messages").insert({
-      ticket_id: ticket.id,
+      ticket_id: ticketId,
       sender_id: user.id,
       sender_type: "admin",
       message: supportMessage,
@@ -89,7 +107,8 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
         product_id: product.id,
         product_name: product.name,
         reason,
-        ticket_id: ticket.id,
+        ticket_id: ticketId,
+        user_role: "supplier",
       },
     });
 
@@ -97,7 +116,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       return NextResponse.json({ error: notificationError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, ticketId: ticket.id });
+    return NextResponse.json({ success: true, ticketId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل حذف المنتج.";
     const status = message === "UNAUTHORIZED" ? 401 : 500;

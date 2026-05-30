@@ -1,7 +1,7 @@
-// app/dashboard/admin/page.tsx
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { HorizontalBarChart } from "@/components/SimpleCharts";
 import { supabase } from "../../../lib/supabase";
 
 type Stats = {
@@ -72,68 +72,84 @@ export default function AdminDashboardPage() {
     void Promise.resolve().then(fetchStats);
   }, [fetchStats]);
 
-  // الصف الأول — أنواع المستخدمين
   const userTypeCards = [
-    { label: "إجمالي المستخدمين", value: stats.totalUsers, icon: "👥", color: "border-r-4 border-[#273347]" },
-    { label: "تجار الجملة", value: stats.merchants, icon: "🏬", color: "border-r-4 border-purple-400" },
-    { label: "المشاريع الصغيرة", value: stats.smallBusinesses, icon: "🏪", color: "border-r-4 border-blue-400" },
-    { label: "شركات التوصيل", value: stats.delivery, icon: "🚚", color: "border-r-4 border-orange-400" },
-    { label: "الداعمون", value: stats.supporters, icon: "🤝", color: "border-r-4 border-green-400" },
-    { label: "طلبات الترقية", value: stats.pendingUpgrades, icon: "⬆️", color: "border-r-4 border-yellow-400" },
+    { label: "إجمالي المستخدمين", value: stats.totalUsers, color: "border-r-4 border-[#273347]" },
+    { label: "تجار الجملة", value: stats.merchants, color: "border-r-4 border-purple-400" },
+    { label: "المشاريع الصغيرة", value: stats.smallBusinesses, color: "border-r-4 border-blue-400" },
+    { label: "شركات التوصيل", value: stats.delivery, color: "border-r-4 border-orange-400" },
+    { label: "الداعمون", value: stats.supporters, color: "border-r-4 border-green-400" },
+    { label: "طلبات الترقية", value: stats.pendingUpgrades, color: "border-r-4 border-yellow-400" },
   ];
 
-  // الصف الثاني — حالات الطلبات
   const applicationStatusCards = [
-    { label: "قيد المراجعة", value: stats.pendingApplications, icon: "🕐", color: "border-r-4 border-yellow-400 bg-yellow-50", textColor: "text-yellow-700" },
-    { label: "مقبول", value: stats.approvedApplications, icon: "✅", color: "border-r-4 border-green-400 bg-green-50", textColor: "text-green-700" },
-    { label: "مرفوض", value: stats.rejectedApplications, icon: "❌", color: "border-r-4 border-red-400 bg-red-50", textColor: "text-red-700" },
+    { label: "قيد المراجعة", value: stats.pendingApplications, color: "border-r-4 border-yellow-400 bg-yellow-50", textColor: "text-yellow-700" },
+    { label: "مقبول", value: stats.approvedApplications, color: "border-r-4 border-green-400 bg-green-50", textColor: "text-green-700" },
+    { label: "مرفوض", value: stats.rejectedApplications, color: "border-r-4 border-red-400 bg-red-50", textColor: "text-red-700" },
   ];
+
+  const userTypeChart = useMemo(
+    () => [
+      { key: "merchant", label: "تجار الجملة", value: stats.merchants, color: "#52789f" },
+      { key: "small_business", label: "المشاريع الصغيرة", value: stats.smallBusinesses, color: "#6f9cc3" },
+      { key: "delivery", label: "شركات التوصيل", value: stats.delivery, color: "#8fb1cf" },
+      { key: "supporter", label: "الداعمون", value: stats.supporters, color: "#546a85" },
+    ],
+    [stats.delivery, stats.merchants, stats.smallBusinesses, stats.supporters]
+  );
+
+  const applicationStatusChart = useMemo(
+    () => [
+      { key: "pending", label: "قيد المراجعة", value: stats.pendingApplications, color: "#6f9cc3" },
+      { key: "approved", label: "مقبول", value: stats.approvedApplications, color: "#52789f" },
+      { key: "rejected", label: "مرفوض", value: stats.rejectedApplications, color: "#8fb1cf" },
+    ],
+    [stats.approvedApplications, stats.pendingApplications, stats.rejectedApplications]
+  );
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen" dir="rtl">
-
-      {/* Content */}
-      <div className="flex-1 px-6 py-8 max-w-5xl w-full mx-auto">
-
-        {/* Welcome Banner */}
-        <div className="bg-[#273347] text-white rounded-2xl px-8 py-6 mb-8">
-          <h2 className="text-2xl font-bold">مرحباً بك في لوحة الإدارة 👋</h2>
-          <p className="text-white/60 text-sm mt-1">إليك ملخص النشاط الحالي للمنصة</p>
-        </div>
+    <div className="flex min-h-screen flex-1 flex-col" dir="rtl">
+      <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
+        <section className="mb-8 rounded-2xl bg-[#273347] px-8 py-6 text-white">
+          <h2 className="text-2xl font-bold">مرحبا بك في لوحة الإدارة</h2>
+          <p className="mt-1 text-sm text-white/60">إليك ملخص النشاط الحالي للمنصة</p>
+        </section>
 
         {loading ? (
-          <div className="text-center text-[#273347]/40 text-sm py-10">جارٍ التحميل...</div>
+          <div className="py-10 text-center text-sm text-[#273347]/40">جار التحميل...</div>
         ) : (
           <>
-            {/* الصف الأول — أنواع المستخدمين */}
-            <p className="text-xs font-semibold text-[#273347]/50 mb-3 mt-2">المستخدمون</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            <p className="mb-3 mt-2 text-xs font-semibold text-[#273347]/50">المستخدمون</p>
+            <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3">
               {userTypeCards.map((card) => (
-                <div key={card.label} className={`bg-white rounded-2xl p-5 shadow-sm ${card.color}`}>
-                  <div className="text-2xl mb-2">{card.icon}</div>
-                  <p className="text-2xl font-bold text-[#273347]">{card.value}</p>
-                  <p className="text-xs text-[#273347]/50 mt-1">{card.label}</p>
+                <div key={card.label} className={`rounded-2xl bg-white p-5 shadow-sm ${card.color}`}>
+                  <p className="text-2xl font-bold text-[#273347]">{card.value.toLocaleString("ar")}</p>
+                  <p className="mt-1 text-xs text-[#273347]/50">{card.label}</p>
                 </div>
               ))}
             </div>
 
-          
-           {/* الصف الثاني — حالات الطلبات */}
-           <p className="text-xs font-semibold text-[#273347]/50 mb-3">حالات الطلبات</p>
-<div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-                {applicationStatusCards.map((card) => (
+            <div className="mb-8 grid gap-4 lg:grid-cols-2">
+              <section className="rounded-2xl border border-[#e6edf5] bg-white p-6 shadow-sm">
+                <h3 className="mb-4 text-sm font-bold text-[#273347]">توزيع المستخدمين</h3>
+                <HorizontalBarChart data={userTypeChart} />
+              </section>
+              <section className="rounded-2xl border border-[#e6edf5] bg-white p-6 shadow-sm">
+                <h3 className="mb-4 text-sm font-bold text-[#273347]">حالات طلبات التسجيل</h3>
+                <HorizontalBarChart data={applicationStatusChart} />
+              </section>
+            </div>
+
+            <p className="mb-3 text-xs font-semibold text-[#273347]/50">حالات الطلبات</p>
+            <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3">
+              {applicationStatusCards.map((card) => (
                 <div key={card.label} className={`rounded-2xl p-5 shadow-sm ${card.color}`}>
-                  <div className="text-2xl mb-2">{card.icon}</div>
-                  <p className={`text-2xl font-bold ${card.textColor}`}>{card.value}</p>
-                  <p className={`text-xs mt-1 ${card.textColor} opacity-70`}>{card.label}</p>
+                  <p className={`text-2xl font-bold ${card.textColor}`}>{card.value.toLocaleString("ar")}</p>
+                  <p className={`mt-1 text-xs ${card.textColor} opacity-70`}>{card.label}</p>
                 </div>
               ))}
             </div>
           </>
         )}
-
-    
-
       </div>
     </div>
   );

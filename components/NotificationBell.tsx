@@ -148,6 +148,18 @@ export default function NotificationBell() {
   const handleContactSupport = async (notification: NotificationItem) => {
     if (supportLoadingId) return;
 
+    if (notification.data?.ticket_id) {
+      openSupportNotification({
+        ...notification,
+        notification_type: "support_ticket_message",
+        data: {
+          ...notification.data,
+          user_role: notification.data.user_role || "supplier",
+        },
+      });
+      return;
+    }
+
     setSupportLoadingId(notification.id);
 
     try {
@@ -156,6 +168,7 @@ export default function NotificationBell() {
         method: "POST",
         headers,
         body: JSON.stringify({
+          ticketId: notification.data?.ticket_id,
           productId: notification.data?.product_id,
           productName: notification.data?.product_name,
           reason: notification.data?.reason,

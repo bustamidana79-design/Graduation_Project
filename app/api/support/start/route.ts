@@ -9,6 +9,7 @@ export async function POST(request: NextRequest) {
   try {
     const { user, profile } = await requireAuthProfile(request);
     const body = await request.json().catch(() => ({}));
+    const ticketIdFromNotification = String(body.ticketId || body.ticket_id || "").trim();
     const productName = String(body.productName || body.product_name || "").trim();
     const productId = String(body.productId || body.product_id || "").trim();
     const reason = String(body.reason || "").trim();
@@ -22,15 +23,38 @@ export async function POST(request: NextRequest) {
       reason ? `سبب الحذف: ${reason}` : "",
     ].filter(Boolean).join("\n");
 
-    const { data: existingTicket, error: existingError } = await supabase
+    if (ticketIdFromNotification) {
+      const { data: notificationTicket, error: notificationTicketError } = await supabase
+        .from("support_tickets")
+        .select("id")
+        .eq("id", ticketIdFromNotification)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (notificationTicketError) throw notificationTicketError;
+
+      if (notificationTicket?.id) {
+        return NextResponse.json({
+          ticketId: notificationTicket.id,
+          route: `/dashboard/${profile.account_type === "merchant" ? "supplier" : profile.account_type}/customer-service?ticket=${notificationTicket.id}`,
+        });
+      }
+    }
+
+    const { data: openTickets, error: existingError } = await supabase
       .from("support_tickets")
-      .select("id")
+      .select("id, subject")
       .eq("user_id", user.id)
-      .eq("subject", subject)
       .eq("status", "open")
-      .maybeSingle();
+      .order("created_at", { ascending: false })
+      .limit(20);
 
     if (existingError) throw existingError;
+
+    const existingTicket = (openTickets || []).find((ticket: { id: string; subject?: string | null }) => {
+      const ticketSubject = ticket.subject || "";
+      return ticketSubject === subject || (productName ? ticketSubject.includes(productName) : false);
+    });
 
     let ticketId = existingTicket?.id;
 
