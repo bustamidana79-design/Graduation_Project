@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 
 type AccountType = "merchant" | "small_business" | "delivery" | "supporter" | "admin";
 
@@ -49,7 +50,7 @@ type SupplierProduct = {
   description: string | null;
   wholesale_price: number | null;
   min_order_quantity: number | null;
-  product_images?: Array<{ image_url: string }>;
+  product_images?: Array<{ image_url: string; is_primary?: boolean | null }>;
 };
 
 type ShowcaseItem = {
@@ -133,7 +134,7 @@ export default function DashboardUserProfile({
             .maybeSingle(),
           supabase
             .from("products")
-            .select("id, name, description, wholesale_price, min_order_quantity, product_images(image_url)")
+            .select("id, name, description, wholesale_price, min_order_quantity, product_images(image_url, is_primary)")
             .eq("supplier_id", userId)
             .order("created_at", { ascending: false }),
         ]);
@@ -428,9 +429,11 @@ export default function DashboardUserProfile({
               ) : (
                 <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {products.map((product) => {
-                    const imagePath = product.product_images?.[0]?.image_url;
+                    const imagePath =
+                      product.product_images?.find((image) => image.is_primary)?.image_url ||
+                      product.product_images?.[0]?.image_url;
                     const imageUrl = imagePath
-                      ? supabase.storage.from("products").getPublicUrl(imagePath).data.publicUrl
+                      ? supabase.storage.from(PRODUCT_IMAGES_BUCKET).getPublicUrl(imagePath).data.publicUrl
                       : null;
 
                     return (

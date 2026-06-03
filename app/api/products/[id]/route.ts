@@ -80,7 +80,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       currency: normalizeCurrency(body.currency),
       min_order_quantity: Math.max(1, Number(body.min_order_quantity || 1)),
       stock_quantity: Math.max(0, Number(body.stock_quantity || 0)),
-      category_id: body.category_id || null,
+      category: String(body.category || body.category_id || "").trim() || null,
     };
 
     const { error } = await supabase

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { PRODUCT_IMAGES_BUCKET } from "@/lib/storage";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import ProfileEditModal, { type EditableProfile } from "@/components/ProfileEditModal";
 
@@ -38,7 +39,7 @@ type SupplierProduct = {
   wholesale_price: number | null;
   min_order_quantity: number | null;
   stock_quantity: number | null;
-  product_images?: Array<{ image_url: string }>;
+  product_images?: Array<{ image_url: string; is_primary?: boolean | null }>;
 };
 
 const infoCardClass = "rounded-2xl border border-[#e6edf5] bg-white p-5 shadow-sm";
@@ -81,7 +82,7 @@ export default function SupplierProfilePage() {
         fetch("/api/profile", { headers }),
         supabase
           .from("products")
-          .select("id, name, description, wholesale_price, min_order_quantity, stock_quantity, product_images(image_url)")
+          .select("id, name, description, wholesale_price, min_order_quantity, stock_quantity, product_images(image_url, is_primary)")
           .eq("supplier_id", profile.id)
           .order("created_at", { ascending: false }),
       ]);
@@ -255,9 +256,11 @@ export default function SupplierProfilePage() {
         ) : (
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {products.map((product) => {
-              const imagePath = product.product_images?.[0]?.image_url;
+              const imagePath =
+                product.product_images?.find((image) => image.is_primary)?.image_url ||
+                product.product_images?.[0]?.image_url;
               const imageUrl = imagePath
-                ? supabase.storage.from("products").getPublicUrl(imagePath).data.publicUrl
+                ? supabase.storage.from(PRODUCT_IMAGES_BUCKET).getPublicUrl(imagePath).data.publicUrl
                 : null;
 
               return (

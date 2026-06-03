@@ -202,7 +202,7 @@ export async function POST(request: NextRequest) {
       currency: defaultCurrency,
       min_order_quantity: Math.max(1, Number(body.min_order_quantity || 1)),
       stock_quantity: Math.max(0, Number(body.stock_quantity || 0)),
-      category_id: body.category_id || null,
+      category: String(body.category || body.category_id || "").trim() || null,
       is_published: false,
     };
 

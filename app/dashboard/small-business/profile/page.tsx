@@ -39,6 +39,12 @@ const needOptions = [
   { value: "partnerships", label: "شراكات" },
 ];
 
+function normalizeNeeds(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (typeof value === "string") return value.split(",").map((item) => item.trim()).filter(Boolean);
+  return [];
+}
+
 export default function SmallBusinessProfilePage() {
   const { profile, loading } = useDashboardAccess({ requiredAccountType: "small_business" });
   const [baseProfile, setBaseProfile] = useState<BaseProfile | null>(null);
@@ -49,7 +55,7 @@ export default function SmallBusinessProfilePage() {
   const [saving, setSaving] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [selectedNeed, setSelectedNeed] = useState("");
+  const [selectedNeeds, setSelectedNeeds] = useState<string[]>([]);
   const [toast, setToast] = useState("");
   const [showcaseFile, setShowcaseFile] = useState<File | null>(null);
   const [form, setForm] = useState({
@@ -85,7 +91,7 @@ export default function SmallBusinessProfilePage() {
 
       setBaseProfile((baseData as BaseProfile | null) || null);
       setFullProfile(mergedProfile);
-      setSelectedNeed(((mergedProfile.needs || []) as string[])[0] || "");
+      setSelectedNeeds(normalizeNeeds(mergedProfile.needs));
 
       const { data: itemsData, error: itemsError } = await supabase
         .from("small_business_showcase_items")
@@ -169,9 +175,21 @@ export default function SmallBusinessProfilePage() {
     setShowcaseItems((current) => current.filter((item) => item.id !== itemId));
   };
 
+  const toggleNeed = (need: string) => {
+    setSelectedNeeds((current) =>
+      current.includes(need) ? current.filter((item) => item !== need) : [...current, need]
+    );
+  };
+
+  const removeSelectedNeed = (need: string) => {
+    setSelectedNeeds((current) => current.filter((item) => item !== need));
+  };
+
   const handleSaveNeeds = async () => {
-    if (!selectedNeed) {
-      setError("يرجى اختيار الاحتياج الحالي.");
+    const needsToSave = selectedNeeds.map((need) => need.trim()).filter(Boolean);
+
+    if (needsToSave.length === 0) {
+      setError("يرجى اختيار احتياج واحد على الأقل.");
       return;
     }
 
@@ -182,7 +200,7 @@ export default function SmallBusinessProfilePage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${data.session?.access_token || ""}`,
       },
-      body: JSON.stringify({ needs: [selectedNeed] }),
+      body: JSON.stringify({ needs: needsToSave }),
     });
     const result = await response.json();
 
@@ -191,7 +209,10 @@ export default function SmallBusinessProfilePage() {
       return;
     }
 
-    setFullProfile((current) => ({ ...(current || {}), needs: result.profile?.needs || [selectedNeed] } as FullProfile));
+    const nextNeeds = normalizeNeeds(result.profile?.needs);
+    setError(null);
+    setSelectedNeeds(nextNeeds.length > 0 ? nextNeeds : needsToSave);
+    setFullProfile((current) => ({ ...(current || {}), needs: nextNeeds.length > 0 ? nextNeeds : needsToSave } as FullProfile));
     showToast("تم التعديل بنجاح");
   };
 
@@ -259,8 +280,8 @@ export default function SmallBusinessProfilePage() {
             <div className="pt-1">
               <p className="mb-2">الاحتياجات الحالية:</p>
               <div className="mb-3 flex flex-wrap gap-2">
-                {(fullProfile?.needs || []).length > 0 ? (
-                  (fullProfile?.needs || []).map((need) => (
+                {normalizeNeeds(fullProfile?.needs).length > 0 ? (
+                  normalizeNeeds(fullProfile?.needs).map((need) => (
                     <span key={need} className="rounded-full bg-[#eef3f8] px-3 py-1 text-xs">
                       {needOptions.find((item) => item.value === need)?.label || need}
                     </span>
@@ -269,25 +290,47 @@ export default function SmallBusinessProfilePage() {
                   <span className="text-xs text-[#273347]/55">لا توجد احتياجات مضافة بعد.</span>
                 )}
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <select
-                  value={selectedNeed}
-                  onChange={(event) => setSelectedNeed(event.target.value)}
-                  className="flex-1 rounded-lg border border-[#d9e3ee] px-3 py-2 text-sm"
-                >
-                  <option value="">اختر الاحتياج الحالي</option>
+              <div className="grid gap-3">
+                <div className="flex flex-wrap gap-2">
                   {needOptions.map((need) => (
-                    <option key={need.value} value={need.value}>
+                    <label
+                      key={need.value}
+                      className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                        selectedNeeds.includes(need.value)
+                          ? "border-[#273347] bg-[#eef3f8] text-[#273347]"
+                          : "border-[#d9e3ee] bg-white text-[#273347]/75"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedNeeds.includes(need.value)}
+                        onChange={() => toggleNeed(need.value)}
+                        className="h-4 w-4 accent-[#273347]"
+                      />
                       {need.label}
-                    </option>
+                    </label>
                   ))}
-                </select>
+                </div>
+                {selectedNeeds.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedNeeds.map((need) => (
+                      <button
+                        key={need}
+                        type="button"
+                        onClick={() => removeSelectedNeed(need)}
+                        className="rounded-full bg-[#273347] px-3 py-1 text-xs font-semibold text-white"
+                      >
+                        {needOptions.find((item) => item.value === need)?.label || need} ×
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => void handleSaveNeeds()}
                   className="rounded-lg bg-[#273347] px-4 py-2 text-sm font-semibold text-white"
                 >
-                  حفظ الاحتياج
+                  حفظ الاحتياجات
                 </button>
               </div>
             </div>

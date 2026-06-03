@@ -36,7 +36,7 @@ export default function SupplierProductsPage() {
     currency: "ILS",
     min_order_quantity: "1",
     stock_quantity: "1",
-    category_id: "",
+    category: "",
   });
 
   useEffect(() => {
@@ -107,7 +107,7 @@ export default function SupplierProductsPage() {
           wholesale_price: Number(form.wholesale_price),
           min_order_quantity: Number(form.min_order_quantity),
           stock_quantity: Number(form.stock_quantity),
-          category_id: form.category_id || null,
+          category: form.category || null,
         }),
       });
 
@@ -143,7 +143,7 @@ export default function SupplierProductsPage() {
         currency: form.currency,
         min_order_quantity: "1",
         stock_quantity: "1",
-        category_id: "",
+        category: "",
       });
       setImages([]);
       setShowForm(false);
@@ -303,8 +303,8 @@ export default function SupplierProductsPage() {
             <label className="text-sm font-semibold text-[#273347]">الفئة</label>
             <select
               className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
-              value={form.category_id}
-              onChange={(event) => setForm((prev) => ({ ...prev, category_id: event.target.value }))}
+              value={form.category}
+              onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}
             >
               <option value="">اختر الفئة...</option>
               {categories.map((category) => (

@@ -10,6 +10,7 @@ type ProductFormValues = {
   currency?: string;
   min_order_quantity: number;
   stock_quantity: number;
+  category?: string | null;
   category_id?: string | null;
 };
 
@@ -27,7 +28,7 @@ export default function ProductForm({
     currency: initialData.currency || "ILS",
     min_order_quantity: initialData.min_order_quantity || 1,
     stock_quantity: initialData.stock_quantity || 0,
-    category_id: initialData.category_id || "",
+    category: initialData.category || initialData.category_id || "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -62,8 +63,8 @@ export default function ProductForm({
         <label className="text-sm font-semibold text-[#273347]">الفئة</label>
         <select
           className="rounded-2xl border border-[#d8e1ec] px-4 py-3"
-          value={form.category_id || ""}
-          onChange={(event) => setForm((prev) => ({ ...prev, category_id: event.target.value }))}
+          value={form.category || ""}
+          onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}
         >
           <option value="">اختر الفئة...</option>
           {categories.map((category) => (

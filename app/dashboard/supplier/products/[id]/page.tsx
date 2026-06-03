@@ -41,6 +41,7 @@ export default function EditProductPage() {
     currency?: string;
     min_order_quantity: number;
     stock_quantity: number;
+    category?: string | null;
     category_id?: string | null;
   }) => {
     const headers = await getAuthHeaders();
@@ -82,7 +83,7 @@ export default function EditProductPage() {
           currency: product.currency || "ILS",
           min_order_quantity: product.min_order_quantity,
           stock_quantity: product.stock_quantity,
-          category_id: product.category_id || "",
+          category: product.category || product.category_id || "",
         }}
         onSubmit={handleSubmit}
       />

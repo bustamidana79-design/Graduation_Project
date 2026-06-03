@@ -82,6 +82,7 @@ begin
 end $$;
 
 alter table public.products add column if not exists currency text default 'ILS';
+alter table public.products add column if not exists category text;
 alter table public.supplier_profiles add column if not exists shipping_company_id uuid;
 alter table public.orders add column if not exists currency text default 'ILS';
 alter table public.orders add column if not exists phone text;

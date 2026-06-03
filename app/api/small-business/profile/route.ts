@@ -13,19 +13,45 @@ export async function PATCH(request: NextRequest) {
       ? body.needs.map((item: unknown) => String(item).trim()).filter(Boolean)
       : [];
     const socialLink = String(body.social_link || body.socialLink || "").trim();
+    const patch = {
+      needs,
+      ...(socialLink ? { social_link: socialLink } : {}),
+    };
 
-    const { data, error } = await supabase
+    const { error: updateError } = await supabase
       .from("small_business_profiles")
-      .update({
-        needs,
-        ...(socialLink ? { social_link: socialLink } : {}),
-      })
-      .eq("user_id", user.id)
+      .update(patch)
+      .eq("user_id", user.id);
+
+    if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+
+    let { data, error } = await supabase
+      .from("small_business_profiles")
       .select("*")
-      .single();
+      .eq("user_id", user.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && !data) {
+      const created = await supabase
+        .from("small_business_profiles")
+        .insert({
+          user_id: user.id,
+          project_name: profile.full_name || "مشروع",
+          project_field: "غير محدد",
+          project_stage: "running",
+          social_link: socialLink || null,
+          needs,
+        })
+        .select("*")
+        .single();
+
+      data = created.data;
+      error = created.error;
+    }
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ profile: data });
+    return NextResponse.json({ profile: { ...(data || {}), needs } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "تعذر تحديث بيانات المشروع.";
     const status = message === "UNAUTHORIZED" ? 401 : 500;
