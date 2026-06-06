@@ -107,8 +107,12 @@ export async function getShippingCompanies(supabase: SupabaseClient, filters?: {
       : { data: [], error: null };
 
   if (ratesError) throw new Error(ratesError.message);
-  const rateMap = new Map((rates || []).map((rate: any) => [String(rate.shipping_company_id), Number(rate.price || 0)]));
-
+const rateMap = new Map<string, number>(
+  (rates || []).map((rate: any) => [
+    String(rate.shipping_company_id),
+    Number(rate.price || 0),
+  ])
+);
   return availableCompanies
     .filter((company: any) => rateMap.has(String(company.user_id)))
     .map((company: any) => toShippingCompany(company, rateMap.get(String(company.user_id)) || 0));
