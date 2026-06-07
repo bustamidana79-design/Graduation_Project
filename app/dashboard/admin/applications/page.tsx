@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
+import { buildApplicationProjectSummary } from "@/lib/application-summary";
 
 type ApplicationStatus = "pending" | "approved" | "rejected";
 
@@ -738,14 +739,7 @@ export default function ApplicationsPage() {
                     <div className="bg-[#f0f4f8] rounded-xl p-4">
                       <p className="text-xs font-bold text-[#273347]/50 mb-2 uppercase tracking-wider">📌 نبذة عن المشروع</p>
                       <p className="text-[#273347] text-sm font-medium leading-relaxed">
-                        {aiReport.project_summary ||
-                          [
-                            aiApp.data_json.basic.full_name,
-                            accountTypeLabel[aiApp.account_type],
-                            Object.values(aiApp.data_json.type_specific).filter(Boolean).slice(0, 2).join("، "),
-                            aiApp.data_json.basic.country,
-                            aiApp.data_json.basic.city,
-                          ].filter(Boolean).join(" — ")}
+                        {buildApplicationProjectSummary(aiApp) || aiReport.project_summary || "لا توجد تفاصيل كافية عن المشروع في بيانات الطلب."}
                       </p>
                     </div>
                     <div className="bg-[#f0f4f8] rounded-xl p-4">
