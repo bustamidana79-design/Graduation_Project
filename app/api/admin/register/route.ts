@@ -3,6 +3,20 @@ import { createServerSupabase } from "@/lib/api-auth";
 
 const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || "COREX_ADMIN_SECRET";
 
+function appOrigin(request: NextRequest) {
+  const configuredUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_PUBLIC_URL;
+  if (configuredUrl) return configuredUrl.replace(/\/$/, "");
+
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const forwardedHost = request.headers.get("x-forwarded-host") || request.headers.get("host");
+
+  if (forwardedHost) {
+    return `${forwardedProto || "https"}://${forwardedHost}`;
+  }
+
+  return new URL(request.url).origin;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -31,7 +45,7 @@ export async function POST(request: NextRequest) {
       email,
       password,
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/auth/callback`,
+        emailRedirectTo: `${appOrigin(request)}/auth/callback`,
       },
     });
 

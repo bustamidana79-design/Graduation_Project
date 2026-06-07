@@ -83,7 +83,6 @@ type AIReport = {
 };
 
 const ITEMS_PER_PAGE = 8;
-const BASE_URL = "http://localhost:3000";
 
 const accountTypeLabel: Record<string, string> = {
   merchant: "تاجر (جملة)",
@@ -288,9 +287,10 @@ export default function ApplicationsPage() {
     const subject = status === "approved"
       ? "تهانينا! تم قبول طلبك في منصة الموردين"
       : "بخصوص طلب إنشاء حسابك في منصة الموردين";
+    const baseUrl = window.location.origin;
     const bodyText = status === "approved"
-      ? `عزيزي ${fullName}،\n\nتم قبول طلب إنشاء حسابك.\n${note ? `\nملاحظة: ${note}\n` : ""}\nتسجيل الدخول: ${BASE_URL}/login\n\nفريق المنصة`
-      : `عزيزي ${fullName}،\n\nتم رفض طلب إنشاء حسابك.\n${note ? `\nسبب الرفض: ${note}\n` : ""}\nإعادة التسجيل: ${BASE_URL}/register\n\nفريق المنصة`;
+      ? `عزيزي ${fullName}،\n\nتم قبول طلب إنشاء حسابك.\n${note ? `\nملاحظة: ${note}\n` : ""}\nتسجيل الدخول: ${baseUrl}/login\n\nفريق المنصة`
+      : `عزيزي ${fullName}،\n\nتم رفض طلب إنشاء حسابك.\n${note ? `\nسبب الرفض: ${note}\n` : ""}\nإعادة التسجيل: ${baseUrl}/register\n\nفريق المنصة`;
     await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
