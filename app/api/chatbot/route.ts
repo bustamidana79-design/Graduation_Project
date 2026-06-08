@@ -7,6 +7,39 @@ import { groq } from "@/lib/groq";
 type DbRow = Record<string, unknown>;
 
 type UserType = "supplier" | "merchant" | "delivery" | "supporter" | "admin";
+type ChatSessionUserType = UserType | "small_business";
+
+type PlatformAssistantContext = {
+  userTypes: Record<UserType, string>;
+  routes: Record<UserType, string[]>;
+  workflows: string[];
+  paymentSystem: string[];
+  guardrails: string[];
+};
+
+type UserAssistantContext = {
+  profile: DbRow;
+  businessProfiles: Record<string, DbRow | null>;
+  recentNotifications: DbRow[];
+  recentMessages: DbRow[];
+  engagement: {
+    favorites: DbRow[];
+    productViews: DbRow[];
+    cartItems: DbRow[];
+    recentPayments: DbRow[];
+    showcaseItems: DbRow[];
+  };
+  knowledgeBase: DbRow[];
+  warnings: string[];
+};
+
+type RecommendationContext = {
+  productSuggestions: SupplierProductMatch[];
+  supplierSuggestions: SupplierProductMatch[];
+  userSuggestions: AdminProfilePreview[];
+  nextBestActions: string[];
+  warnings: string[];
+};
 
 type RoleDataSet = {
   primary: DbRow[];
@@ -83,6 +116,9 @@ type AnalysisResult = {
   recommendations: string[];
   previousInsights: DbRow[];
   adminPlatform?: AdminPlatformContext | null;
+  platformContext: PlatformAssistantContext;
+  userContext: UserAssistantContext;
+  recommendationContext: RecommendationContext;
   dataQuality: {
     primaryRowsLoaded: number;
     secondaryRowsLoaded: number;
@@ -197,6 +233,7 @@ type AdminPlatformContext = {
 const OWNER_COLUMNS = ["user_id", "profile_id", "supplier_id", "merchant_id", "business_id", "owner_id"];
 
 const USER_TYPES = new Set<UserType>(["supplier", "merchant", "delivery", "supporter", "admin"]);
+const CHAT_SESSION_USER_TYPES = new Set<ChatSessionUserType>(["supplier", "merchant", "small_business", "delivery", "supporter", "admin"]);
 
 function createAnalyticsSupabase(token: string) {
   if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -267,6 +304,81 @@ const ROLE_CONFIG: Record<
     secondaryOwnerColumns: [],
     promptFocus: "ركز على مؤشرات النظام، الطلبات، المستخدمين، المخاطر التشغيلية، وما يحتاج متابعة إدارية.",
   },
+};
+
+const PLATFORM_ASSISTANT_CONTEXT: PlatformAssistantContext = {
+  userTypes: {
+    supplier: "Supplier: manages products, inventory, orders, analytics, messages, profile, customer service, and the smart assistant.",
+    merchant: "Small business / buyer: browses products, compares suppliers, manages cart, orders, favorites, investments, messages, profile, and assistant.",
+    delivery: "Delivery company: manages delivery orders, tracking/status updates, shipping profile, analytics, messages, customer service, and assistant.",
+    supporter: "Supporter / investor: discovers projects, compares opportunities, manages investments, messages, profile, and assistant.",
+    admin: "Admin: reviews applications, users, permissions, products, reports, support tickets, upgrade requests, and platform-wide assistant analytics.",
+  },
+  routes: {
+    supplier: [
+      "/dashboard/supplier/products",
+      "/dashboard/supplier/orders",
+      "/dashboard/supplier/analytics",
+      "/dashboard/supplier/messages",
+      "/dashboard/supplier/profile",
+      "/dashboard/supplier/customer-service",
+      "/dashboard/supplier/assistant",
+    ],
+    merchant: [
+      "/dashboard/small-business/products",
+      "/dashboard/small-business/cart",
+      "/dashboard/small-business/orders",
+      "/dashboard/small-business/favorites",
+      "/dashboard/small-business/investments",
+      "/dashboard/small-business/messages",
+      "/dashboard/small-business/profile",
+      "/dashboard/small-business/assistant",
+    ],
+    delivery: [
+      "/dashboard/shipping-company/orders",
+      "/dashboard/shipping-company/analytics",
+      "/dashboard/shipping-company/messages",
+      "/dashboard/shipping-company/profile",
+      "/dashboard/shipping-company/customer-service",
+      "/dashboard/shipping-company/assistant",
+    ],
+    supporter: [
+      "/dashboard/supporter/projects",
+      "/dashboard/supporter/investments",
+      "/dashboard/supporter/messages",
+      "/dashboard/supporter/profile",
+      "/dashboard/supporter/customer-service",
+      "/dashboard/supporter/assistant",
+    ],
+    admin: [
+      "/dashboard/admin/applications",
+      "/dashboard/admin/users",
+      "/dashboard/admin/permissions",
+      "/dashboard/admin/products",
+      "/dashboard/admin/reports",
+      "/dashboard/admin/upgrade_requests",
+      "/dashboard/admin/customer-service",
+      "/dashboard/admin/assistant",
+    ],
+  },
+  workflows: [
+    "Adding a product: go to products, create or edit product details, set category, price, stock, minimum order quantity, images, publish status, then save.",
+    "Buying flow: browse products, open product details, add to favorites or cart, review quantities and shipping, create order, then complete payment and track delivery.",
+    "Shipping flow: delivery company receives assigned delivery orders, updates status and tracking, and keeps the buyer/supplier informed through notifications/messages.",
+    "Investment flow: supporter reviews projects, asks clarifying questions, creates or follows an investment request, and tracks pending/active/completed status.",
+    "Support flow: user opens customer service, creates a ticket, messages continue in the ticket chat, and admins can review and respond.",
+  ],
+  paymentSystem: [
+    "Payments are connected to orders through the payments table.",
+    "The active provider in the code is Taler, with fallback fields for cash/card/paypal/stripe/bank transfer if enabled later.",
+    "A paid order should move through payment confirmation before shipping/delivery actions are treated as final.",
+  ],
+  guardrails: [
+    "Respect the authenticated user's role and data boundaries.",
+    "If exact data is missing, say what is missing and give practical next steps instead of inventing numbers.",
+    "For financial, investment, admin approval, or rejection decisions, provide recommendations only and remind that the final decision needs human review.",
+    "When the user asks how to use the platform, answer with concrete page paths and steps for their account type.",
+  ],
 };
 
 function toNumber(value: unknown): number {
@@ -558,6 +670,222 @@ async function fetchInternalMarketSearch(
   return { triggered, query, matches, warnings };
 }
 
+function nestedProduct(row: DbRow): DbRow {
+  const product = row.products;
+  return product && typeof product === "object" && !Array.isArray(product) ? (product as DbRow) : row;
+}
+
+function collectInterestTerms(userContext: UserAssistantContext, topProducts: ProductPerformance[], message: string) {
+  const terms = new Set<string>();
+  const rows = [
+    ...userContext.engagement.favorites,
+    ...userContext.engagement.productViews,
+    ...userContext.engagement.cartItems,
+  ];
+
+  for (const row of rows) {
+    const product = nestedProduct(row);
+    for (const key of ["category", "category_id", "name"]) {
+      const value = getString(product, [key]);
+      if (value) terms.add(normalizeSearchText(value));
+    }
+  }
+
+  for (const product of topProducts) {
+    if (product.name) terms.add(normalizeSearchText(product.name));
+  }
+
+  for (const term of extractMarketSearchTerms(message)) {
+    terms.add(term);
+  }
+
+  return Array.from(terms).filter(Boolean).slice(0, 10);
+}
+
+async function fetchPersonalizedProductSuggestions(params: {
+  supabase: ReturnType<typeof createSupabaseAdmin>;
+  userId: string;
+  userType: UserType;
+  userContext: UserAssistantContext;
+  topProducts: ProductPerformance[];
+  message: string;
+}): Promise<{ suggestions: SupplierProductMatch[]; warnings: string[] }> {
+  const { supabase, userId, userType, userContext, topProducts, message } = params;
+  if (userType === "supplier" || userType === "delivery") return { suggestions: [], warnings: [] };
+
+  const terms = collectInterestTerms(userContext, topProducts, message);
+  const { data: products, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("is_published", true)
+    .gt("stock_quantity", 0)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) return { suggestions: [], warnings: [`products recommendations: ${error.message}`] };
+
+  const productRows = ((products || []) as DbRow[]).filter((product) => String(product.supplier_id || "") !== userId);
+  const supplierIds = Array.from(new Set(productRows.map((product) => String(product.supplier_id || "")).filter(Boolean)));
+
+  if (supplierIds.length === 0) return { suggestions: [], warnings: [] };
+
+  const [{ data: supplierProfiles, error: supplierError }, { data: profiles, error: profileError }] = await Promise.all([
+    supabase.from("supplier_profiles").select("user_id, store_name, product_category").in("user_id", supplierIds),
+    supabase.from("profiles").select("id, full_name, country, city, account_type, status, is_active").in("id", supplierIds),
+  ]);
+
+  const supplierMap = new Map<string, DbRow>();
+  const profileMap = new Map<string, DbRow>();
+
+  for (const supplier of (supplierProfiles || []) as DbRow[]) supplierMap.set(String(supplier.user_id), supplier);
+  for (const profile of (profiles || []) as DbRow[]) profileMap.set(String(profile.id), profile);
+
+  const suggestions = productRows
+    .map((product): SupplierProductMatch | null => {
+      const supplierId = String(product.supplier_id || "");
+      const supplier = supplierMap.get(supplierId) || {};
+      const profile = profileMap.get(supplierId) || {};
+      const status = String(profile.status || "").toLowerCase();
+      const accountType = String(profile.account_type || "").toLowerCase();
+      const isActive = profile.is_active !== false;
+
+      if (!isActive || status !== "approved" || accountType === "admin") return null;
+
+      const productName = getProductName(product, "Product");
+      const category = getString(product, ["category", "category_id"], getString(supplier, ["product_category"], ""));
+      const supplierName = getString(supplier, ["store_name"], getString(profile, ["full_name"], "Supplier"));
+      const haystack = normalizeSearchText([productName, product.description, category, supplierName, supplier.product_category].join(" "));
+      const score =
+        terms.length === 0
+          ? 1
+          : terms.reduce((sum, term) => {
+              if (!term || !haystack.includes(term)) return sum;
+              if (normalizeSearchText(category).includes(term)) return sum + 4;
+              if (normalizeSearchText(productName).includes(term)) return sum + 3;
+              return sum + 1;
+            }, 0);
+
+      if (terms.length > 0 && score === 0) return null;
+
+      return {
+        productId: String(product.id || ""),
+        productName,
+        description: product.description ? String(product.description) : null,
+        category: category || null,
+        price: toNumber(product.wholesale_price),
+        currency: String(product.currency || "ILS"),
+        stock: toNumber(product.stock_quantity),
+        minOrderQuantity: Math.max(1, toNumber(product.min_order_quantity) || 1),
+        supplierId,
+        supplierName,
+        supplierCity: profile.city ? String(profile.city) : null,
+        supplierCountry: profile.country ? String(profile.country) : null,
+        supplierCategory: supplier.product_category ? String(supplier.product_category) : null,
+        score,
+      };
+    })
+    .filter((suggestion): suggestion is SupplierProductMatch => Boolean(suggestion))
+    .sort((a, b) => b.score - a.score || b.stock - a.stock || a.price - b.price)
+    .slice(0, 8);
+
+  return {
+    suggestions,
+    warnings: [supplierError ? `supplier recommendation profiles: ${supplierError.message}` : null, profileError ? `profile recommendations: ${profileError.message}` : null].filter(Boolean) as string[],
+  };
+}
+
+function buildNextBestActions(params: {
+  userType: UserType;
+  summary: AnalysisResult["summary"];
+  salesTrend: AnalysisResult["salesTrend"];
+  productAnalysis: ReturnType<typeof analyzeProducts>;
+  userContext: UserAssistantContext;
+  adminPlatform: AdminPlatformContext | null;
+}) {
+  const { userType, summary, salesTrend, productAnalysis, userContext, adminPlatform } = params;
+  const actions: string[] = [];
+  const unreadMessages = userContext.recentMessages.filter((message) => String(message.receiver_id || "") === String(userContext.profile.id || "") && !message.read_at).length;
+  const unreadNotifications = userContext.recentNotifications.filter((notification) => notification.is_read === false).length;
+
+  if (unreadNotifications > 0) actions.push(`Review ${unreadNotifications} unread notifications before making operational decisions.`);
+  if (unreadMessages > 0) actions.push(`Reply to ${unreadMessages} unread direct messages; response speed can protect orders and opportunities.`);
+
+  if (userType === "supplier") {
+    if (productAnalysis.lowStockProducts.length > 0) actions.push(`Restock ${productAnalysis.lowStockProducts[0].name} or pause promotion until inventory is safer.`);
+    if (productAnalysis.weakProducts.length > 0) actions.push(`Improve photos, description, or bundle offer for ${productAnalysis.weakProducts[0].name}.`);
+    actions.push("Use product analytics before adding new inventory: promote winners first, then test one new category.");
+  }
+
+  if (userType === "merchant") {
+    if (userContext.engagement.cartItems.length > 0) actions.push("Review cart quantities and shipping options, then complete the most urgent purchase.");
+    if (userContext.engagement.favorites.length > 0) actions.push("Compare favorite products by price, stock, minimum order quantity, and supplier location.");
+    actions.push("Ask suppliers about lead time and return policy before placing a large order.");
+  }
+
+  if (userType === "delivery") {
+    if (salesTrend.direction === "down") actions.push("Check delayed or unassigned delivery orders and contact merchants with clear status updates.");
+    actions.push("Use delivery analytics to identify frequent cities/areas and adjust coverage or pickup windows.");
+  }
+
+  if (userType === "supporter") {
+    actions.push("Compare projects by demand evidence, owner responsiveness, operating cost, and support use plan.");
+    if (summary.totalOrders > 0) actions.push("Use order history as one evidence point, but ask for current margins before committing support.");
+  }
+
+  if (userType === "admin" && adminPlatform) {
+    if (adminPlatform.quickFacts.pendingApplications > 0) actions.push(`Prioritize reviewing ${adminPlatform.quickFacts.pendingApplications} pending applications.`);
+    if (adminPlatform.products.lowStock > 0) actions.push(`Monitor ${adminPlatform.products.lowStock} low-stock published products because they can affect buyer experience.`);
+    actions.push("Use recent rejected/pending application examples for consistent review notes.");
+  }
+
+  if (actions.length === 0) {
+    actions.push("Collect more platform activity, then ask the assistant again for sharper personalized recommendations.");
+  }
+
+  return Array.from(new Set(actions)).slice(0, 8);
+}
+
+async function buildRecommendationContext(params: {
+  supabase: ReturnType<typeof createSupabaseAdmin>;
+  userId: string;
+  userType: UserType;
+  message: string;
+  userContext: UserAssistantContext;
+  productAnalysis: ReturnType<typeof analyzeProducts>;
+  summary: AnalysisResult["summary"];
+  salesTrend: AnalysisResult["salesTrend"];
+  internalMarketSearch: InternalMarketSearch;
+  adminPlatform: AdminPlatformContext | null;
+}) {
+  const productSuggestionsResult = await fetchPersonalizedProductSuggestions({
+    supabase: params.supabase,
+    userId: params.userId,
+    userType: params.userType,
+    userContext: params.userContext,
+    topProducts: params.productAnalysis.topProducts,
+    message: params.message,
+  });
+
+  const supplierSuggestions = params.internalMarketSearch.matches.length > 0 ? params.internalMarketSearch.matches : productSuggestionsResult.suggestions;
+  const userSuggestions = params.adminPlatform?.profiles.recentApproved || [];
+  const nextBestActions = buildNextBestActions({
+    userType: params.userType,
+    summary: params.summary,
+    salesTrend: params.salesTrend,
+    productAnalysis: params.productAnalysis,
+    userContext: params.userContext,
+    adminPlatform: params.adminPlatform,
+  });
+
+  return {
+    productSuggestions: productSuggestionsResult.suggestions,
+    supplierSuggestions: supplierSuggestions.slice(0, 8),
+    userSuggestions: userSuggestions.slice(0, 8),
+    nextBestActions,
+    warnings: productSuggestionsResult.warnings,
+  } satisfies RecommendationContext;
+}
+
 function percentChange(current: number, previous: number): number | null {
   if (previous === 0 && current === 0) return 0;
   if (previous === 0) return null;
@@ -615,9 +943,228 @@ async function fetchRowsByOwner(
   };
 }
 
+async function fetchRowsByAnyOwner(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  table: string,
+  userId: string,
+  ownerColumns = OWNER_COLUMNS,
+  limit = 20,
+  select = "*"
+): Promise<{ rows: DbRow[]; warning: string | null }> {
+  const missingColumnCodes = new Set(["42703", "PGRST204"]);
+  const byId = new Map<string, DbRow>();
+  const warnings: string[] = [];
+  let supportedColumnFound = false;
+
+  for (const column of ownerColumns) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(select)
+      .eq(column, userId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (!error) {
+      supportedColumnFound = true;
+      for (const row of (data || []) as unknown as DbRow[]) {
+        const key = String(row.id || `${column}-${byId.size}`);
+        byId.set(key, row);
+      }
+      continue;
+    }
+
+    if (missingColumnCodes.has(error.code || "")) {
+      continue;
+    }
+
+    warnings.push(`${table}.${column}: ${error.message}`);
+  }
+
+  if (!supportedColumnFound && warnings.length === 0) {
+    return { rows: [], warning: `${table}: no supported owner column found` };
+  }
+
+  return {
+    rows: Array.from(byId.values()).slice(0, limit),
+    warning: warnings.length > 0 ? warnings.join("; ") : null,
+  };
+}
+
+async function fetchOptionalSingleByOwner(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  table: string,
+  userId: string,
+  ownerColumn = "user_id"
+): Promise<{ row: DbRow | null; warning: string | null }> {
+  const { data, error } = await supabase.from(table).select("*").eq(ownerColumn, userId).maybeSingle();
+
+  if (error) {
+    return { row: null, warning: `${table}: ${error.message}` };
+  }
+
+  return { row: (data as DbRow | null) || null, warning: null };
+}
+
+async function fetchKnowledgeBase(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  userType: UserType,
+  profileAccountType: unknown
+) {
+  const accountType = String(profileAccountType || userType).trim().toLowerCase();
+  const allowedTypes = Array.from(new Set(["all", userType, accountType === "small_business" ? "small_business" : accountType]));
+
+  const { data, error } = await supabase
+    .from("ai_knowledge_base")
+    .select("title, content, category, account_type")
+    .eq("is_active", true)
+    .in("account_type", allowedTypes)
+    .limit(12);
+
+  return {
+    rows: (data || []) as DbRow[],
+    warning: error ? `ai_knowledge_base: ${error.message}` : null,
+  };
+}
+
+function compactProfile(row: DbRow) {
+  return {
+    id: nullableString(row.id),
+    full_name: nullableString(row.full_name),
+    email: nullableString(row.email),
+    phone: nullableString(row.phone),
+    account_type: nullableString(row.account_type),
+    status: nullableString(row.status),
+    is_active: typeof row.is_active === "boolean" ? row.is_active : null,
+    country: nullableString(row.country),
+    city: nullableString(row.city),
+    area: nullableString(row.area),
+    village: nullableString(row.village),
+    preferred_currency: nullableString(row.preferred_currency),
+    created_at: nullableString(row.created_at),
+  };
+}
+
+async function fetchCartContext(supabase: ReturnType<typeof createSupabaseAdmin>, userId: string) {
+  const cartResult = await fetchOptionalSingleByOwner(supabase, "carts", userId);
+  if (!cartResult.row?.id) {
+    return { rows: [], warning: cartResult.warning };
+  }
+
+  const { data, error } = await supabase
+    .from("cart_items")
+    .select("id, product_id, quantity, created_at, products(id, name, category, category_id, wholesale_price, currency, stock_quantity, supplier_id)")
+    .eq("cart_id", cartResult.row.id)
+    .limit(20);
+
+  return {
+    rows: (data || []) as DbRow[],
+    warning: error ? `cart_items: ${error.message}` : cartResult.warning,
+  };
+}
+
+async function fetchUserAssistantContext(params: {
+  supabase: ReturnType<typeof createSupabaseAdmin>;
+  userId: string;
+  userType: UserType;
+  profile: DbRow;
+}) {
+  const { supabase, userId, userType, profile } = params;
+  const [
+    supplierProfile,
+    smallBusinessProfile,
+    shippingProfile,
+    supporterProfile,
+    notifications,
+    messages,
+    favorites,
+    productViews,
+    cartItems,
+    recentPayments,
+    showcaseItems,
+    knowledgeBase,
+  ] = await Promise.all([
+    fetchOptionalSingleByOwner(supabase, "supplier_profiles", userId),
+    fetchOptionalSingleByOwner(supabase, "small_business_profiles", userId),
+    fetchOptionalSingleByOwner(supabase, "shipping_company_profiles", userId),
+    fetchOptionalSingleByOwner(supabase, "supporter_profiles", userId),
+    fetchRowsByAnyOwner(supabase, "notifications", userId, ["user_id"], 8, "id, title, body, notification_type, is_read, created_at"),
+    fetchRowsByAnyOwner(supabase, "direct_messages", userId, ["receiver_id", "sender_id"], 10, "id, sender_id, receiver_id, content, read_at, created_at"),
+    fetchRowsByAnyOwner(
+      supabase,
+      "favorites",
+      userId,
+      ["user_id"],
+      20,
+      "id, product_id, created_at, products(id, name, category, category_id, wholesale_price, currency, stock_quantity, supplier_id)"
+    ),
+    fetchRowsByAnyOwner(
+      supabase,
+      "product_views",
+      userId,
+      ["user_id"],
+      30,
+      "id, product_id, created_at, products(id, name, category, category_id, wholesale_price, currency, stock_quantity, supplier_id)"
+    ),
+    fetchCartContext(supabase, userId),
+    fetchRowsByAnyOwner(supabase, "payments", userId, ["user_id", "buyer_id", "merchant_id", "supplier_id"], 10),
+    fetchRowsByAnyOwner(
+      supabase,
+      "small_business_showcase_items",
+      userId,
+      ["user_id"],
+      30,
+      "id, title, description, image_url, item_link, created_at"
+    ),
+    fetchKnowledgeBase(supabase, userType, profile.account_type),
+  ]);
+
+  const warnings = [
+    supplierProfile.warning,
+    smallBusinessProfile.warning,
+    shippingProfile.warning,
+    supporterProfile.warning,
+    notifications.warning,
+    messages.warning,
+    favorites.warning,
+    productViews.warning,
+    cartItems.warning,
+    recentPayments.warning,
+    showcaseItems.warning,
+    knowledgeBase.warning,
+  ].filter(Boolean) as string[];
+
+  return {
+    profile: compactProfile(profile),
+    businessProfiles: {
+      supplier_profiles: supplierProfile.row,
+      small_business_profiles: smallBusinessProfile.row,
+      shipping_company_profiles: shippingProfile.row,
+      supporter_profiles: supporterProfile.row,
+    },
+    recentNotifications: notifications.rows,
+    recentMessages: messages.rows,
+    engagement: {
+      favorites: favorites.rows,
+      productViews: productViews.rows,
+      cartItems: cartItems.rows,
+      recentPayments: recentPayments.rows,
+      showcaseItems: showcaseItems.rows,
+    },
+    knowledgeBase: knowledgeBase.rows,
+    warnings,
+  } satisfies UserAssistantContext;
+}
+
 function normalizeUserType(value: unknown): UserType {
-  const userType = String(value || "").trim() as UserType;
+  const rawUserType = String(value || "").trim();
+  if (rawUserType === "small_business") return "merchant";
+  const userType = rawUserType as UserType;
   return USER_TYPES.has(userType) ? userType : "supplier";
+}
+
+function normalizeSessionUserType(value: unknown): ChatSessionUserType | undefined {
+  const userType = String(value || "").trim() as ChatSessionUserType;
+  return CHAT_SESSION_USER_TYPES.has(userType) ? userType : undefined;
 }
 
 function resolveProfileUserType(profileAccountType: unknown, requestedUserType?: UserType): UserType {
@@ -628,6 +1175,19 @@ function resolveProfileUserType(profileAccountType: unknown, requestedUserType?:
   if (USER_TYPES.has(accountType as UserType)) return accountType as UserType;
 
   return requestedUserType || "supplier";
+}
+
+function resolveSessionUserType(
+  profileAccountType: unknown,
+  requestedSessionUserType: ChatSessionUserType | undefined,
+  analyticsUserType: UserType
+): ChatSessionUserType {
+  const accountType = String(profileAccountType || "").trim().toLowerCase();
+
+  if (accountType === "small_business") return "small_business";
+  if (requestedSessionUserType) return requestedSessionUserType;
+
+  return analyticsUserType;
 }
 
 async function fetchRoleData(
@@ -1156,6 +1716,104 @@ function generateInsights(params: {
   return { recommendations, customerBehavior };
 }
 
+function limitRows(rows: DbRow[], limit: number, keys?: string[]) {
+  return rows.slice(0, limit).map((row) => {
+    if (!keys) return row;
+
+    return Object.fromEntries(keys.map((key) => [key, row[key]]).filter(([, value]) => value !== undefined && value !== null));
+  });
+}
+
+function compactAssistantContext(analysisResult: AnalysisResult) {
+  const context = {
+    userId: analysisResult.userId,
+    userType: analysisResult.userType,
+    businessDomain: analysisResult.businessDomain,
+    generatedAt: analysisResult.generatedAt,
+    summary: analysisResult.summary,
+    salesTrend: {
+      direction: analysisResult.salesTrend.direction,
+      orderChangePercent: analysisResult.salesTrend.orderChangePercent,
+      revenueChangePercent: analysisResult.salesTrend.revenueChangePercent,
+      alert: analysisResult.salesTrend.alert,
+      dailyRevenue: analysisResult.salesTrend.dailyRevenue.slice(-7),
+    },
+    topProducts: analysisResult.topProducts.slice(0, 3),
+    weakProducts: analysisResult.weakProducts.slice(0, 3),
+    marketingIntelligence: {
+      lowStockProducts: analysisResult.marketingIntelligence.lowStockProducts.slice(0, 3),
+      customerBehavior: analysisResult.marketingIntelligence.customerBehavior.slice(0, 3),
+      externalSignals: {
+        googleTrends: analysisResult.marketingIntelligence.externalSignals.googleTrends.slice(0, 3),
+        reddit: analysisResult.marketingIntelligence.externalSignals.reddit.slice(0, 2),
+        youtube: analysisResult.marketingIntelligence.externalSignals.youtube.slice(0, 2),
+      },
+      internalMarketSearch: {
+        triggered: analysisResult.marketingIntelligence.internalMarketSearch.triggered,
+        query: analysisResult.marketingIntelligence.internalMarketSearch.query,
+        matches: analysisResult.marketingIntelligence.internalMarketSearch.matches.slice(0, 4),
+      },
+    },
+    recommendations: analysisResult.recommendations.slice(0, 5),
+    previousInsights: limitRows(analysisResult.previousInsights, 3),
+    platformContext: {
+      routes: analysisResult.platformContext.routes[analysisResult.userType],
+      workflows: analysisResult.platformContext.workflows,
+      paymentSystem: analysisResult.platformContext.paymentSystem,
+      guardrails: analysisResult.platformContext.guardrails,
+    },
+    userContext: {
+      profile: analysisResult.userContext.profile,
+      businessProfiles: analysisResult.userContext.businessProfiles,
+      recentNotifications: limitRows(analysisResult.userContext.recentNotifications, 3, ["title", "body", "notification_type", "is_read", "created_at"]),
+      recentMessages: limitRows(analysisResult.userContext.recentMessages, 3, ["content", "read_at", "created_at"]),
+      engagement: {
+        showcaseItems: limitRows(analysisResult.userContext.engagement.showcaseItems, 8, ["title", "description", "item_link", "created_at"]),
+        favorites: limitRows(analysisResult.userContext.engagement.favorites, 4, ["product_id", "products", "created_at"]),
+        productViews: limitRows(analysisResult.userContext.engagement.productViews, 4, ["product_id", "products", "created_at"]),
+        cartItems: limitRows(analysisResult.userContext.engagement.cartItems, 4, ["product_id", "quantity", "products"]),
+        recentPayments: limitRows(analysisResult.userContext.engagement.recentPayments, 3, ["amount", "currency", "payment_status", "created_at"]),
+      },
+      knowledgeBase: limitRows(analysisResult.userContext.knowledgeBase, 5, ["title", "content", "category", "account_type"]),
+    },
+    recommendationContext: {
+      productSuggestions: analysisResult.recommendationContext.productSuggestions.slice(0, 4),
+      supplierSuggestions: analysisResult.recommendationContext.supplierSuggestions.slice(0, 4),
+      userSuggestions: analysisResult.recommendationContext.userSuggestions.slice(0, 3),
+      nextBestActions: analysisResult.recommendationContext.nextBestActions.slice(0, 5),
+    },
+    adminPlatform: analysisResult.adminPlatform
+      ? {
+          quickFacts: analysisResult.adminPlatform.quickFacts,
+          applications: {
+            byStatus: analysisResult.adminPlatform.applications.byStatus,
+            byAccountType: analysisResult.adminPlatform.applications.byAccountType,
+            recentRejected: analysisResult.adminPlatform.applications.recentRejected.slice(0, 3),
+            recentPending: analysisResult.adminPlatform.applications.recentPending.slice(0, 3),
+          },
+          profiles: {
+            byStatus: analysisResult.adminPlatform.profiles.byStatus,
+            byAccountType: analysisResult.adminPlatform.profiles.byAccountType,
+            recentApproved: analysisResult.adminPlatform.profiles.recentApproved.slice(0, 3),
+            recentRejected: analysisResult.adminPlatform.profiles.recentRejected.slice(0, 3),
+          },
+          products: analysisResult.adminPlatform.products,
+          upgradeRequests: analysisResult.adminPlatform.upgradeRequests,
+        }
+      : null,
+    dataQuality: {
+      primaryRowsLoaded: analysisResult.dataQuality.primaryRowsLoaded,
+      secondaryRowsLoaded: analysisResult.dataQuality.secondaryRowsLoaded,
+      aiInsightsLoaded: analysisResult.dataQuality.aiInsightsLoaded,
+      primaryTable: analysisResult.dataQuality.primaryTable,
+      secondaryTable: analysisResult.dataQuality.secondaryTable,
+      warnings: analysisResult.dataQuality.warnings.slice(0, 6),
+    },
+  };
+
+  return JSON.stringify(context);
+}
+
 async function fetchJson(url: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3500);
@@ -1270,7 +1928,7 @@ async function fetchChatHistory(
 async function createChatSession(
   supabase: ReturnType<typeof createSupabaseAdmin>,
   userId: string,
-  userType: UserType
+  userType: ChatSessionUserType
 ) {
   const typedInsert = await supabase
     .from("ai_chat_sessions")
@@ -1297,29 +1955,43 @@ async function getOrCreateChatSession(params: {
   supabase: ReturnType<typeof createSupabaseAdmin>;
   sessionId: string | null;
   userId: string;
-  userType: UserType;
+  userType: ChatSessionUserType;
 }) {
   const { supabase, sessionId, userId, userType } = params;
 
   if (sessionId) {
     const { data, error } = await supabase
       .from("ai_chat_sessions")
-      .select("id, profile_id")
+      .select("id, profile_id, user_type")
       .eq("id", sessionId)
       .maybeSingle();
 
     if (error) throw new Error(error.message);
     if (!data || String(data.profile_id) !== userId) throw new Error("CHAT_SESSION_FORBIDDEN");
+    if (String(data.user_type || "") !== userType) {
+      await supabase.from("ai_chat_sessions").update({ user_type: userType, updated_at: new Date().toISOString() }).eq("id", sessionId);
+    }
 
     return String(data.id);
   }
 
-  const { data, error } = await supabase
+  const typedSessions = await supabase
     .from("ai_chat_sessions")
     .select("id")
     .eq("profile_id", userId)
+    .eq("user_type", userType)
     .order("created_at", { ascending: false })
     .limit(1);
+
+  const missingUserType = typedSessions.error?.code === "42703" || typedSessions.error?.code === "PGRST204";
+  const { data, error } = missingUserType
+    ? await supabase
+        .from("ai_chat_sessions")
+        .select("id")
+        .eq("profile_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+    : typedSessions;
 
   if (error) throw new Error(error.message);
 
@@ -1435,8 +2107,15 @@ function decodeBrokenArabic(text: string) {
 
 function enforceArabicOnly(text: string) {
   return text
-    .replace(/[A-Za-z]+/g, "")
     .replace(/[^\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff0-9٠-٩\s.,،:؛!?؟%()[\]\-+/"'\n]/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function sanitizeAssistantReply(text: string) {
+  return text
+    .replace(/[^\u0600-\u06ff\u0750-\u077f\u08a0-\u08ffA-Za-z0-9\s.,،:؛;!?؟%()[\]\-+/"'@._#&=<>؟\n]/g, "")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -1448,7 +2127,7 @@ function postProcessGroqReply(rawReply: string) {
     .replace(/\uFFFD/g, "")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
 
-  const cleaned = enforceArabicOnly(decoded);
+  const cleaned = sanitizeAssistantReply(decoded);
   const arabicCharacters = cleaned.match(/[\u0600-\u06ff]/g)?.length || 0;
 
   if (!cleaned || arabicCharacters < 5) {
@@ -1458,12 +2137,58 @@ function postProcessGroqReply(rawReply: string) {
   return cleaned;
 }
 
+function isGroqRateLimitError(error: unknown) {
+  const candidate = error as { status?: number; code?: string; error?: { code?: string }; message?: string } | null;
+  return (
+    candidate?.status === 429 ||
+    candidate?.code === "rate_limit_exceeded" ||
+    candidate?.error?.code === "rate_limit_exceeded" ||
+    String(candidate?.message || "").toLowerCase().includes("rate limit")
+  );
+}
+
+async function createChatCompletionWithFallback(params: {
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  maxTokens: number;
+  temperature: number;
+}) {
+  const models = [
+    process.env.GROQ_CHAT_MODEL || "llama-3.1-8b-instant",
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+  ];
+  const uniqueModels = Array.from(new Set(models.filter(Boolean)));
+  let lastError: unknown = null;
+
+  for (const model of uniqueModels) {
+    try {
+      return await groq.chat.completions.create({
+        model,
+        messages: params.messages,
+        max_tokens: params.maxTokens,
+        temperature: params.temperature,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!isGroqRateLimitError(error)) throw error;
+    }
+  }
+
+  if (lastError && isGroqRateLimitError(lastError)) {
+    throw new Error("GROQ_RATE_LIMIT");
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("GROQ_RATE_LIMIT");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const message = String(body.message || "").trim();
     const requestedUserId = String(body.userId || body.profileId || "").trim();
-    const requestedUserType = body.requestedUserType || body.userType ? normalizeUserType(body.requestedUserType || body.userType) : undefined;
+    const requestedUserTypeValue = body.requestedUserType || body.userType;
+    const requestedUserType = requestedUserTypeValue ? normalizeUserType(requestedUserTypeValue) : undefined;
+    const requestedSessionUserType = requestedUserTypeValue ? normalizeSessionUserType(requestedUserTypeValue) : undefined;
     const sessionId = body.sessionId ? String(body.sessionId) : null;
     const conversationId = body.conversationId ? String(body.conversationId) : null;
 
@@ -1483,7 +2208,7 @@ export async function POST(req: NextRequest) {
     let targetProfile = auth.profile as DbRow;
 
     if (userId !== auth.user.id) {
-      const { data, error } = await supabase.from("profiles").select("id, account_type").eq("id", userId).single();
+      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
       if (error || !data) {
         return NextResponse.json({ error: "لم يتم العثور على ملف المستخدم المطلوب." }, { status: 404 });
       }
@@ -1491,13 +2216,17 @@ export async function POST(req: NextRequest) {
     }
 
     const userType = resolveProfileUserType(targetProfile.account_type, requestedUserType);
+    const sessionUserType = resolveSessionUserType(targetProfile.account_type, requestedSessionUserType, userType);
     if (userType === "admin" && !isAdmin) {
       return NextResponse.json({ error: "Admin access required." }, { status: 403 });
     }
 
-    const currentSessionId = await getOrCreateChatSession({ supabase, sessionId, userId, userType });
+    const currentSessionId = await getOrCreateChatSession({ supabase, sessionId, userId, userType: sessionUserType });
     const shouldGenerateTitle = await shouldSuggestChatTitle(supabase, currentSessionId);
-    const roleData = await fetchRoleData(supabase, userId, userType);
+    const [roleData, userContext] = await Promise.all([
+      fetchRoleData(supabase, userId, userType),
+      fetchUserAssistantContext({ supabase, userId, userType, profile: targetProfile }),
+    ]);
     const roleConfig = ROLE_CONFIG[userType];
 
     const { validOrders, summary } = analyzeOrders(roleData.primary);
@@ -1515,6 +2244,18 @@ export async function POST(req: NextRequest) {
       fetchInternalMarketSearch(supabase, message, userType),
     ]);
     const adminPlatform = userType === "admin" ? await fetchAdminPlatformContext(supabase) : null;
+    const recommendationContext = await buildRecommendationContext({
+      supabase,
+      userId,
+      userType,
+      message,
+      userContext,
+      productAnalysis,
+      summary,
+      salesTrend,
+      internalMarketSearch,
+      adminPlatform,
+    });
 
     const analysisResult: AnalysisResult = {
       userId,
@@ -1535,13 +2276,23 @@ export async function POST(req: NextRequest) {
       recommendations: generated.recommendations,
       previousInsights: roleData.aiInsights.slice(0, 10),
       adminPlatform,
+      platformContext: PLATFORM_ASSISTANT_CONTEXT,
+      userContext,
+      recommendationContext,
       dataQuality: {
         primaryRowsLoaded: roleData.primary.length,
         secondaryRowsLoaded: roleData.secondary.length,
         aiInsightsLoaded: roleData.aiInsights.length,
         primaryTable: roleData.primaryTable,
         secondaryTable: roleData.secondaryTable,
-        warnings: [...roleData.warnings, ...externalSignals.warnings, ...internalMarketSearch.warnings, ...(adminPlatform?.warnings || [])],
+        warnings: [
+          ...roleData.warnings,
+          ...userContext.warnings,
+          ...externalSignals.warnings,
+          ...internalMarketSearch.warnings,
+          ...recommendationContext.warnings,
+          ...(adminPlatform?.warnings || []),
+        ],
       },
     };
 
@@ -1565,8 +2316,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+    const compactContext = compactAssistantContext(analysisResult);
+    const completion = await createChatCompletionWithFallback({
       messages: [
         {
           role: "system",
@@ -1575,7 +2326,22 @@ export async function POST(req: NextRequest) {
 ممنوع أن تخترع أرقاما أو تحلل من جديد. التحليل الحسابي تم داخل السيرفر فقط.
 استخدم نتيجة التحليل التالية كما هي لصياغة رد عربي احترافي ومخصص:
 
-${JSON.stringify(analysisResult)}
+${compactContext}
+
+Assistant capability rules:
+- You are not a generic chatbot. You are the platform assistant connected to system context, user context, business advisory, recommendations, marketing, analytics, investment, and admin operations.
+- For "how do I" questions, use analysisResult.platformContext.routes and workflows. Mention the most relevant dashboard path for the current userType.
+- For personal data questions, use only analysisResult.userContext, summary, salesTrend, topProducts, weakProducts, marketingIntelligence, previousInsights, and role-owned rows already included in analysisResult.
+- For small_business questions about "معرض أعمالي", "اعمالي", "أعمالي", "منتجات مشروعي", "منتجاتي", "مشروعي", "my showcase", or "my portfolio", use analysisResult.userContext.engagement.showcaseItems and small_business_profiles first. Do not answer with supplier marketplace products, favorites, viewed products, cart products, productSuggestions, or supplierSuggestions unless the user explicitly asks for products to buy or suppliers to source from.
+- For small_business, distinguish clearly between "منتجات معرض المشروع" from small_business_showcase_items and "منتجات الموردين" from the marketplace products table.
+- For recommendations, use analysisResult.recommendationContext first. Suggest products/suppliers/users only from productSuggestions, supplierSuggestions, userSuggestions, or internalMarketSearch.matches. If these are empty, give criteria and next steps, not invented names.
+- For marketing requests, use knowledgeBase, externalSignals, productAnalysis, and the user's business profile to write posts, captions, hashtags, product descriptions, campaign ideas, and customer replies.
+- For analytics questions like sales drop, top category, top product, weak product, stock, conversion, or order behavior, explain the available numbers directly and then give action steps.
+- For investment questions, compare opportunities using investments, project/business profile, order evidence, responsiveness, risk, and support plan. Never present investment advice as a final financial decision.
+- For admin questions, use adminPlatform for platform-wide counts and examples. Do not expose unnecessary private details unless the admin explicitly asks and the data is in analysisResult.
+- If the user asks something unrelated to the platform, still answer helpfully in Arabic, then connect it to the platform only if useful.
+- If exact data is not available, say exactly which data is missing and give the best practical answer from available context.
+- Always answer the user's last message directly; do not ignore short, vague, misspelled, or mixed Arabic/English input. Ask at most one clarifying question only when truly necessary.
 
 Admin platform context rules:
 - If userType is "admin", analysisResult.adminPlatform is authoritative for platform-wide applications, profiles/accounts, products, and upgrade requests.
@@ -1598,11 +2364,13 @@ Admin platform context rules:
 - إذا كان internalMarketSearch.triggered يساوي true لكن matches فارغة، قل إن النظام لم يجد منتجات منشورة مطابقة واقترح تغيير كلمات البحث أو تصفح صفحة المنتجات.
 - اكتب باللغة العربية فقط.
 - لا تستخدم رموزا غريبة أو زخارف أو أحرفا غير عربية.
+IMPORTANT: Write the explanation in Arabic, but preserve store names, product names, person names, emails, URLs, and dashboard paths exactly as they appear, even when they are in English.
+IMPORTANT: English characters are allowed when they are part of real names, emails, URLs, product names, or platform paths.
           `.trim(),
         },
         ...chatHistory,
       ],
-      max_tokens: 1200,
+      maxTokens: 800,
       temperature: 0.4,
     });
 
@@ -1640,6 +2408,12 @@ Admin platform context rules:
     });
   } catch (error) {
     console.error("Chatbot route error:", error);
+    if (error instanceof Error && error.message === "GROQ_RATE_LIMIT") {
+      return NextResponse.json(
+        { error: "تم الوصول إلى حد استخدام المساعد الذكي مؤقتا. جرّب بعد حوالي ساعة، أو اكتب سؤالا أقصر حتى يستهلك توكنز أقل." },
+        { status: 429 }
+      );
+    }
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "يجب تسجيل الدخول لاستخدام الشات بوت." }, { status: 401 });
     }

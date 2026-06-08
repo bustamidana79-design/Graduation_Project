@@ -98,9 +98,9 @@ const assistantConfig: Record<
   },
 };
 
-const analyticsUserTypeByAccount: Record<AccountType, "supplier" | "merchant" | "delivery" | "supporter" | "admin"> = {
+const analyticsUserTypeByAccount: Record<AccountType, "supplier" | "small_business" | "delivery" | "supporter" | "admin"> = {
   merchant: "supplier",
-  small_business: "merchant",
+  small_business: "small_business",
   delivery: "delivery",
   supporter: "supporter",
   admin: "admin",
@@ -141,6 +141,18 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
   }, [messages, sending]);
 
   const createSession = useCallback(async (profileIdValue: string) => {
+    const sessionUserType = analyticsUserTypeByAccount[accountType];
+    const typedInsert = await supabase
+      .from("ai_chat_sessions")
+      .insert({ profile_id: profileIdValue, user_type: sessionUserType })
+      .select("id")
+      .single();
+
+    if (!typedInsert.error) return typedInsert.data.id as string;
+
+    const missingUserType = typedInsert.error.code === "42703" || typedInsert.error.code === "PGRST204";
+    if (!missingUserType) throw typedInsert.error;
+
     const { data, error: sessionError } = await supabase
       .from("ai_chat_sessions")
       .insert({ profile_id: profileIdValue })
@@ -149,7 +161,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
 
     if (sessionError) throw sessionError;
     return data.id as string;
-  }, []);
+  }, [accountType]);
 
   const fetchSessionMessages = useCallback(
     async (nextSessionId: string) => {
@@ -168,12 +180,24 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
   const fetchChatSessions = useCallback(async (profileIdValue: string) => {
     setSessionsLoading(true);
 
-    const { data: sessionRows, error: sessionsError } = await supabase
+    const sessionUserType = analyticsUserTypeByAccount[accountType];
+    const typedSessions = await supabase
       .from("ai_chat_sessions")
       .select("id, created_at, title")
       .eq("profile_id", profileIdValue)
+      .eq("user_type", sessionUserType)
       .order("created_at", { ascending: false })
       .limit(30);
+
+    const missingUserType = typedSessions.error?.code === "42703" || typedSessions.error?.code === "PGRST204";
+    const { data: sessionRows, error: sessionsError } = missingUserType
+      ? await supabase
+          .from("ai_chat_sessions")
+          .select("id, created_at, title")
+          .eq("profile_id", profileIdValue)
+          .order("created_at", { ascending: false })
+          .limit(30)
+      : typedSessions;
 
     setSessionsLoading(false);
 
@@ -207,7 +231,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
 
     setChatSessions(nextSessions);
     return nextSessions;
-  }, []);
+  }, [accountType]);
 
   const loadChat = useCallback(async () => {
     setLoading(true);
