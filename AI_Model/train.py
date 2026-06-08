@@ -94,6 +94,39 @@ def make_training_row(
     type_specific: dict[str, Any],
     proof_links: list[str | None],
 ) -> dict[str, Any]:
+    image_features_by_label = {
+        "approve": {
+            "number_of_uploaded_images": 2,
+            "image_professionalism_score": 84,
+            "image_matches_category": 1,
+            "image_confidence": 0.88,
+            "image_quality_score": 86,
+            "image_mismatch_count": 0,
+            "image_has_warnings": 0,
+            "image_manipulation_risk": 0,
+        },
+        "review": {
+            "number_of_uploaded_images": 1,
+            "image_professionalism_score": 56,
+            "image_matches_category": 0.5,
+            "image_confidence": 0.58,
+            "image_quality_score": 58,
+            "image_mismatch_count": 0,
+            "image_has_warnings": 0,
+            "image_manipulation_risk": 0,
+        },
+        "reject": {
+            "number_of_uploaded_images": 1,
+            "image_professionalism_score": 24,
+            "image_matches_category": 0,
+            "image_confidence": 0.72,
+            "image_quality_score": 22,
+            "image_mismatch_count": 1,
+            "image_has_warnings": 1,
+            "image_manipulation_risk": 0,
+        },
+    }
+
     return {
         "id": row_id,
         "user_id": "generated-seed-user",
@@ -112,6 +145,7 @@ def make_training_row(
             "proof_link_1": proof_links[0] if proof_links else None,
             "proof_link_2": proof_links[1] if len(proof_links) > 1 else None,
         },
+        "image_features": image_features_by_label.get(label, image_features_by_label["review"]),
     }
 
 
@@ -199,7 +233,7 @@ def generate_augmented_seed_rows() -> list[dict[str, Any]]:
                     "needs": ["marketing", "packaging"],
                     "social_link": f"https://instagram.com/{slug}",
                 },
-                [f"https://instagram.com/{slug}", f"https://facebook.com/{slug}"],
+                [f"https://instagram.com/{slug}", None if index % 2 == 0 else f"https://facebook.com/{slug}"],
             )
         )
 
@@ -221,7 +255,7 @@ def generate_augmented_seed_rows() -> list[dict[str, Any]]:
                     "store_link": f"https://instagram.com/{slug}",
                     "commercial_reg_no": "home_based",
                 },
-                [f"https://instagram.com/{slug}", f"https://facebook.com/{slug}"],
+                [f"https://instagram.com/{slug}", None if index % 2 == 0 else f"https://facebook.com/{slug}"],
             )
         )
 
@@ -243,7 +277,7 @@ def generate_augmented_seed_rows() -> list[dict[str, Any]]:
                     "avg_delivery_time": "same_day",
                     "license_no": "municipality_registered",
                 },
-                [f"https://facebook.com/{slug}", f"https://instagram.com/{slug}"],
+                [f"https://facebook.com/{slug}", None if index % 2 == 0 else f"https://instagram.com/{slug}"],
             )
         )
 
@@ -265,7 +299,7 @@ def generate_augmented_seed_rows() -> list[dict[str, Any]]:
                     "professional_link": f"https://linkedin.com/in/{slug}",
                     "previous_experience": "Worked with several small businesses on practical improvements.",
                 },
-                [f"https://linkedin.com/in/{slug}", f"https://facebook.com/{slug}"],
+                [f"https://linkedin.com/in/{slug}", None if index % 2 == 0 else f"https://facebook.com/{slug}"],
             )
         )
 

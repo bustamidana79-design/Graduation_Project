@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { HorizontalBarChart } from "@/components/SimpleCharts";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 
 type Stats = {
@@ -87,25 +86,6 @@ export default function AdminDashboardPage() {
     { label: "مرفوض", value: stats.rejectedApplications, color: "border-r-4 border-red-400 bg-red-50", textColor: "text-red-700" },
   ];
 
-  const userTypeChart = useMemo(
-    () => [
-      { key: "merchant", label: "تجار الجملة", value: stats.merchants, color: "#52789f" },
-      { key: "small_business", label: "المشاريع الصغيرة", value: stats.smallBusinesses, color: "#6f9cc3" },
-      { key: "delivery", label: "شركات التوصيل", value: stats.delivery, color: "#8fb1cf" },
-      { key: "supporter", label: "الداعمون", value: stats.supporters, color: "#546a85" },
-    ],
-    [stats.delivery, stats.merchants, stats.smallBusinesses, stats.supporters]
-  );
-
-  const applicationStatusChart = useMemo(
-    () => [
-      { key: "pending", label: "قيد المراجعة", value: stats.pendingApplications, color: "#6f9cc3" },
-      { key: "approved", label: "مقبول", value: stats.approvedApplications, color: "#52789f" },
-      { key: "rejected", label: "مرفوض", value: stats.rejectedApplications, color: "#8fb1cf" },
-    ],
-    [stats.approvedApplications, stats.pendingApplications, stats.rejectedApplications]
-  );
-
   return (
     <div className="flex min-h-screen flex-1 flex-col" dir="rtl">
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
@@ -126,17 +106,6 @@ export default function AdminDashboardPage() {
                   <p className="mt-1 text-xs text-[#273347]/50">{card.label}</p>
                 </div>
               ))}
-            </div>
-
-            <div className="mb-8 grid gap-4 lg:grid-cols-2">
-              <section className="rounded-2xl border border-[#e6edf5] bg-white p-6 shadow-sm">
-                <h3 className="mb-4 text-sm font-bold text-[#273347]">توزيع المستخدمين</h3>
-                <HorizontalBarChart data={userTypeChart} />
-              </section>
-              <section className="rounded-2xl border border-[#e6edf5] bg-white p-6 shadow-sm">
-                <h3 className="mb-4 text-sm font-bold text-[#273347]">حالات طلبات التسجيل</h3>
-                <HorizontalBarChart data={applicationStatusChart} />
-              </section>
             </div>
 
             <p className="mb-3 text-xs font-semibold text-[#273347]/50">حالات الطلبات</p>

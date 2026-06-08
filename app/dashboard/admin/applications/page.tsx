@@ -34,7 +34,7 @@ type Application = {
     proof_link_2?: string;
     page_username?: string | null;
     note?: string;
-    file_urls?: string[];
+    file_urls?: string[] | null;
   };
 };
 
@@ -66,24 +66,181 @@ type AIReport = {
   decision_hint: string;
   local_score?: number;
   _meta?: {
+    reportVersion?: number;
     aiSource?: "random_forest" | "fallback";
     bioQuality: "good" | "weak" | "suspicious";
     bioScore: number;
     link1: LinkMeta;
     link2: LinkMeta;
+    imageFeatures?: {
+      number_of_uploaded_images: number;
+      image_professionalism_score: number;
+      image_matches_category: number;
+      image_confidence: number;
+      image_quality_score: number;
+      image_mismatch_count: number;
+      image_has_warnings: number;
+      image_manipulation_risk: number;
+    };
   };
-        image_analysis?: {
-  authenticity: string;
-  photoshop_detected: boolean;
-  document_type: string;
-  matches_business: boolean | null;
-  confidence: number;
-  description: string;
-  warnings: string[];
-}[];
+  image_analysis?: {
+    image_url?: string;
+    file_name?: string;
+    authenticity: string;
+    photoshop_detected: boolean;
+    document_type: string;
+    matches_business: boolean | null;
+    matches_project?: boolean | null;
+    confidence: number;
+    description: string;
+    business_type?: string;
+    main_objects?: string[];
+    extracted_text?: string[];
+    professionalism_score?: number;
+    quality_score?: number;
+    explanation?: string;
+    warnings: string[];
+  }[];
 };
 
 const ITEMS_PER_PAGE = 8;
+const AI_REPORT_VERSION = 2;
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif", "bmp", "avif"]);
+
+function getProofFileUrls(app: Application | null) {
+  const fileUrls = app?.proof_json?.file_urls;
+  return (Array.isArray(fileUrls) ? fileUrls : [])
+    .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+    .map((url) => url.trim());
+}
+
+function parseStoredAiReport(app: Application): AIReport | null {
+  if (!app.ai_checked || app.ai_score === undefined || !app.ai_reason) return null;
+
+  try {
+    const parsed = JSON.parse(app.ai_reason) as AIReport;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isCurrentAiReport(app: Application, report: AIReport | null) {
+  if (!report || report._meta?.reportVersion !== AI_REPORT_VERSION) return false;
+
+  const fileUrls = getProofFileUrls(app);
+  if (fileUrls.length === 0) return true;
+
+  const imageAnalyses = report.image_analysis || [];
+  if (imageAnalyses.length < fileUrls.length) return false;
+
+  return fileUrls.every((url, index) => {
+    const indexedUrl = imageAnalyses[index]?.image_url;
+    return indexedUrl === url || imageAnalyses.some((image) => image.image_url === url);
+  });
+}
+
+function getCurrentAiScore(app: Application) {
+  const report = parseStoredAiReport(app);
+  if (!isCurrentAiReport(app, report)) return undefined;
+  return typeof report?.score === "number" ? report.score : app.ai_score;
+}
+
+function cleanAiDetails(details: string) {
+  return details
+    .replace(/^القرار المبدئي:\s*.*?(?:نسبة الثقة|بنسبة ثقة)\s*[:：]?\s*\d+%\s*[.؟!]?\s*/u, "")
+    .replace(/^القرار المبدئي:\s*[^.؟!]*[.؟!]\s*/u, "")
+    .replace(/^نسبة الثقة:\s*\d+%\s*[.؟!]\s*/u, "")
+    .replace(/^الأسباب الأساسية:\s*/u, "")
+    .trim();
+}
+
+function averageScores(scores: Array<number | undefined>) {
+  const validScores = scores.filter((score): score is number => typeof score === "number");
+  if (validScores.length === 0) return undefined;
+  return Math.round(validScores.reduce((sum, score) => sum + score, 0) / validScores.length);
+}
+
+function buildScoreBasis(report: AIReport) {
+  const imageFeatures = report._meta?.imageFeatures;
+  const imageScore =
+    imageFeatures && imageFeatures.number_of_uploaded_images > 0
+      ? averageScores([
+          imageFeatures.image_professionalism_score,
+          imageFeatures.image_quality_score,
+          Math.round(imageFeatures.image_confidence * 100),
+          Math.round(imageFeatures.image_matches_category * 100),
+        ])
+      : undefined;
+
+  const linkMetas = [report._meta?.link1, report._meta?.link2].filter((link): link is LinkMeta => Boolean(link?.url));
+  const reachableLinks = linkMetas.filter((link) => link.reachable).length;
+  const matchedLinks = linkMetas.filter((link) => link.relevanceStatus === "matched").length;
+  const hasSocialLink = linkMetas.some((link) => link.isSocialPlatform);
+  const linkScore =
+    linkMetas.length === 0
+      ? 0
+      : matchedLinks > 0 && hasSocialLink
+        ? 100
+        : matchedLinks > 0
+          ? 95
+          : hasSocialLink && reachableLinks > 0
+            ? 88
+            : reachableLinks > 0
+              ? 80
+              : 30;
+
+  const manualReviewNote = hasSocialLink
+    ? "رابط السوشال داعم للتقييم، لكن محتوى الحساب يحتاج مراجعة يدوية من الأدمن."
+    : "لا توجد ملاحظة مراجعة يدوية خاصة بروابط السوشال.";
+
+  return [
+    {
+      label: "النبذة",
+      value: report._meta?.bioScore,
+      note: report._meta?.bioQuality === "good" ? "وصف المشروع واضح وكاف." : "الوصف يحتاج تفاصيل أكثر.",
+    },
+    {
+      label: "الصور",
+      value: imageScore,
+      note:
+        imageFeatures && imageFeatures.number_of_uploaded_images > 0
+          ? `${imageFeatures.number_of_uploaded_images} صورة مرفوعة، والجودة/التوافق دعمت التقييم.`
+          : "لا توجد صور داعمة.",
+    },
+    {
+      label: "الرابط",
+      value: linkScore,
+      note:
+        reachableLinks > 0
+          ? "يوجد رابط إثبات يفتح ومفيد للتدقيق. الرابط الثاني اختياري."
+          : "لا يوجد رابط إثبات قابل للوصول.",
+    },
+    {
+      label: "مراجعة الأدمن",
+      value: undefined,
+      note: manualReviewNote,
+    },
+  ];
+}
+
+function getFileExtension(url: string) {
+  const path = (() => {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return url.split("?")[0];
+    }
+  })();
+  const fileName = decodeURIComponent(path.split("/").filter(Boolean).pop() || "");
+  const ext = fileName.includes(".") ? fileName.split(".").pop() || "" : "";
+  return ext.toLowerCase();
+}
+
+function isLikelyImageUrl(url: string) {
+  const ext = getFileExtension(url);
+  return !ext || IMAGE_EXTENSIONS.has(ext);
+}
 
 const accountTypeLabel: Record<string, string> = {
   merchant: "تاجر (جملة)",
@@ -202,23 +359,8 @@ export default function ApplicationsPage() {
     setAiLoading(true);
 
     try {
-      if (!force && app.ai_checked && app.ai_score !== undefined && app.ai_reason) {
-        let cached: AIReport;
-        try {
-          cached = JSON.parse(app.ai_reason);
-        } catch {
-          cached = {
-            score: app.ai_score,
-            recommendation: app.ai_recommendation ?? "review",
-            risk: app.ai_risk ?? "medium",
-            summary: app.ai_reason,
-            details: app.ai_reason,
-            strengths: [],
-            weaknesses: [],
-            flags: [],
-            decision_hint: "",
-          };
-        }
+      const cached = parseStoredAiReport(app);
+      if (!force && isCurrentAiReport(app, cached) && cached) {
         setAiReport(cached);
         setAiLoading(false);
         return;
@@ -447,6 +589,11 @@ export default function ApplicationsPage() {
             {isGood ? "✓" : "⚠️"} {meta.relevanceHint}
           </p>
         )}
+        {meta.reachable && meta.isSocialPlatform && (
+          <p className="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-2 text-xs leading-5 text-blue-800">
+            ملاحظة للأدمن: روابط حسابات التواصل تحتاج مراجعة يدوية لمحتوى الحساب، لأن الفحص الآلي قد لا يستطيع قراءة المنشورات أو الصور داخل المنصة بالكامل.
+          </p>
+        )}
         {meta.reachable && typeof meta.relevanceScore === "number" && (
           <div className="mt-2 flex items-center gap-2">
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/70">
@@ -541,7 +688,11 @@ export default function ApplicationsPage() {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map((app, i) => (
+                {paginated.map((app, i) => {
+                  const currentAiScore = getCurrentAiScore(app);
+                  const hasStaleAiScore = app.ai_checked && app.ai_score !== undefined && currentAiScore === undefined;
+
+                  return (
                   <tr key={app.id} className={`border-b border-[#e6edf5] hover:bg-[#f8fafc] transition ${i % 2 === 0 ? "" : "bg-[#fafbfc]"}`}>
                     <td className="px-5 py-4 font-medium text-[#273347]">{app.data_json.basic.full_name}</td>
                     <td className="px-5 py-4 text-[#273347]/70">{app.data_json.basic.email}</td>
@@ -571,19 +722,25 @@ export default function ApplicationsPage() {
                         >
                           ✨ تحليل AI
                         </button>
-                        {app.ai_checked && app.ai_score !== undefined && (
+                        {currentAiScore !== undefined && (
                           <span className={`text-xs font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${
-                            app.ai_score >= 70 ? "bg-green-100 text-green-700" :
-                            app.ai_score >= 40 ? "bg-yellow-100 text-yellow-700" :
+                            currentAiScore >= 70 ? "bg-green-100 text-green-700" :
+                            currentAiScore >= 40 ? "bg-yellow-100 text-yellow-700" :
                             "bg-red-100 text-red-700"
                           }`}>
-                            ✅ {app.ai_score}
+                            ✅ {currentAiScore}
+                          </span>
+                        )}
+                        {hasStaleAiScore && (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
+                            تحديث
                           </span>
                         )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
 
@@ -680,20 +837,6 @@ export default function ApplicationsPage() {
 
               {aiReport && !aiLoading && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-[#e6edf5] bg-[#f8fafc] p-3">
-                    <div>
-                      <p className="text-sm font-bold text-[#273347]">إعادة تشغيل التحليل</p>
-                      <p className="mt-0.5 text-xs text-[#273347]/50">استخدمها بعد تعديل الخوارزمية أو عند الحاجة لتحديث النتيجة.</p>
-                    </div>
-                    <button
-                      onClick={() => handleAiAnalysis(aiApp, true)}
-                      disabled={aiLoading}
-                      className="shrink-0 rounded-lg bg-[#273347] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#1e2a38] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      إعادة تحليل
-                    </button>
-                  </div>
-
                   {/* Score Card */}
                   <div className={`rounded-2xl p-6 text-center border ${scoreBg(aiReport.score)}`}>
                     <p className="text-xs text-[#273347]/50 font-medium mb-2 uppercase tracking-widest">التقييم العام</p>
@@ -714,22 +857,12 @@ export default function ApplicationsPage() {
                     )}
                   </div>
 
-                    {aiReport._meta?.aiSource && (
-                      <p className={`mx-auto mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                        aiReport._meta.aiSource === "random_forest"
-                          ? "bg-green-100 text-green-700"
-                          : "bg-yellow-100 text-yellow-700"
-                      }`}>
-                        {aiReport._meta.aiSource === "random_forest" ? "Random Forest" : "تقييم احتياطي"}
-                      </p>
-                    )}
-
                   {/* Status Badges */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center ${(recommendationConfig[aiReport.recommendation] ?? recommendationConfig["review"]).color}`}>
                       {(recommendationConfig[aiReport.recommendation] ?? recommendationConfig["review"]).label}
                     </div>
-                    <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center${(riskConfig[aiReport.risk] ?? riskConfig["medium"]).color}`}>
+                    <div className={`border rounded-xl px-4 py-3 text-sm font-semibold text-center ${(riskConfig[aiReport.risk] ?? riskConfig["medium"]).color}`}>
                      {(riskConfig[aiReport.risk] ?? riskConfig["medium"]).label}
                     </div>
                   </div>
@@ -746,6 +879,35 @@ export default function ApplicationsPage() {
                       <p className="text-xs font-bold text-[#273347]/50 mb-2 uppercase tracking-wider">📋 الملخص السريع</p>
                       <p className="text-[#273347] text-sm font-medium leading-relaxed">{aiReport.summary}</p>
                     </div>
+                  </div>
+
+                  {/* Score Basis */}
+                  <div className="bg-white border border-[#e6edf5] rounded-xl p-4">
+                    <p className="text-xs font-bold text-[#273347]/50 mb-3 uppercase tracking-wider">📊 على أي أساس طلع التقييم؟</p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {buildScoreBasis(aiReport).map((item) => (
+                        <div key={item.label} className="rounded-lg bg-[#f8fafc] p-3">
+                          <div className="mb-1 flex items-center justify-between gap-3">
+                            <p className="text-xs font-bold text-[#273347]">{item.label}</p>
+                            {item.value !== undefined && (
+                              <span className={`text-xs font-bold ${scoreColor(item.value)}`}>{item.value}/100</span>
+                            )}
+                          </div>
+                          {item.value !== undefined && (
+                            <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-white">
+                              <div
+                                className={`h-1.5 rounded-full ${scoreBarColor(item.value)}`}
+                                style={{ width: `${Math.max(4, Math.min(100, item.value))}%` }}
+                              />
+                            </div>
+                          )}
+                          <p className="text-xs leading-5 text-[#273347]/65">{item.note}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-[#273347]/50">
+                      التقييم العام يجمع هذه المؤشرات مع تحليل النموذج، لذلك قد يكون الطلب قويًا ومقبولًا مبدئيًا مع بقاء خطوة مراجعة محتوى السوشال يدويًا.
+                    </p>
                   </div>
 
                   {/* Bio Analysis */}
@@ -786,10 +948,15 @@ export default function ApplicationsPage() {
       <p className="text-xs font-bold text-[#273347]/60 uppercase tracking-wider">🖼️ تحليل الصور</p>
     </div>
     <div className="p-4 space-y-3">
-      {aiReport.image_analysis.map((img, idx) => (
+      {aiReport.image_analysis.map((img, idx) => {
+        const imageUrl = img.image_url || getProofFileUrls(aiApp)[idx];
+
+        return (
         <div key={idx} className={`border rounded-xl p-3 ${img.authenticity === "real" ? "bg-green-50 border-green-200" : img.authenticity === "fake" ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200"}`}>
           <div className="flex items-center justify-between mb-1">
-            <p className="text-xs font-bold text-[#273347]">صورة {idx + 1}</p>
+            <p className="text-xs font-bold text-[#273347] truncate">
+              صورة {idx + 1}{img.file_name ? ` · ${img.file_name}` : ""}
+            </p>
             <div className="flex items-center gap-2">
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${img.authenticity === "real" ? "bg-green-100 text-green-700" : img.authenticity === "fake" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}`}>
                 {img.authenticity === "real" ? "✅ أصلية" : img.authenticity === "fake" ? "❌ مزورة" : "⚠️ غير محدد"}
@@ -797,11 +964,62 @@ export default function ApplicationsPage() {
               <span className="text-xs text-[#273347]/50">ثقة: {img.confidence}%</span>
             </div>
           </div>
+          {imageUrl && (
+            <a href={imageUrl} target="_blank" rel="noreferrer" className="mb-3 block overflow-hidden rounded-lg border border-white/70 bg-white">
+              <img
+                src={imageUrl}
+                alt={`صورة التحليل ${idx + 1}`}
+                className="h-48 w-full object-contain"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+              />
+            </a>
+          )}
           <p className="text-xs text-[#273347]/70">{img.description}</p>
+          {(img.business_type || img.professionalism_score !== undefined || img.quality_score !== undefined) && (
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {img.business_type && (
+                <div className="rounded-lg bg-white/70 px-2 py-1.5">
+                  <p className="text-[10px] font-semibold text-[#273347]/45">نوع النشاط</p>
+                  <p className="text-xs font-bold text-[#273347]">{img.business_type}</p>
+                </div>
+              )}
+              {img.professionalism_score !== undefined && (
+                <div className="rounded-lg bg-white/70 px-2 py-1.5">
+                  <p className="text-[10px] font-semibold text-[#273347]/45">الاحترافية</p>
+                  <p className="text-xs font-bold text-[#273347]">{img.professionalism_score}/100</p>
+                </div>
+              )}
+              {img.quality_score !== undefined && (
+                <div className="rounded-lg bg-white/70 px-2 py-1.5">
+                  <p className="text-[10px] font-semibold text-[#273347]/45">جودة الصورة</p>
+                  <p className="text-xs font-bold text-[#273347]">{img.quality_score}/100</p>
+                </div>
+              )}
+            </div>
+          )}
+          {Boolean(img.main_objects?.length || img.extracted_text?.length) && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {img.main_objects?.slice(0, 5).map((item) => (
+                <span key={`object-${idx}-${item}`} className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-[#273347]/65">
+                  {item}
+                </span>
+              ))}
+              {img.extracted_text?.slice(0, 4).map((item) => (
+                <span key={`text-${idx}-${item}`} className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                  {item}
+                </span>
+              ))}
+            </div>
+          )}
+          {img.explanation && <p className="mt-2 text-xs leading-5 text-[#273347]/60">{img.explanation}</p>}
           {img.photoshop_detected && <p className="text-xs text-red-600 mt-1">⚠️ تم كشف تعديلات على الصورة</p>}
-          {img.matches_business === false && <p className="text-xs text-orange-600 mt-1">⚠️ الصورة لا تطابق نوع العمل</p>}
+          {(img.matches_project ?? img.matches_business) === true && <p className="text-xs text-green-700 mt-1">✅ الصورة متوافقة مع نوع المشروع</p>}
+          {(img.matches_project ?? img.matches_business) === false && <p className="text-xs text-orange-600 mt-1">⚠️ الصورة لا تطابق نوع العمل</p>}
         </div>
-      ))}
+        );
+      })}
     </div>
   </div>
 )}
@@ -828,10 +1046,12 @@ export default function ApplicationsPage() {
                   </div>
 
                   {/* Detailed Analysis */}
-                  <div className="bg-white border border-[#e6edf5] rounded-xl p-4">
-                    <p className="text-xs font-bold text-[#273347]/50 mb-2 uppercase tracking-wider">🔎 التحليل التفصيلي</p>
-                    <p className="text-[#273347]/80 text-sm leading-7">{aiReport.details}</p>
-                  </div>
+                  {cleanAiDetails(aiReport.details) && (
+                    <div className="bg-white border border-[#e6edf5] rounded-xl p-4">
+                      <p className="text-xs font-bold text-[#273347]/50 mb-2 uppercase tracking-wider">🔎 التحليل التفصيلي</p>
+                      <p className="text-[#273347]/80 text-sm leading-7">{cleanAiDetails(aiReport.details)}</p>
+                    </div>
+                  )}
 
                   {/* Strengths */}
                  {(aiReport.strengths?.length ?? 0) > 0 && (
@@ -974,9 +1194,8 @@ export default function ApplicationsPage() {
                     <p className="text-[#273347]/70 bg-[#f8fafc] rounded-xl p-3">📝 {selectedApp.proof_json.note}</p>
                   )}
            {selectedApp.proof_json.file_urls?.map((url, i) => {
-  // استخراج امتداد الملف لتحديد إذا كان صورة
-  const ext = url.split('.').pop()?.toLowerCase();
-  const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext || '');
+  const ext = getFileExtension(url);
+  const isImage = isLikelyImageUrl(url);
   
   return (
     <div key={i} className="bg-[#f8fafc] rounded-xl p-3 border border-[#e6edf5]">

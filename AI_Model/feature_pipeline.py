@@ -46,6 +46,14 @@ class NormalizedApplication:
     bio: str
     description: str
     links: list[str]
+    image_professionalism_score: float
+    image_matches_category: float
+    image_confidence: float
+    number_of_uploaded_images: float
+    image_quality_score: float
+    image_mismatch_count: float
+    image_has_warnings: float
+    image_manipulation_risk: float
     raw: dict[str, Any]
 
 
@@ -111,6 +119,106 @@ def _collect_description_text(account_type: str, type_specific: dict[str, Any]) 
     return " ".join(unique_values)
 
 
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, numeric)
+
+
+def _normalize_score(value: Any, default: float = 0.0) -> float:
+    numeric = _as_float(value, default)
+    if 0.0 <= numeric <= 1.0:
+        numeric *= 100.0
+    return max(0.0, min(100.0, numeric))
+
+
+def _boolean_match_value(value: Any) -> float:
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "match", "matched", "نعم", "متطابق"}:
+            return 1.0
+        if normalized in {"false", "no", "mismatch", "not matched", "لا", "غير متطابق"}:
+            return 0.0
+    return 0.5
+
+
+def _image_features_from_record(record: dict[str, Any], proof_json: dict[str, Any]) -> dict[str, float]:
+    explicit_features = record.get("image_features") or {}
+    image_analysis = record.get("image_analysis") or []
+    file_urls = proof_json.get("file_urls")
+
+    if isinstance(explicit_features, dict) and explicit_features:
+        uploaded_count = _as_float(
+            explicit_features.get("number_of_uploaded_images"),
+            float(len(file_urls or [])) if isinstance(file_urls, list) else 0.0,
+        )
+        return {
+            "image_professionalism_score": _normalize_score(explicit_features.get("image_professionalism_score")),
+            "image_matches_category": max(0.0, min(1.0, _as_float(explicit_features.get("image_matches_category")))),
+            "image_confidence": max(0.0, min(1.0, _as_float(explicit_features.get("image_confidence")))),
+            "number_of_uploaded_images": uploaded_count,
+            "image_quality_score": _normalize_score(explicit_features.get("image_quality_score")),
+            "image_mismatch_count": _as_float(explicit_features.get("image_mismatch_count")),
+            "image_has_warnings": 1.0 if _as_float(explicit_features.get("image_has_warnings")) > 0 else 0.0,
+            "image_manipulation_risk": 1.0 if _as_float(explicit_features.get("image_manipulation_risk")) > 0 else 0.0,
+        }
+
+    if not isinstance(image_analysis, list) or not image_analysis:
+        return {
+            "image_professionalism_score": 0.0,
+            "image_matches_category": 0.0,
+            "image_confidence": 0.0,
+            "number_of_uploaded_images": float(len(file_urls or [])) if isinstance(file_urls, list) else 0.0,
+            "image_quality_score": 0.0,
+            "image_mismatch_count": 0.0,
+            "image_has_warnings": 0.0,
+            "image_manipulation_risk": 0.0,
+        }
+
+    professionalism_scores: list[float] = []
+    quality_scores: list[float] = []
+    confidence_scores: list[float] = []
+    match_scores: list[float] = []
+    mismatch_count = 0.0
+    warning_count = 0.0
+    manipulation_count = 0.0
+
+    for image in image_analysis:
+        if not isinstance(image, dict):
+            continue
+        professionalism_scores.append(_normalize_score(image.get("professionalism_score")))
+        quality_scores.append(_normalize_score(image.get("quality_score") or image.get("professionalism_score")))
+        confidence_scores.append(_normalize_score(image.get("confidence")) / 100.0)
+        match_value = _boolean_match_value(image.get("matches_project", image.get("matches_business")))
+        match_scores.append(match_value)
+        if match_value == 0.0:
+            mismatch_count += 1.0
+        if image.get("warnings"):
+            warning_count += 1.0
+        if image.get("photoshop_detected") or image.get("authenticity") == "fake":
+            manipulation_count += 1.0
+
+    def avg(values: list[float]) -> float:
+        return round(sum(values) / len(values), 4) if values else 0.0
+
+    return {
+        "image_professionalism_score": avg(professionalism_scores),
+        "image_matches_category": avg(match_scores),
+        "image_confidence": avg(confidence_scores),
+        "number_of_uploaded_images": float(len(image_analysis)),
+        "image_quality_score": avg(quality_scores),
+        "image_mismatch_count": mismatch_count,
+        "image_has_warnings": 1.0 if warning_count > 0 else 0.0,
+        "image_manipulation_risk": 1.0 if manipulation_count > 0 else 0.0,
+    }
+
+
 def normalize_application_record(record: dict[str, Any]) -> NormalizedApplication:
     data_json = record.get("data_json") or {}
     proof_json = record.get("proof_json") or {}
@@ -125,6 +233,7 @@ def normalize_application_record(record: dict[str, Any]) -> NormalizedApplicatio
         record.get("account_type") or basic.get("account_type") or profile.get("account_type")
     ).lower()
     description = _collect_description_text(account_type, type_specific)
+    image_features = _image_features_from_record(record, proof_json)
 
     links = []
     links.extend(_extract_links(record.get("links")))
@@ -146,6 +255,14 @@ def normalize_application_record(record: dict[str, Any]) -> NormalizedApplicatio
         bio=bio,
         description=description,
         links=deduped_links,
+        image_professionalism_score=image_features["image_professionalism_score"],
+        image_matches_category=image_features["image_matches_category"],
+        image_confidence=image_features["image_confidence"],
+        number_of_uploaded_images=image_features["number_of_uploaded_images"],
+        image_quality_score=image_features["image_quality_score"],
+        image_mismatch_count=image_features["image_mismatch_count"],
+        image_has_warnings=image_features["image_has_warnings"],
+        image_manipulation_risk=image_features["image_manipulation_risk"],
         raw=record,
     )
 
@@ -217,6 +334,14 @@ def build_structured_features(record: NormalizedApplication) -> dict[str, float]
         "bio_has_contact_hint": float(
             any(token in record.bio.lower() for token in ["@", "whatsapp", "instagram", "facebook", "linkedin"])
         ),
+        "image_professionalism_score": float(record.image_professionalism_score),
+        "image_matches_category": float(record.image_matches_category),
+        "image_confidence": float(record.image_confidence),
+        "number_of_uploaded_images": float(record.number_of_uploaded_images),
+        "image_quality_score": float(record.image_quality_score),
+        "image_mismatch_count": float(record.image_mismatch_count),
+        "image_has_warnings": float(record.image_has_warnings),
+        "image_manipulation_risk": float(record.image_manipulation_risk),
     }
 
 
@@ -254,12 +379,19 @@ def reasons_from_record(record: NormalizedApplication, decision: str, confidence
         reasons.append("suspicious email")
     if features["has_non_business_proof_domain"]:
         reasons.append("proof link is not a business or social page")
+    if features["number_of_uploaded_images"] > 0 and features["image_matches_category"] == 0:
+        reasons.append("uploaded images do not match project category")
+    if features["image_manipulation_risk"]:
+        reasons.append("uploaded images may be manipulated")
     if decision != "approve" and features["description_word_count"] < 4:
         reasons.append("project or store description is limited")
 
     if not reasons:
         if decision == "approve":
-            reasons.append("bio and business description look sufficiently detailed")
+            if features["number_of_uploaded_images"] > 0 and features["image_professionalism_score"] >= 70:
+                reasons.append("uploaded images look professional and relevant")
+            else:
+                reasons.append("bio and business description look sufficiently detailed")
         elif decision == "reject":
             reasons.append("model pattern leaned reject; verify manually")
         else:

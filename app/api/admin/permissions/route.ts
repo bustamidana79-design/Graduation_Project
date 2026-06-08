@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     const { data: users, error } = await supabase
       .from("profiles")
       .select("id, full_name, email, phone, country, city, account_type, status, is_active, created_at")
+      .eq("status", "approved")
       .order("created_at", { ascending: false });
 
     if (error) throw error;

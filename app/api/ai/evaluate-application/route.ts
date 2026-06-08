@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { groq } from "@/lib/groq";
 import { analyzeImage } from "@/lib/vision";
+import { buildApplicationProjectSummary } from "@/lib/application-summary";
 
 const AI_SERVER_URL = process.env.AI_MODEL_API_URL || "http://127.0.0.1:8000/predict";
+const AI_REPORT_VERSION = 2;
 
 type LinkAnalysisResult = {
   reachable: boolean;
@@ -25,13 +27,33 @@ type PythonAiResponse = {
 };
 
 type ImageAnalysisResult = {
+  image_url?: string;
+  file_name?: string;
   authenticity: string;
   photoshop_detected: boolean;
   document_type: string;
   matches_business?: boolean | null;
+  matches_project?: boolean | null;
   confidence: number;
   description: string;
+  business_type?: string;
+  main_objects?: string[];
+  extracted_text?: string[];
+  professionalism_score?: number;
+  quality_score?: number;
+  explanation?: string;
   warnings?: string[];
+};
+
+type ImageFeaturePayload = {
+  number_of_uploaded_images: number;
+  image_professionalism_score: number;
+  image_matches_category: number;
+  image_confidence: number;
+  image_quality_score: number;
+  image_mismatch_count: number;
+  image_has_warnings: number;
+  image_manipulation_risk: number;
 };
 
 type ApplicationPayload = {
@@ -49,7 +71,7 @@ type ApplicationPayload = {
     proof_link_1?: string;
     proof_link_2?: string;
     page_username?: string | null;
-    file_urls?: string[];
+    file_urls?: string[] | null;
   };
 };
 
@@ -69,6 +91,7 @@ type AIReport = {
   local_score?: number;
   reasons: string[];
   _meta?: {
+    reportVersion?: number;
     aiSource?: "random_forest" | "fallback";
     bioQuality: "good" | "weak" | "suspicious";
     bioScore: number;
@@ -96,6 +119,7 @@ type AIReport = {
       pageDescription?: string;
       error?: string;
     };
+    imageFeatures?: ImageFeaturePayload;
   };
   image_analysis?: ImageAnalysisResult[];
 };
@@ -103,12 +127,6 @@ type AIReport = {
 const EMPTY_LINK: LinkAnalysisResult = {
   reachable: false,
   error: "لم يتم توفير رابط",
-};
-
-const DECISION_LABELS: Record<AIReport["recommendation"], string> = {
-  approve: "قبول",
-  reject: "رفض",
-  review: "مراجعة",
 };
 
 const SOCIAL_PLATFORM_HOSTS: Record<string, string[]> = {
@@ -172,6 +190,10 @@ function translateReason(reason: string) {
     return "الطلب يحتاج مراجعة إدارية نهائية قبل اتخاذ القرار.";
   if (normalized.includes("uploaded images may be manipulated"))
     return "بعض الصور المرفوعة قد تحتوي على تعديل أو تلاعب.";
+  if (normalized.includes("uploaded images do not match project category"))
+    return "الصور المرفوعة لا تبدو متوافقة مع فئة المشروع أو وصفه.";
+  if (normalized.includes("uploaded images look professional and relevant"))
+    return "الصور المرفوعة تبدو احترافية ومرتبطة بالنشاط.";
   if (normalized.includes("image analysis failed")) return "تعذر تحليل الصورة المرفوعة.";
   if (normalized.includes("http ")) return `تعذر الوصول إلى الرابط (${reason}).`;
   if (normalized.includes("link validation failed")) return "فشل التحقق من الرابط المرفق.";
@@ -246,13 +268,7 @@ function normalizeArabicReport(report: AIReport): AIReport {
           },
         }
       : report._meta,
-    image_analysis: report.image_analysis?.map((image) => ({
-      ...image,
-      authenticity: localizeLooseText(image.authenticity),
-      document_type: localizeLooseText(image.document_type),
-      description: localizeLooseText(image.description),
-      warnings: image.warnings?.map(localizeLooseText),
-    })),
+    image_analysis: report.image_analysis,
   };
 }
 
@@ -570,8 +586,15 @@ function normalizeImageError(error: unknown): ImageAnalysisResult {
     photoshop_detected: false,
     document_type: "other",
     matches_business: null,
+    matches_project: null,
     confidence: 0,
     description: "تعذر تحليل الصورة",
+    business_type: "غير محدد",
+    main_objects: [],
+    extracted_text: [],
+    professionalism_score: 0,
+    quality_score: 0,
+    explanation: "تعذر استخراج تقرير رؤية من الصورة.",
     warnings: [error instanceof Error ? error.message : "IMAGE_ERROR"],
   };
 }
@@ -614,22 +637,177 @@ function extractBusinessName(
   return fullName;
 }
 
+function extractSelectedCategory(accountType: string, typeSpecific: Record<string, unknown>) {
+  const keyMap: Record<string, string[]> = {
+    merchant: ["product_category"],
+    small_business: ["project_field"],
+    delivery: ["delivery_scope", "delivery_cities"],
+    supporter: ["support_type", "interests"],
+  };
+
+  return (keyMap[accountType] || [])
+    .map((key) => {
+      const value = typeSpecific[key];
+      if (Array.isArray(value)) return value.join(" ");
+      return typeof value === "string" ? value : "";
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+function clampScore(value: unknown, fallback = 0) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  const score = numeric <= 1 && numeric >= 0 ? numeric * 100 : numeric;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function average(numbers: number[]) {
+  if (!numbers.length) return 0;
+  return Math.round(numbers.reduce((sum, value) => sum + value, 0) / numbers.length);
+}
+
+function imageMatchValue(image: ImageAnalysisResult): number {
+  const value = image.matches_project ?? image.matches_business;
+  if (value === true) return 1;
+  if (value === false) return 0;
+  return 0.5;
+}
+
+function buildImageFeaturePayload(
+  imageAnalyses: ImageAnalysisResult[],
+  uploadedImageCount: number
+): ImageFeaturePayload {
+  const analyzedImages = imageAnalyses.filter((image) => image.description || image.confidence > 0);
+  const professionalismScores = analyzedImages.map((image) => clampScore(image.professionalism_score));
+  const qualityScores = analyzedImages.map((image) =>
+    clampScore(image.quality_score, clampScore(image.professionalism_score))
+  );
+  const confidenceScores = analyzedImages.map((image) => clampScore(image.confidence));
+  const matchValues = analyzedImages.map(imageMatchValue);
+  const mismatchCount = analyzedImages.filter((image) => (image.matches_project ?? image.matches_business) === false).length;
+  const warningCount = analyzedImages.filter((image) => (image.warnings || []).length > 0).length;
+  const manipulationCount = analyzedImages.filter(
+    (image) => image.photoshop_detected || image.authenticity === "fake"
+  ).length;
+
+  return {
+    number_of_uploaded_images: uploadedImageCount,
+    image_professionalism_score: average(professionalismScores),
+    image_matches_category: analyzedImages.length ? Number((matchValues.reduce((sum, value) => sum + value, 0) / matchValues.length).toFixed(2)) : 0,
+    image_confidence: analyzedImages.length ? Number((average(confidenceScores) / 100).toFixed(2)) : 0,
+    image_quality_score: average(qualityScores),
+    image_mismatch_count: mismatchCount,
+    image_has_warnings: warningCount > 0 ? 1 : 0,
+    image_manipulation_risk: manipulationCount > 0 ? 1 : 0,
+  };
+}
+
+function percentFromRatio(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value * 100)));
+}
+
+function targetScore(value: number, target: number) {
+  if (target <= 0) return 0;
+  return percentFromRatio(Math.min(1, value / target));
+}
+
+function calculateLinkScore(params: {
+  providedLinks: number;
+  link1Result: LinkAnalysisResult;
+  link2Result: LinkAnalysisResult;
+}) {
+  const links = [params.link1Result, params.link2Result];
+  const reachableLinks = links.filter((item) => item.reachable).length;
+  const matchedLinks = links.filter((item) => item.relevanceStatus === "matched").length;
+  const socialLinks = links.filter((item) => item.isSocialPlatform).length;
+
+  if (params.providedLinks === 0) return 0;
+  if (reachableLinks === 0) return 30;
+
+  if (matchedLinks > 0 && socialLinks > 0) return 100;
+  if (matchedLinks > 0) return 95;
+  if (socialLinks > 0) return 88;
+
+  return Math.max(0, Math.min(100, 70 + reachableLinks * 10));
+}
+
+function calculateImageScore(imageFeatures: ImageFeaturePayload) {
+  if (imageFeatures.number_of_uploaded_images <= 0) return null;
+
+  const score =
+    imageFeatures.image_professionalism_score * 0.35 +
+    imageFeatures.image_quality_score * 0.25 +
+    imageFeatures.image_confidence * 100 * 0.2 +
+    imageFeatures.image_matches_category * 100 * 0.2 -
+    imageFeatures.image_mismatch_count * 12 -
+    imageFeatures.image_has_warnings * 8 -
+    imageFeatures.image_manipulation_risk * 20;
+
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function calculateCompositeScore(params: {
+  python: PythonAiResponse;
+  bioWordCount: number;
+  descriptionWordCount: number;
+  providedLinks: number;
+  link1Result: LinkAnalysisResult;
+  link2Result: LinkAnalysisResult;
+  imageFeatures: ImageFeaturePayload;
+}) {
+  const modelScore = clampScore(params.python.score * 100);
+  const bioScore = targetScore(params.bioWordCount, 35);
+  const descriptionScore = targetScore(params.descriptionWordCount, 10);
+  const linkScore = calculateLinkScore(params);
+  const imageScore = calculateImageScore(params.imageFeatures);
+
+  const weightedScore =
+    imageScore === null
+      ? modelScore * 0.55 + bioScore * 0.2 + descriptionScore * 0.15 + linkScore * 0.1
+      : modelScore * 0.45 + bioScore * 0.15 + descriptionScore * 0.1 + linkScore * 0.15 + imageScore * 0.15;
+
+  let finalScore = weightedScore;
+  if (params.python.decision === "approve") finalScore = Math.max(finalScore, 55);
+  if (params.python.decision === "review") finalScore = Math.min(Math.max(finalScore, 35), 78);
+  if (params.python.decision === "reject") finalScore = Math.min(finalScore, 35);
+
+  return Math.max(0, Math.min(100, Math.round(finalScore)));
+}
+
+function fileNameFromUrl(url: string) {
+  try {
+    const pathname = new URL(url).pathname;
+    return decodeURIComponent(pathname.split("/").filter(Boolean).pop() || "");
+  } catch {
+    return decodeURIComponent(url.split("?")[0].split("/").filter(Boolean).pop() || "");
+  }
+}
+
 function getFallbackPythonDecision(payload: {
   bio: string;
   email: string;
   links: string[];
   description: string;
+  image_features?: ImageFeaturePayload;
 }): PythonAiResponse {
   const bioWordCount = payload.bio.trim() ? payload.bio.trim().split(/\s+/).length : 0;
   const descriptionWordCount = payload.description.trim() ? payload.description.trim().split(/\s+/).length : 0;
   const emailLocalPart = payload.email.includes("@") ? payload.email.split("@")[0] : payload.email;
   const suspiciousEmail = (emailLocalPart.match(/\d/g) || []).length >= 4;
   const hasLinks = payload.links.length > 0;
+  const imageFeatures = payload.image_features;
+  const hasImages = Boolean(imageFeatures && imageFeatures.number_of_uploaded_images > 0);
 
   let score = 0.45;
   if (bioWordCount >= 20) score += 0.2;
   if (descriptionWordCount >= 4) score += 0.15;
   if (hasLinks) score += 0.15;
+  if (hasImages) score += Math.min(0.12, (imageFeatures?.image_professionalism_score || 0) / 1000);
+  if (hasImages && (imageFeatures?.image_matches_category || 0) >= 0.75) score += 0.08;
+  if (hasImages && imageFeatures?.image_matches_category === 0) score -= 0.18;
+  if (hasImages && (imageFeatures?.image_quality_score || 0) < 35) score -= 0.1;
+  if (imageFeatures?.image_manipulation_risk) score -= 0.2;
   if (suspiciousEmail) score -= 0.2;
   if (bioWordCount < 8) score -= 0.15;
 
@@ -641,6 +819,9 @@ function getFallbackPythonDecision(payload: {
   if (!hasLinks) reasons.push("no links provided");
   if (suspiciousEmail) reasons.push("suspicious email");
   if (descriptionWordCount < 4) reasons.push("project or store description is limited");
+  if (hasImages && imageFeatures?.image_matches_category === 0) reasons.push("uploaded images do not match project category");
+  if (imageFeatures?.image_manipulation_risk) reasons.push("uploaded images may be manipulated");
+  if (hasImages && (imageFeatures?.image_professionalism_score || 0) >= 70) reasons.push("uploaded images look professional and relevant");
   if (reasons.length === 1) reasons.push("mixed signals require manual review");
 
   return {
@@ -659,12 +840,24 @@ async function getPythonDecision(payload: {
   account_type: string;
   full_name: string;
   description: string;
+  image_features?: ImageFeaturePayload;
 }): Promise<PythonAiResponse> {
   try {
     const response = await fetch(AI_SERVER_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        image_features: payload.image_features,
+        image_professionalism_score: payload.image_features?.image_professionalism_score ?? 0,
+        image_matches_category: payload.image_features?.image_matches_category ?? 0,
+        image_confidence: payload.image_features?.image_confidence ?? 0,
+        number_of_uploaded_images: payload.image_features?.number_of_uploaded_images ?? 0,
+        image_quality_score: payload.image_features?.image_quality_score ?? 0,
+        image_mismatch_count: payload.image_features?.image_mismatch_count ?? 0,
+        image_has_warnings: payload.image_features?.image_has_warnings ?? 0,
+        image_manipulation_risk: payload.image_features?.image_manipulation_risk ?? 0,
+      }),
     });
 
     if (!response.ok) {
@@ -724,24 +917,28 @@ function buildArabicFallbackReport(params: {
   app: ApplicationPayload;
   python: PythonAiResponse;
   bioWordCount: number;
+  descriptionWordCount: number;
   link1Result: LinkAnalysisResult;
   link2Result: LinkAnalysisResult;
   imageAnalyses: ImageAnalysisResult[];
+  imageFeatures: ImageFeaturePayload;
 }): AIReport {
-  const { app, python, bioWordCount, link1Result, link2Result, imageAnalyses } = params;
+  const { app, python, bioWordCount, descriptionWordCount, link1Result, link2Result, imageAnalyses, imageFeatures } = params;
   const proof = app.proof_json || {};
   const providedLinks = [proof.proof_link_1, proof.proof_link_2].filter(
     (value) => typeof value === "string" && value.trim().length > 0
   ).length;
   const reachableLinks = [link1Result, link2Result].filter((item) => item.reachable).length;
   const socialLinks = [link1Result, link2Result].filter((item) => item.isSocialPlatform).length;
-  const baseScore = Math.round(python.score * 100);
-  const linkAdjustment = reachableLinks > 0 ? 6 : providedLinks > 0 ? 2 : -8;
-  const bioAdjustment = bioWordCount >= 20 ? 4 : bioWordCount >= 12 ? 2 : bioWordCount >= 8 ? 0 : -6;
-  let adjustedScore = Math.max(
-    0,
-    Math.min(100, baseScore + linkAdjustment + bioAdjustment)
-  );
+  let adjustedScore = calculateCompositeScore({
+    python,
+    bioWordCount,
+    descriptionWordCount,
+    providedLinks,
+    link1Result,
+    link2Result,
+    imageFeatures,
+  });
 
   const recommendation = python.decision;
   if (recommendation === "reject") adjustedScore = Math.min(adjustedScore, 35);
@@ -772,6 +969,25 @@ function buildArabicFallbackReport(params: {
   if (imageAnalyses.some((img) => img.authenticity === "fake" || img.photoshop_detected)) {
     flags.push("بعض الصور المرفوعة تبدو غير موثوقة أو معدلة.");
   }
+  if (imageFeatures.number_of_uploaded_images === 0) {
+    weaknesses.push("لم يتم رفع صور داعمة تساعد في التحقق من النشاط.");
+  } else {
+    if (imageFeatures.image_matches_category >= 0.75) {
+      strengths.push("الصور المرفوعة متسقة مع نوع المشروع أو الفئة المختارة.");
+    } else if (imageFeatures.image_matches_category === 0) {
+      weaknesses.push("الصور المرفوعة لا تبدو متطابقة مع نوع المشروع أو الفئة المختارة.");
+    }
+
+    if (imageFeatures.image_professionalism_score >= 70) {
+      strengths.push("جودة الصور واحترافيتها تدعم جدية النشاط.");
+    } else if (imageFeatures.image_professionalism_score > 0 && imageFeatures.image_professionalism_score < 40) {
+      weaknesses.push("احترافية الصور منخفضة وتحتاج مراجعة يدوية.");
+    }
+
+    if (imageFeatures.image_confidence < 0.35) {
+      flags.push("ثقة تحليل الصور منخفضة، لذلك يفضّل مراجعتها يدويًا.");
+    }
+  }
 
   const bioQuality: NonNullable<AIReport["_meta"]>["bioQuality"] =
     bioWordCount >= 20 ? "good" : bioWordCount >= 8 ? "weak" : "suspicious";
@@ -787,10 +1003,8 @@ function buildArabicFallbackReport(params: {
         : recommendation === "reject"
           ? "الطلب يحتوي على مؤشرات شك واضحة ولا يوصى باعتماده تلقائيًا."
           : "الطلب يحتاج مراجعة إدارية نهائية قبل اتخاذ القرار.",
-    project_summary: `تم تحليل بيانات الحساب من خلال النظام الهجين للنصوص والروابط والملفات المرفوعة لنوع الحساب ${app.account_type || "غير المحدد"}.`,
-    details: `القرار المبدئي: ${DECISION_LABELS[recommendation]}. نسبة الثقة: ${Math.round(
-      python.confidence * 100
-    )}%. الأسباب الأساسية: ${python.reasons.map(translateReason).join(" ")}`,
+    project_summary: buildApplicationProjectSummary(app),
+    details: `الأسباب الأساسية: ${python.reasons.map(translateReason).join(" ")}`,
     bio_analysis:
       bioWordCount >= 20
         ? "النبذة تعطي وصفًا مقبولًا للنشاط ويمكن البناء عليها في المراجعة."
@@ -803,6 +1017,7 @@ function buildArabicFallbackReport(params: {
     local_score: adjustedScore,
     reasons: python.reasons.map(translateReason),
     _meta: {
+      reportVersion: AI_REPORT_VERSION,
       aiSource: python.source ?? "random_forest",
       bioQuality,
       bioScore,
@@ -830,6 +1045,7 @@ function buildArabicFallbackReport(params: {
         pageDescription: link2Result.pageDescription,
         error: link2Result.error,
       },
+      imageFeatures,
     },
     image_analysis: imageAnalyses,
   };
@@ -855,6 +1071,7 @@ async function humanizeWithGroq(report: AIReport, context: {
             "أنت محلل طلبات احترافي. أعد صياغة التقرير التالي بالعربية الطبيعية وبأسلوب بشري واضح ومهني. " +
             "أعد JSON فقط بنفس المفاتيح التالية: summary, project_summary, details, bio_analysis, link_analysis, strengths, weaknesses, flags, decision_hint, reasons. " +
             "اجعل الجمل طبيعية وغير روبوتية، قصيرة نسبيًا، وواضحة لمدير منصة عربي. " +
+            "لا تذكر القرار المبدئي أو نسبة الثقة داخل حقل details. " +
             "لا تجعل عدم وضوح الرابط نقطة ضعف بحد ذاته إذا كان الرابط يعمل؛ اكتبه كملاحظة تحقق يدوية فقط، ولا تضرر تقييم المستخدم بسبب غياب تطابق آلي كامل. " +
             "ممنوع استخدام اللغة الإنجليزية إلا لأسماء المنصات أو القيم التقنية الضرورية جدًا.",
         },
@@ -927,42 +1144,64 @@ export async function POST(req: NextRequest) {
     const accountType = typeof app.account_type === "string" ? app.account_type : "";
     const description = collectDescription(accountType, typeSpecific);
     const businessName = extractBusinessName(accountType, typeSpecific, fullName);
+    const selectedCategory = extractSelectedCategory(accountType, typeSpecific);
     const links = [proof.proof_link_1, proof.proof_link_2].filter(
       (value): value is string => typeof value === "string" && value.length > 0
     );
     const bioWordCount = bio.trim() ? bio.trim().split(/\s+/).length : 0;
-    const fileUrls = Array.isArray(proof.file_urls) ? proof.file_urls : [];
+    const descriptionWordCount = description.trim() ? description.trim().split(/\s+/).length : 0;
+    const fileUrls = (Array.isArray(proof.file_urls) ? proof.file_urls : [])
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((value) => value.trim());
 
-    const [rawPython, link1Result, link2Result, imageAnalyses] = await Promise.all([
-      getPythonDecision({
-        bio,
-        email,
-        links,
-        account_type: accountType,
-        full_name: fullName,
-        description,
-      }),
+    const [link1Result, link2Result, imageAnalyses] = await Promise.all([
       analyzeRelevantLink(proof.proof_link_1, { fullName, bio, description, pageUsername: proof.page_username, businessName }),
       analyzeRelevantLink(proof.proof_link_2, { fullName, bio, description, pageUsername: proof.page_username, businessName }),
       Promise.all(
         fileUrls.map(async (url) => {
           try {
-            return await analyzeImage(url, fullName || accountType);
+            const analysis = await analyzeImage(url, {
+              businessName,
+              selectedCategory,
+              accountType,
+              projectDescription: [description, bio].filter(Boolean).join(" "),
+            });
+            return {
+              ...analysis,
+              image_url: url,
+              file_name: fileNameFromUrl(url),
+            };
           } catch (error) {
-            return normalizeImageError(error);
+            return {
+              ...normalizeImageError(error),
+              image_url: url,
+              file_name: fileNameFromUrl(url),
+            };
           }
         })
       ),
     ]);
+    const imageFeatures = buildImageFeaturePayload(imageAnalyses, fileUrls.length);
+    const rawPython = await getPythonDecision({
+      bio,
+      email,
+      links,
+      account_type: accountType,
+      full_name: fullName,
+      description,
+      image_features: imageFeatures,
+    });
     const python = softenGenericConfidenceSignal(ignoreEmailDomainSignal(rawPython));
 
     const fallbackReport = buildArabicFallbackReport({
       app,
       python,
       bioWordCount,
+      descriptionWordCount,
       link1Result,
       link2Result,
       imageAnalyses,
+      imageFeatures,
     });
 
     const report = await humanizeWithGroq(normalizeArabicReport(fallbackReport), {
@@ -972,7 +1211,10 @@ export async function POST(req: NextRequest) {
       description,
     });
 
-    return NextResponse.json(report);
+    return NextResponse.json({
+      ...report,
+      project_summary: buildApplicationProjectSummary(app),
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "فشل تحليل الطلب." },

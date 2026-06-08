@@ -227,15 +227,10 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
 
       setProfileId(user.id);
 
-      let sessions = await fetchChatSessions(user.id);
-      let nextSessionId = sessions?.[0]?.id as string | undefined;
-      if (!nextSessionId) {
-        nextSessionId = await createSession(user.id);
-        sessions = await fetchChatSessions(user.id);
-      }
-
-      setSessionId(nextSessionId);
-      await fetchSessionMessages(nextSessionId);
+      await fetchChatSessions(user.id);
+      setSessionId(null);
+      setMessages(initialMessages);
+      setInput("");
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تحميل المساعد الذكي.";
       setError(message);
@@ -243,7 +238,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
     } finally {
       setLoading(false);
     }
-  }, [createSession, fetchChatSessions, fetchSessionMessages, initialMessages, router]);
+  }, [fetchChatSessions, initialMessages, router]);
 
   useEffect(() => {
     void loadChat();
@@ -252,17 +247,11 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
   const newChat = async () => {
     if (!profileId || sending) return;
     setError(null);
-
-    try {
-      const nextSessionId = await createSession(profileId);
-      setSessionId(nextSessionId);
-      setMessages(initialMessages);
-      setInput("");
-      await fetchChatSessions(profileId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "تعذر إنشاء محادثة جديدة.";
-      setError(message);
-    }
+    setSessionId(null);
+    setMessages(initialMessages);
+    setInput("");
+    setRenamingSessionId(null);
+    setRenameValue("");
   };
 
   const openChatSession = async (nextSessionId: string) => {
@@ -321,19 +310,26 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
 
   const sendMessage = async (preset?: string) => {
     const text = (preset || input).trim();
-    if (!text || !sessionId || !profileId || sending) return;
+    if (!text || !profileId || sending) return;
 
     setInput("");
     setError(null);
     setSending(true);
     setMessages((current) => [...current, { role: "user", message: text }]);
-    setChatSessions((current) => {
-      const active = current.find((item) => item.id === sessionId);
-      const rest = current.filter((item) => item.id !== sessionId);
-      return active ? [{ ...active, preview: text }, ...rest] : current;
-    });
 
     try {
+      let activeSessionId = sessionId;
+      if (!activeSessionId) {
+        activeSessionId = await createSession(profileId);
+        setSessionId(activeSessionId);
+      }
+
+      setChatSessions((current) => {
+        const active = current.find((item) => item.id === activeSessionId);
+        const rest = current.filter((item) => item.id !== activeSessionId);
+        return active ? [{ ...active, preview: text }, ...rest] : current;
+      });
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -346,13 +342,18 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
         },
         body: JSON.stringify({
           message: text,
-          sessionId,
+          sessionId: activeSessionId,
           profileId,
           requestedUserType: analyticsUserTypeByAccount[accountType],
         }),
       });
 
-      const data = (await res.json()) as { reply?: string; messageId?: string | null; error?: string };
+      const data = (await res.json()) as {
+        reply?: string;
+        messageId?: string | null;
+        sessionTitle?: string | null;
+        error?: string;
+      };
 
       if (!res.ok || data.error) {
         throw new Error(data.error || "تعذر الحصول على رد من المساعد.");
@@ -366,6 +367,16 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
           message: data.reply || "عذراً، لم أستطع توليد رد مناسب.",
         },
       ]);
+      if (data.sessionTitle) {
+        setChatSessions((current) =>
+          current.map((item) =>
+            item.id === activeSessionId
+              ? { ...item, title: data.sessionTitle || item.title, preview: data.sessionTitle || item.preview }
+              : item
+          )
+        );
+      }
+      void fetchChatSessions(profileId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "حدث خطأ أثناء إرسال الرسالة.";
       setError(message);
@@ -409,7 +420,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
         </div>
       )}
 
-      <div className="grid flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
         <aside className="space-y-3 lg:order-2">
           <div className="rounded-lg border border-[#e6edf5] bg-white p-3 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -503,23 +514,10 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
               )}
             </div>
           </div>
-          <p className="text-xs font-semibold text-[#273347]/50">اقتراحات سريعة</p>
-          <div className="hidden gap-2">
-            {config.quickPrompts.map((prompt) => (
-              <button
-                key={prompt}
-                onClick={() => sendMessage(prompt)}
-                disabled={loading || sending || !sessionId}
-                className="rounded-lg border border-[#e6edf5] bg-white px-4 py-3 text-right text-sm font-medium text-[#273347] transition hover:border-[#bbd0e4] hover:bg-[#f7fbff] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
         </aside>
 
-        <section className="flex min-h-[640px] flex-col overflow-hidden rounded-lg border border-[#e6edf5] bg-white shadow-sm lg:order-1">
-          <div className="flex-1 overflow-y-auto bg-[#f6f9fc] px-4 py-5">
+        <section className="flex h-[calc(100vh-220px)] min-h-[520px] flex-col overflow-hidden rounded-lg border border-[#e6edf5] bg-white shadow-sm lg:order-1">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[#f6f9fc] px-4 py-5">
             {loading ? (
               <div className="py-16 text-center text-sm text-[#273347]/50">
                 جاري تحميل المساعد الذكي...
@@ -532,7 +530,7 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
                       <button
                         key={prompt}
                         onClick={() => sendMessage(prompt)}
-                        disabled={loading || sending || !sessionId}
+                        disabled={loading || sending || !profileId}
                         className="rounded-lg border border-[#e6edf5] bg-[#f8fafc] px-4 py-3 text-right text-sm font-medium text-[#273347] transition hover:border-[#bbd0e4] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {prompt}
@@ -610,12 +608,12 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
                 }}
                 placeholder={config.placeholder}
                 rows={3}
-                disabled={loading || sending || !sessionId}
+                disabled={loading || sending || !profileId}
                 className="min-h-[86px] flex-1 resize-none rounded-lg border border-[#d9e3ee] px-4 py-3 text-sm text-[#273347] outline-none transition focus:border-[#273347] disabled:cursor-not-allowed disabled:bg-[#f8fafc]"
               />
               <button
                 onClick={() => sendMessage()}
-                disabled={!input.trim() || loading || sending || !sessionId}
+                disabled={!input.trim() || loading || sending || !profileId}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#273347] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#1e2735] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Send size={16} />

@@ -310,6 +310,34 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
     };
   };
 
+  const uploadProofFilesAfterSignUp = async (userId: string) => {
+    if (proofFiles.length === 0) return [];
+
+    const formData = new FormData();
+    formData.append("userId", userId);
+    formData.append("email", cleanEmail);
+    formData.append("proof_link_1", proofLink1.trim());
+    formData.append("proof_link_2", proofLink2.trim());
+    formData.append("page_username", proofUsername.trim());
+    formData.append("note", proofNote.trim());
+
+    proofFiles.forEach((file) => {
+      formData.append("files", file);
+    });
+
+    const response = await fetch("/api/register/proof-files", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to upload proof files.");
+    }
+
+    return Array.isArray(result.file_urls) ? result.file_urls : [];
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
@@ -405,9 +433,10 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
       }
 
       if (!signUpData.session) {
+        await uploadProofFilesAfterSignUp(userId);
         const fileNote =
           proofFiles.length > 0
-            ? " لم يتم رفع الملفات الآن لأن الحساب يحتاج تأكيد البريد أولًا، لكن روابط الإثبات والمعلومات تم إرسالها."
+            ? " تم رفع ملفات الإثبات وحفظها مع الطلب."
             : "";
 
         setSuccessMsg(`تم إنشاء الحساب. يرجى تأكيد البريد الإلكتروني لإكمال الدخول.${fileNote}`);
@@ -416,22 +445,7 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
         return;
       }
 
-      const uploadedFileUrls: string[] = [];
-      for (const file of proofFiles) {
-        const filePath = `${userId}/${Date.now()}_${file.name}`;
-        const { error: uploadError } = await supabase.storage
-          .from("documents")
-          .upload(filePath, file);
-
-        if (uploadError) {
-          setErrorMsg(`Failed to upload ${file.name}: ${uploadError.message}`);
-          setLoading(false);
-          return;
-        }
-
-        const { data: urlData } = supabase.storage.from("documents").getPublicUrl(filePath);
-        uploadedFileUrls.push(urlData.publicUrl);
-      }
+      const uploadedFileUrls = await uploadProofFilesAfterSignUp(userId);
 
       const proofJson = {
         proof_link_1: proofLink1.trim(),

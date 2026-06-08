@@ -289,18 +289,6 @@ export default function NotificationBell() {
                         : "للمزيد من الاستفسار - خدمة العملاء"}
                     </button>
                   )}
-                  {item.notification_type === "support_ticket_message" && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openSupportNotification(item);
-                      }}
-                      className="mt-3 w-full rounded-xl bg-[#273347] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1e2735]"
-                    >
-                      فتح مركز الدعم
-                    </button>
-                  )}
                   <p className="mt-2 text-[11px] text-[#273347]/40">{formatTime(item.created_at)}</p>
                 </div>
               ))

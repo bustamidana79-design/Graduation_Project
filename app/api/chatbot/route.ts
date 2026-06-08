@@ -82,6 +82,7 @@ type AnalysisResult = {
   };
   recommendations: string[];
   previousInsights: DbRow[];
+  adminPlatform?: AdminPlatformContext | null;
   dataQuality: {
     primaryRowsLoaded: number;
     secondaryRowsLoaded: number;
@@ -96,6 +97,100 @@ type ExternalSignals = {
   googleTrends: string[];
   reddit: string[];
   youtube: string[];
+  warnings: string[];
+};
+
+type CountFilter = {
+  column: string;
+  operator?: "eq" | "neq" | "lte" | "gt";
+  value: unknown;
+};
+
+type CountResult = {
+  count: number;
+  warning: string | null;
+};
+
+type AdminApplicationPreview = {
+  id: string;
+  userId: string;
+  accountType: string;
+  status: string;
+  createdAt: string | null;
+  fullName: string | null;
+  email: string | null;
+  city: string | null;
+  country: string | null;
+  businessName: string | null;
+  aiScore: number | null;
+  aiRecommendation: string | null;
+  aiRisk: string | null;
+  publicLinks: string[];
+};
+
+type AdminProfilePreview = {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+  accountType: string;
+  status: string;
+  isActive: boolean | null;
+  city: string | null;
+  country: string | null;
+  createdAt: string | null;
+};
+
+type AdminProductPreview = {
+  id: string;
+  name: string;
+  category: string | null;
+  supplierId: string | null;
+  price: number;
+  currency: string;
+  stock: number;
+  isPublished: boolean | null;
+  createdAt: string | null;
+};
+
+type AdminPlatformContext = {
+  quickFacts: {
+    rejectedApplications: number;
+    rejectedAccounts: number;
+    pendingApplications: number;
+    approvedApplications: number;
+    totalUsers: number;
+    publishedProducts: number;
+  };
+  applications: {
+    total: number;
+    byStatus: Record<string, number>;
+    byAccountType: Record<string, number>;
+    byAiRecommendation: Record<string, number>;
+    byAiRisk: Record<string, number>;
+    recentRejected: AdminApplicationPreview[];
+    recentPending: AdminApplicationPreview[];
+  };
+  profiles: {
+    total: number;
+    byStatus: Record<string, number>;
+    byAccountType: Record<string, number>;
+    active: number;
+    inactive: number;
+    recentApproved: AdminProfilePreview[];
+    recentRejected: AdminProfilePreview[];
+  };
+  products: {
+    total: number;
+    published: number;
+    unpublished: number;
+    lowStock: number;
+    recentPublished: AdminProductPreview[];
+  };
+  upgradeRequests: {
+    total: number;
+    byStatus: Record<string, number>;
+  };
   warnings: string[];
 };
 
@@ -565,6 +660,316 @@ async function fetchRoleData(
   };
 }
 
+function asRecord(value: unknown): DbRow {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as DbRow) : {};
+}
+
+function nullableString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number") return String(value);
+  return null;
+}
+
+function compactLinks(values: unknown[]) {
+  return Array.from(
+    new Set(
+      values
+        .flatMap((value) => (Array.isArray(value) ? value : [value]))
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter((value) => /^https?:\/\//i.test(value))
+    )
+  ).slice(0, 6);
+}
+
+function applyCountFilters(query: any, filters: CountFilter[]) {
+  return filters.reduce((currentQuery, filter) => {
+    const operator = filter.operator || "eq";
+    if (operator === "neq") return currentQuery.neq(filter.column, filter.value);
+    if (operator === "lte") return currentQuery.lte(filter.column, filter.value);
+    if (operator === "gt") return currentQuery.gt(filter.column, filter.value);
+    return currentQuery.eq(filter.column, filter.value);
+  }, query);
+}
+
+async function fetchCount(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  table: string,
+  filters: CountFilter[] = []
+): Promise<CountResult> {
+  const query = applyCountFilters(supabase.from(table).select("*", { count: "exact", head: true }), filters);
+  const { count, error } = await query;
+
+  if (error) {
+    return {
+      count: 0,
+      warning: `${table} count${filters.length ? ` (${filters.map((filter) => filter.column).join(", ")})` : ""}: ${error.message}`,
+    };
+  }
+
+  return { count: count || 0, warning: null };
+}
+
+async function fetchCountsByValues(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  table: string,
+  column: string,
+  values: string[]
+) {
+  const results = await Promise.all(
+    values.map(async (value) => {
+      const result = await fetchCount(supabase, table, [{ column, value }]);
+      return { value, ...result };
+    })
+  );
+
+  return {
+    counts: Object.fromEntries(results.map((result) => [result.value, result.count])),
+    warnings: results.map((result) => result.warning).filter(Boolean) as string[],
+  };
+}
+
+async function fetchRecentRows(params: {
+  supabase: ReturnType<typeof createSupabaseAdmin>;
+  table: string;
+  select: string;
+  filters?: CountFilter[];
+  limit?: number;
+  orderColumn?: string;
+}): Promise<{ rows: DbRow[]; warning: string | null }> {
+  const filters = params.filters || [];
+  const limit = params.limit || 8;
+  const orderColumn = params.orderColumn || "created_at";
+  const baseQuery = params.supabase
+    .from(params.table)
+    .select(params.select)
+    .order(orderColumn, { ascending: false })
+    .limit(limit);
+  const query = applyCountFilters(baseQuery, filters);
+  const { data, error } = await query;
+
+  if (error) {
+    return { rows: [], warning: `${params.table} recent rows: ${error.message}` };
+  }
+
+  return { rows: (data || []) as DbRow[], warning: null };
+}
+
+function applicationPreview(row: DbRow): AdminApplicationPreview {
+  const dataJson = asRecord(row.data_json);
+  const basic = asRecord(dataJson.basic);
+  const typeSpecific = asRecord(dataJson.type_specific);
+  const proofJson = asRecord(row.proof_json);
+  const businessName =
+    nullableString(typeSpecific.store_name) ||
+    nullableString(typeSpecific.project_name) ||
+    nullableString(typeSpecific.company_name) ||
+    nullableString(typeSpecific.business_name);
+
+  return {
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    accountType: String(row.account_type || basic.account_type || "unknown"),
+    status: String(row.status || "unknown"),
+    createdAt: nullableString(row.created_at),
+    fullName: nullableString(basic.full_name),
+    email: nullableString(basic.email),
+    city: nullableString(basic.city),
+    country: nullableString(basic.country),
+    businessName,
+    aiScore: row.ai_score === undefined || row.ai_score === null ? null : toNumber(row.ai_score),
+    aiRecommendation: nullableString(row.ai_recommendation),
+    aiRisk: nullableString(row.ai_risk),
+    publicLinks: compactLinks([
+      proofJson.proof_link_1,
+      proofJson.proof_link_2,
+      proofJson.file_urls,
+      typeSpecific.social_link,
+      typeSpecific.professional_link,
+      typeSpecific.store_link,
+      typeSpecific.website,
+    ]),
+  };
+}
+
+function profilePreview(row: DbRow): AdminProfilePreview {
+  return {
+    id: String(row.id || ""),
+    fullName: nullableString(row.full_name),
+    email: nullableString(row.email),
+    phone: nullableString(row.phone),
+    accountType: String(row.account_type || "unknown"),
+    status: String(row.status || "unknown"),
+    isActive: typeof row.is_active === "boolean" ? row.is_active : null,
+    city: nullableString(row.city),
+    country: nullableString(row.country),
+    createdAt: nullableString(row.created_at),
+  };
+}
+
+function productPreview(row: DbRow): AdminProductPreview {
+  return {
+    id: String(row.id || ""),
+    name: getProductName(row, "Unnamed product"),
+    category: nullableString(row.category) || nullableString(row.category_id),
+    supplierId: nullableString(row.supplier_id),
+    price: toNumber(row.wholesale_price),
+    currency: String(row.currency || "ILS"),
+    stock: toNumber(row.stock_quantity),
+    isPublished: typeof row.is_published === "boolean" ? row.is_published : null,
+    createdAt: nullableString(row.created_at),
+  };
+}
+
+async function fetchAdminPlatformContext(
+  supabase: ReturnType<typeof createSupabaseAdmin>
+): Promise<AdminPlatformContext> {
+  const statusValues = ["pending", "approved", "rejected"];
+  const accountTypes = ["merchant", "small_business", "delivery", "supporter", "admin"];
+  const aiRecommendations = ["approve", "review", "reject"];
+  const aiRisks = ["low", "medium", "high"];
+
+  const [
+    totalApplications,
+    applicationsByStatus,
+    applicationsByAccountType,
+    applicationsByAiRecommendation,
+    applicationsByAiRisk,
+    totalProfiles,
+    profilesByStatus,
+    profilesByAccountType,
+    activeProfiles,
+    inactiveProfiles,
+    totalProducts,
+    publishedProducts,
+    unpublishedProducts,
+    lowStockProducts,
+    totalUpgradeRequests,
+    upgradeRequestsByStatus,
+    recentRejectedApplications,
+    recentPendingApplications,
+    recentApprovedProfiles,
+    recentRejectedProfiles,
+    recentPublishedProducts,
+  ] = await Promise.all([
+    fetchCount(supabase, "applications"),
+    fetchCountsByValues(supabase, "applications", "status", statusValues),
+    fetchCountsByValues(supabase, "applications", "account_type", accountTypes.filter((type) => type !== "admin")),
+    fetchCountsByValues(supabase, "applications", "ai_recommendation", aiRecommendations),
+    fetchCountsByValues(supabase, "applications", "ai_risk", aiRisks),
+    fetchCount(supabase, "profiles"),
+    fetchCountsByValues(supabase, "profiles", "status", statusValues),
+    fetchCountsByValues(supabase, "profiles", "account_type", accountTypes),
+    fetchCount(supabase, "profiles", [{ column: "is_active", value: true }]),
+    fetchCount(supabase, "profiles", [{ column: "is_active", value: false }]),
+    fetchCount(supabase, "products"),
+    fetchCount(supabase, "products", [{ column: "is_published", value: true }]),
+    fetchCount(supabase, "products", [{ column: "is_published", value: false }]),
+    fetchCount(supabase, "products", [{ column: "stock_quantity", operator: "lte", value: 5 }]),
+    fetchCount(supabase, "upgrade_requests"),
+    fetchCountsByValues(supabase, "upgrade_requests", "status", statusValues),
+    fetchRecentRows({
+      supabase,
+      table: "applications",
+      select: "id, user_id, account_type, status, created_at, ai_score, ai_recommendation, ai_risk, data_json, proof_json",
+      filters: [{ column: "status", value: "rejected" }],
+      limit: 8,
+    }),
+    fetchRecentRows({
+      supabase,
+      table: "applications",
+      select: "id, user_id, account_type, status, created_at, ai_score, ai_recommendation, ai_risk, data_json, proof_json",
+      filters: [{ column: "status", value: "pending" }],
+      limit: 8,
+    }),
+    fetchRecentRows({
+      supabase,
+      table: "profiles",
+      select: "id, full_name, email, phone, country, city, account_type, status, is_active, created_at",
+      filters: [{ column: "status", value: "approved" }],
+      limit: 8,
+    }),
+    fetchRecentRows({
+      supabase,
+      table: "profiles",
+      select: "id, full_name, email, phone, country, city, account_type, status, is_active, created_at",
+      filters: [{ column: "status", value: "rejected" }],
+      limit: 8,
+    }),
+    fetchRecentRows({
+      supabase,
+      table: "products",
+      select: "id, name, category, category_id, supplier_id, wholesale_price, currency, stock_quantity, is_published, created_at",
+      filters: [{ column: "is_published", value: true }],
+      limit: 8,
+    }),
+  ]);
+
+  const warnings = [
+    totalApplications.warning,
+    ...applicationsByStatus.warnings,
+    ...applicationsByAccountType.warnings,
+    ...applicationsByAiRecommendation.warnings,
+    ...applicationsByAiRisk.warnings,
+    totalProfiles.warning,
+    ...profilesByStatus.warnings,
+    ...profilesByAccountType.warnings,
+    activeProfiles.warning,
+    inactiveProfiles.warning,
+    totalProducts.warning,
+    publishedProducts.warning,
+    unpublishedProducts.warning,
+    lowStockProducts.warning,
+    totalUpgradeRequests.warning,
+    ...upgradeRequestsByStatus.warnings,
+    recentRejectedApplications.warning,
+    recentPendingApplications.warning,
+    recentApprovedProfiles.warning,
+    recentRejectedProfiles.warning,
+    recentPublishedProducts.warning,
+  ].filter(Boolean) as string[];
+
+  return {
+    quickFacts: {
+      rejectedApplications: applicationsByStatus.counts.rejected || 0,
+      rejectedAccounts: profilesByStatus.counts.rejected || 0,
+      pendingApplications: applicationsByStatus.counts.pending || 0,
+      approvedApplications: applicationsByStatus.counts.approved || 0,
+      totalUsers: totalProfiles.count,
+      publishedProducts: publishedProducts.count,
+    },
+    applications: {
+      total: totalApplications.count,
+      byStatus: applicationsByStatus.counts,
+      byAccountType: applicationsByAccountType.counts,
+      byAiRecommendation: applicationsByAiRecommendation.counts,
+      byAiRisk: applicationsByAiRisk.counts,
+      recentRejected: recentRejectedApplications.rows.map(applicationPreview),
+      recentPending: recentPendingApplications.rows.map(applicationPreview),
+    },
+    profiles: {
+      total: totalProfiles.count,
+      byStatus: profilesByStatus.counts,
+      byAccountType: profilesByAccountType.counts,
+      active: activeProfiles.count,
+      inactive: inactiveProfiles.count,
+      recentApproved: recentApprovedProfiles.rows.map(profilePreview),
+      recentRejected: recentRejectedProfiles.rows.map(profilePreview),
+    },
+    products: {
+      total: totalProducts.count,
+      published: publishedProducts.count,
+      unpublished: unpublishedProducts.count,
+      lowStock: lowStockProducts.count,
+      recentPublished: recentPublishedProducts.rows.map(productPreview),
+    },
+    upgradeRequests: {
+      total: totalUpgradeRequests.count,
+      byStatus: upgradeRequestsByStatus.counts,
+    },
+    warnings,
+  };
+}
+
 function analyzeOrders(orders: DbRow[]) {
   const validOrders = orders.filter((order) => {
     const status = getString(order, ["status", "order_status"]).toLowerCase();
@@ -925,6 +1330,91 @@ async function touchChatSession(supabase: ReturnType<typeof createSupabaseAdmin>
   await supabase.from("ai_chat_sessions").update({ updated_at: new Date().toISOString() }).eq("id", sessionId);
 }
 
+async function shouldSuggestChatTitle(supabase: ReturnType<typeof createSupabaseAdmin>, sessionId: string) {
+  const { data: session } = await supabase
+    .from("ai_chat_sessions")
+    .select("title")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (String(session?.title || "").trim()) return false;
+
+  const { count, error } = await supabase
+    .from("ai_chat_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("session_id", sessionId);
+
+  return !error && (count || 0) === 0;
+}
+
+function cleanChatTitle(value: string, fallbackMessage: string) {
+  const decoded = decodeBrokenArabic(value || fallbackMessage)
+    .normalize("NFKC")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/["'“”‘’`*_#]/g, " ")
+    .replace(/[\u0000-\u001f\u007f]/g, " ");
+
+  const cleaned = enforceArabicOnly(decoded)
+    .replace(/[.،,:؛!?؟()[\]\-+\/\\]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "محادثة جديدة";
+  return cleaned.split(/\s+/).slice(0, 5).join(" ");
+}
+
+async function suggestChatTitle(message: string, userType: UserType) {
+  try {
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        {
+          role: "system",
+          content:
+            "اقترح عنوانا عربيا قصيرا جدا لهذه المحادثة. أعد العنوان فقط بدون شرح، بدون علامات اقتباس، وبحد أقصى 5 كلمات.",
+        },
+        {
+          role: "user",
+          content: `نوع المستخدم: ${userType}\nأول رسالة: ${message}`,
+        },
+      ],
+      max_tokens: 40,
+      temperature: 0.2,
+    });
+
+    return cleanChatTitle(completion.choices[0]?.message?.content || "", message);
+  } catch (error) {
+    console.error("Chat title suggestion failed:", error);
+    return cleanChatTitle(message, "محادثة جديدة");
+  }
+}
+
+async function saveChatTitleIfEmpty(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  sessionId: string,
+  title: string
+) {
+  const { data } = await supabase
+    .from("ai_chat_sessions")
+    .update({ title, updated_at: new Date().toISOString() })
+    .eq("id", sessionId)
+    .is("title", null)
+    .select("title")
+    .maybeSingle();
+
+  return data?.title ? title : null;
+}
+
+async function suggestAndSaveChatTitle(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  sessionId: string,
+  message: string,
+  userType: UserType
+) {
+  const title = await suggestChatTitle(message, userType);
+  return saveChatTitleIfEmpty(supabase, sessionId, title);
+}
+
 function looksLikeBrokenArabic(text: string) {
   const brokenMarkers = text.match(/[ØÙÐÑÃÂ€œ¢Ÿ]/g)?.length || 0;
   return brokenMarkers >= 3;
@@ -1001,7 +1491,12 @@ export async function POST(req: NextRequest) {
     }
 
     const userType = resolveProfileUserType(targetProfile.account_type, requestedUserType);
+    if (userType === "admin" && !isAdmin) {
+      return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+    }
+
     const currentSessionId = await getOrCreateChatSession({ supabase, sessionId, userId, userType });
+    const shouldGenerateTitle = await shouldSuggestChatTitle(supabase, currentSessionId);
     const roleData = await fetchRoleData(supabase, userId, userType);
     const roleConfig = ROLE_CONFIG[userType];
 
@@ -1019,6 +1514,7 @@ export async function POST(req: NextRequest) {
       getExternalSignals(message, productAnalysis.topProducts),
       fetchInternalMarketSearch(supabase, message, userType),
     ]);
+    const adminPlatform = userType === "admin" ? await fetchAdminPlatformContext(supabase) : null;
 
     const analysisResult: AnalysisResult = {
       userId,
@@ -1038,13 +1534,14 @@ export async function POST(req: NextRequest) {
       },
       recommendations: generated.recommendations,
       previousInsights: roleData.aiInsights.slice(0, 10),
+      adminPlatform,
       dataQuality: {
         primaryRowsLoaded: roleData.primary.length,
         secondaryRowsLoaded: roleData.secondary.length,
         aiInsightsLoaded: roleData.aiInsights.length,
         primaryTable: roleData.primaryTable,
         secondaryTable: roleData.secondaryTable,
-        warnings: [...roleData.warnings, ...externalSignals.warnings, ...internalMarketSearch.warnings],
+        warnings: [...roleData.warnings, ...externalSignals.warnings, ...internalMarketSearch.warnings, ...(adminPlatform?.warnings || [])],
       },
     };
 
@@ -1053,6 +1550,10 @@ export async function POST(req: NextRequest) {
       table: "ai_chat_messages",
       payload: { session_id: currentSessionId, role: "user", message },
     });
+
+    const sessionTitlePromise = shouldGenerateTitle
+      ? suggestAndSaveChatTitle(supabase, currentSessionId, message, userType)
+      : Promise.resolve(null as string | null);
 
     const chatHistory = await fetchChatHistory(supabase, currentSessionId);
 
@@ -1075,6 +1576,13 @@ export async function POST(req: NextRequest) {
 استخدم نتيجة التحليل التالية كما هي لصياغة رد عربي احترافي ومخصص:
 
 ${JSON.stringify(analysisResult)}
+
+Admin platform context rules:
+- If userType is "admin", analysisResult.adminPlatform is authoritative for platform-wide applications, profiles/accounts, products, and upgrade requests.
+- For questions about rejected accounts/applications, use analysisResult.adminPlatform.quickFacts.rejectedApplications first, and mention quickFacts.rejectedAccounts only when the user asks specifically about profile/account status or when it differs and adds useful context.
+- If the admin question contains "مرفوض" and "حساب", answer directly with both rejected applications and rejected profile/account statuses when both numbers are present.
+- Do not say that rejected counts, account counts, published products, or pending/approved application counts are unavailable when adminPlatform contains those numbers.
+- If the admin asks for examples or details, use the recentRejected/recentPending/recentApproved/recentPublished arrays and keep private details minimal.
 
 نوع المستخدم: ${userType}
 مجال التحليل: ${roleConfig.domain}
@@ -1112,6 +1620,7 @@ ${JSON.stringify(analysisResult)}
     }
 
     await touchChatSession(supabase, currentSessionId);
+    const sessionTitle = await sessionTitlePromise;
 
     if (conversationId) {
       await saveMessage({
@@ -1125,6 +1634,7 @@ ${JSON.stringify(analysisResult)}
       reply,
       analysis: analysisResult,
       sessionId: currentSessionId,
+      sessionTitle,
       userType,
       messageId: assistantMessage?.id ?? null,
     });
