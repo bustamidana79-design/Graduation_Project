@@ -1,7 +1,7 @@
 "use client";
 
 import AdminSidebar from "./components/AdminSidebar";
-import { getProfileInitial, useDashboardAccess } from "@/hooks/useDashboardAccess";
+import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import NotificationBell from "@/components/NotificationBell";
 import OrderRealtimeBridge from "@/components/OrderRealtimeBridge";
 
@@ -10,7 +10,7 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { profile, loading } = useDashboardAccess({ requiredAccountType: "admin" });
+  const { loading } = useDashboardAccess({ requiredAccountType: "admin" });
 
   if (loading) {
     return (
@@ -30,11 +30,11 @@ export default function AdminLayout({
           <div className="flex items-center gap-3">
             <NotificationBell />
             <div className="text-right">
-              <p className="text-sm font-semibold text-[#273347]">{profile?.full_name || "المدير"}</p>
+              <p className="text-sm font-semibold text-[#273347]">Admin</p>
               <p className="text-xs text-[#273347]/50">مدير النظام</p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#273347] text-sm font-bold text-white">
-              {getProfileInitial(profile?.full_name, "م")}
+              A
             </div>
           </div>
         </header>

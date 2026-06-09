@@ -205,7 +205,6 @@ export default function AIChatbot({ userType: fallbackUserType }: { userType: AI
         body: JSON.stringify({
           message: userMessage,
           sessionId,
-          requestedUserType: fallbackUserType,
         }),
       });
 

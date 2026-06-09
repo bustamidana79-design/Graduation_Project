@@ -368,7 +368,6 @@ export default function SmartAssistantPage({ accountType }: { accountType: Accou
           message: text,
           sessionId: activeSessionId,
           profileId,
-          requestedUserType: analyticsUserTypeByAccount[accountType],
         }),
       });
 
