@@ -5,7 +5,7 @@ export default function Hero() {
     <section className="bg-gradient-to-b from-[#546a85] to-[#273347] text-white">
       <div className="max-w-6xl mx-auto px-6 py-16 text-center animate-fade-in">
         <h1 className="text-3xl sm:text-5xl font-extrabold leading-tight drop-shadow">
-COEREX- منصة ربط المشاريع الصغيرة بتجار الجملة
+           منصة ربط المشاريع الصغيرة بتجار الجملة
         </h1>
 
       <p className="mt-4 text-white/90 max-w-2xl mx-auto">
