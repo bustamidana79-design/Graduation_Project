@@ -55,11 +55,12 @@ function AdminRegisterContent() {
 
     try {
       // Step 1: Create auth user
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          emailRedirectTo: `${appUrl}/auth/callback`,
         },
       });
 
