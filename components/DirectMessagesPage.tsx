@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-type AccountType = "merchant" | "small_business" | "delivery" | "supporter" | "admin";
+type AccountType = "merchant" | "supplier" | "small_business" | "delivery" | "shipping_company" | "supporter" | "admin";
 
 type Profile = {
   id: string;
   full_name: string | null;
+  email?: string | null;
   account_type: AccountType;
   status?: string | null;
 };
@@ -38,8 +39,10 @@ type EnrichedConversation = DirectConversation & {
 
 const accountTypeLabels: Record<AccountType, string> = {
   merchant: "تاجر",
+  supplier: "مورد",
   small_business: "مشروع صغير",
   delivery: "شركة شحن",
+  shipping_company: "شركة شحن",
   supporter: "داعم",
   admin: "إدارة",
 };
@@ -69,6 +72,8 @@ export default function DirectMessagesPage() {
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
+  const [userSearchResults, setUserSearchResults] = useState<Profile[]>([]);
+  const [userSearchLoading, setUserSearchLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -97,7 +102,11 @@ export default function DirectMessagesPage() {
     );
   }, [conversations, search]);
 
-  const filteredUsers: Profile[] = [];
+  const filteredUsers = useMemo(() => {
+    if (!currentUser) return [];
+    const existingPeerIds = new Set(conversations.map((conversation) => getConversationPeerId(conversation, currentUser.id)));
+    return userSearchResults.filter((user) => !existingPeerIds.has(user.id));
+  }, [conversations, currentUser, userSearchResults]);
 
   const fetchConversations = async (user: Profile) => {
     const { data, error: conversationsError } = await supabase
@@ -194,6 +203,55 @@ export default function DirectMessagesPage() {
   }, [selectedConversationId]);
 
   useEffect(() => {
+    if (!currentUser) return;
+
+    const query = search.trim();
+    if (query.length < 2) {
+      setUserSearchResults([]);
+      setUserSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setUserSearchLoading(true);
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const safeQuery = query.replace(/[%,]/g, " ").trim();
+        if (safeQuery.length < 2) {
+          if (!cancelled) setUserSearchResults([]);
+          return;
+        }
+
+        const { data, error: searchError } = await supabase
+          .from("profiles")
+          .select("id, full_name, email, account_type, status")
+          .eq("status", "approved")
+          .neq("account_type", "admin")
+          .neq("id", currentUser.id)
+          .ilike("full_name", `%${safeQuery}%`)
+          .order("full_name", { ascending: true })
+          .limit(8);
+
+        if (searchError) throw searchError;
+        if (!cancelled) setUserSearchResults((data || []) as Profile[]);
+      } catch (err) {
+        if (!cancelled) {
+          setUserSearchResults([]);
+          setError(err instanceof Error ? err.message : "تعذر البحث عن المستخدمين.");
+        }
+      } finally {
+        if (!cancelled) setUserSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [currentUser, search]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -231,31 +289,31 @@ export default function DirectMessagesPage() {
     setError(null);
 
     try {
-      const existingFilter =
-        `and(user_one_id.eq.${currentUser.id},user_two_id.eq.${targetUserId}),` +
-        `and(user_one_id.eq.${targetUserId},user_two_id.eq.${currentUser.id})`;
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) throw new Error("انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى.");
 
-      const { data: existingConversation, error: existingError } = await supabase
-        .from("direct_conversations")
-        .select("*")
-        .or(existingFilter)
-        .maybeSingle();
-      if (existingError) throw existingError;
+      const response = await fetch("/api/chat/conversation", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ targetUserId }),
+      });
 
-      let conversationId = (existingConversation as DirectConversation | null)?.id ?? null;
-      if (!conversationId) {
-        const { data: createdConversation, error: createError } = await supabase
-          .from("direct_conversations")
-          .insert([{ user_one_id: currentUser.id, user_two_id: targetUserId }])
-          .select("*")
-          .single();
-        if (createError) throw createError;
-        conversationId = (createdConversation as DirectConversation).id;
+      const result = (await response.json()) as { conversationId?: string; error?: string };
+      if (!response.ok || !result.conversationId) {
+        throw new Error(result.error || "تعذر فتح المحادثة.");
       }
 
       await fetchConversations(currentUser);
-      setSelectedConversationId(conversationId);
+      setSelectedConversationId(result.conversationId);
       setSearch("");
+      setUserSearchResults([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر فتح المحادثة.");
     } finally {
@@ -318,6 +376,13 @@ export default function DirectMessagesPage() {
               placeholder="ابحث عن مستخدم أو محادثة"
               className="mt-3 w-full rounded-xl border border-[#d9e3ee] px-4 py-2 text-sm text-[#273347] outline-none focus:border-[#273347]"
             />
+            {userSearchLoading && <p className="mt-2 text-xs text-[#273347]/50">جاري البحث عن المستخدمين...</p>}
+            {!userSearchLoading && search.trim().length >= 2 && userSearchResults.length > 0 && filteredUsers.length === 0 && (
+              <p className="mt-2 text-xs text-[#273347]/50">كل النتائج المطابقة موجودة ضمن محادثاتك الحالية.</p>
+            )}
+            {!userSearchLoading && search.trim().length >= 2 && userSearchResults.length === 0 && filteredConversations.length === 0 && (
+              <p className="mt-2 text-xs text-[#273347]/50">لا يوجد مستخدم مطابق بهذا الاسم.</p>
+            )}
             {filteredUsers.length > 0 && (
               <div className="mt-2 space-y-1 rounded-xl border border-[#e6edf5] bg-[#f8fafc] p-2">
                 {filteredUsers.map((user) => (
