@@ -41,11 +41,12 @@ export async function POST(request: NextRequest) {
     const supabase = createServerSupabase();
 
     // Step 1: Create auth user
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_PUBLIC_URL || new URL(request.url).origin;
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: `${appOrigin(request)}/auth/callback`,
+        emailRedirectTo: `${appUrl}/auth/callback`,
       },
     });
 

@@ -2,58 +2,49 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Navbar from "../../components/Navbar";
 import { supabase } from "../../lib/supabase";
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
 
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  const handleUpdatePassword = async (e: React.FormEvent) => {
+  const handleSendResetEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
     setSuccessMsg("");
 
-    if (!newPassword || !confirmPassword) {
-  setErrorMsg("يرجى إدخال كلمة المرور الجديدة وتأكيدها.");
-  return;
-}
+    if (!email) {
+      setErrorMsg("يرجى إدخال بريدك الإلكتروني.");
+      return;
+    }
 
-// التحقق من قوة كلمة المرور
-if (newPassword.length < 8) return setErrorMsg("كلمة المرور يجب أن تكون 8 أحرف على الأقل.");
-if (!/[A-Z]/.test(newPassword)) return setErrorMsg("يجب أن تحتوي كلمة المرور على حرف كبير.");
-if (!/[a-z]/.test(newPassword)) return setErrorMsg("يجب أن تحتوي كلمة المرور على حرف صغير.");
-if (!/[0-9]/.test(newPassword)) return setErrorMsg("يجب أن تحتوي كلمة المرور على رقم.");
-if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword))
-  return setErrorMsg("يجب أن تحتوي كلمة المرور على رمز خاص (!@#$...).");
-
-if (newPassword !== confirmPassword) {
-  setErrorMsg("كلمتا المرور غير متطابقتين.");
-  return;
-}
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setErrorMsg("يرجى إدخال بريد إلكتروني صحيح.");
+      return;
+    }
 
     setLoading(true);
 
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword,
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${appUrl}/auth/reset-password`,
     });
 
     setLoading(false);
 
     if (error) {
-      setErrorMsg("تعذر تحديث كلمة المرور. يرجى المحاولة مرة أخرى.");
+      setErrorMsg("تعذر إرسال الإيميل. تحقق من البريد الإلكتروني والمحاولة مرة أخرى.");
       return;
     }
 
-    setSuccessMsg("تم تحديث كلمة المرور بنجاح ✅");
-    // بعد النجاح: رجّعيه لصفحة تسجيل الدخول
-    setTimeout(() => router.push("/login"), 900);
+    setSuccessMsg("تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني. 📧");
+    setEmail("");
   };
 
   return (
@@ -63,40 +54,25 @@ if (newPassword !== confirmPassword) {
       <div className="flex justify-center items-center py-20 px-4">
         <div className="bg-white shadow-lg rounded-2xl p-8 w-full max-w-md border border-[#e6edf5]">
           <h2 className="text-2xl font-bold text-[#273347] mb-2 text-center">
-            إعادة تعيين كلمة المرور
+            نسيت كلمة المرور؟
           </h2>
 
           <p className="text-center text-sm text-[#273347]/70 mb-6">
-            أدخل كلمة مرور جديدة للحساب
+            أدخل بريدك الإلكتروني وسنرسل لك رابط لتعيين كلمة مرور جديدة
           </p>
 
-          <form className="space-y-4" onSubmit={handleUpdatePassword}>
+          <form className="space-y-4" onSubmit={handleSendResetEmail}>
             <div>
               <label className="block text-sm font-semibold text-[#273347] mb-2">
-                كلمة المرور الجديدة
+                البريد الإلكتروني
               </label>
               <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="••••••••"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
                 className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
-              />
-              <p className="mt-1 text-xs text-[#273347]/60">
-    8 أحرف على الأقل، حرف كبير وصغير، رقم، ورمز خاص (!@#$...).
-  </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-[#273347] mb-2">
-                تأكيد كلمة المرور
-              </label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full border border-gray-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#bbd0e4]"
+                disabled={loading}
               />
             </div>
 
@@ -105,7 +81,7 @@ if (newPassword !== confirmPassword) {
               disabled={loading}
               className="w-full bg-[#bbd0e4] hover:bg-[#a9c2d8] transition duration-300 text-[#273347] font-semibold py-3 rounded-xl disabled:opacity-60"
             >
-              {loading ? "جارٍ الحفظ..." : "حفظ كلمة المرور"}
+              {loading ? "جاري الإرسال..." : "إرسال رابط إعادة التعيين"}
             </button>
 
             {errorMsg && (
@@ -119,6 +95,15 @@ if (newPassword !== confirmPassword) {
                 {successMsg}
               </div>
             )}
+
+            <div className="text-center mt-4">
+              <p className="text-sm text-[#273347]/70">
+                هل تتذكر كلمة المرور؟{" "}
+                <Link href="/login" className="text-[#bbd0e4] hover:underline font-semibold">
+                  سجّل الدخول
+                </Link>
+              </p>
+            </div>
           </form>
         </div>
       </div>

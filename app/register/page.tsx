@@ -376,11 +376,12 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
 
       await supabase.auth.signOut();
 
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          emailRedirectTo: `${appUrl}/auth/callback`,
           data: {
             full_name: fullName.trim(),
             email: cleanEmail,
