@@ -428,12 +428,12 @@ export default function ApplicationsPage() {
   // ── Email ──
   const sendEmail = async (email: string, fullName: string, status: "approved" | "rejected", note: string) => {
     const subject = status === "approved"
-      ? "تهانينا! تم قبول طلبك في منصة الموردين"
-      : "بخصوص طلب إنشاء حسابك في منصة الموردين";
+      ? "تهانينا! تم قبول طلبك في COREX"
+      : "بخصوص طلب إنشاء حسابك في COREX";
     const baseUrl = window.location.origin;
     const bodyText = status === "approved"
-      ? `عزيزي ${fullName}،\n\nتم قبول طلب إنشاء حسابك.\n${note ? `\nملاحظة: ${note}\n` : ""}\nتسجيل الدخول: ${baseUrl}/login\n\nفريق المنصة`
-      : `عزيزي ${fullName}،\n\nتم رفض طلب إنشاء حسابك.\n${note ? `\nسبب الرفض: ${note}\n` : ""}\nإعادة التسجيل: ${baseUrl}/register\n\nفريق المنصة`;
+      ? `عزيزي ${fullName}،\n\nتم قبول طلب إنشاء حسابك.\n${note ? `\nملاحظة: ${note}\n` : ""}\nتسجيل الدخول: ${baseUrl}/login\n\nفريق COREX`
+      : `عزيزي ${fullName}،\n\nتم رفض طلب إنشاء حسابك.\n${note ? `\nسبب الرفض: ${note}\n` : ""}\nإعادة التسجيل: ${baseUrl}/register\n\nفريق COREX`;
     await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

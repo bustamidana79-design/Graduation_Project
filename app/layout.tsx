@@ -5,8 +5,8 @@ import "./globals.css";
 const cairo = Cairo({ subsets: ["arabic"] });
 
 export const metadata: Metadata = {
-  title: "منصة الأعمال الذكية",
-  description: "منصة ربط المشاريع الصغيرة بتجار الجملة",
+  title: "COREX",
+  description: "COREX منصة تربط المشاريع الصغيرة بالموردين وشركات الشحن والداعمين",
 };
 
 export default function RootLayout({

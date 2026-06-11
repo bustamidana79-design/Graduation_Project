@@ -3416,7 +3416,7 @@ async function fetchJson(url: string) {
   try {
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: { "User-Agent": "GradB2BChatbot/1.0" },
+      headers: { "User-Agent": "COREXChatbot/1.0" },
       next: { revalidate: 60 * 60 },
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -3432,7 +3432,7 @@ async function fetchText(url: string) {
   try {
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: { "User-Agent": "GradB2BChatbot/1.0" },
+      headers: { "User-Agent": "COREXChatbot/1.0" },
       next: { revalidate: 60 * 60 },
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

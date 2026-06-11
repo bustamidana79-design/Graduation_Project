@@ -5,7 +5,7 @@ export default function Navbar() {
     <header className="bg-[#273347] text-white shadow-lg">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5 md:py-6">
         <div className="flex items-center gap-2 text-2xl font-bold tracking-wide md:text-3xl">
-          <h1>منصة الأعمال الذكية</h1>
+          <h1>COREX</h1>
         </div>
 
         <nav className="flex items-center gap-6 text-base md:text-lg">

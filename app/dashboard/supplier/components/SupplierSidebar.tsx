@@ -66,7 +66,7 @@ export default function SupplierSidebar({
       `}
     >
       <div className="border-b border-white/10 px-6 py-6">
-        <h1 className="text-xl font-bold">منصة الموردين</h1>
+        <h1 className="text-xl font-bold">COREX</h1>
         <p className="mt-1 text-xs text-white/50">لوحة المورد</p>
       </div>
 

@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "منصة الموردين <onboarding@resend.dev>",
+        from: "COREX <onboarding@resend.dev>",
         to,
         subject,
         text: body,
