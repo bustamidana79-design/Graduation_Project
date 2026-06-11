@@ -27,20 +27,37 @@ function getString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+async function getCallbackSession() {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("code");
+
+  if (code) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (!error) {
+      window.history.replaceState({}, document.title, url.pathname);
+    }
+
+    return { session: data.session, error };
+  }
+
+  const { data, error } = await supabase.auth.getSession();
+  return { session: data.session, error };
+}
+
 export default function AuthCallbackPage() {
   const router = useRouter();
 
   useEffect(() => {
     const handle = async () => {
-      // Supabase يعالج الـ token من الـ URL تلقائياً
-      const { data, error } = await supabase.auth.getSession();
+      const { session, error } = await getCallbackSession();
 
-      if (error || !data.session) {
+      if (error || !session) {
         router.push("/login");
         return;
       }
 
-      const user = data.session.user;
+      const user = session.user;
       const userId = user.id;
       const metadata = (user.user_metadata || {}) as Record<string, unknown>;
 
@@ -162,7 +179,7 @@ export default function AuthCallbackPage() {
     };
 
     handle();
-  }, []);
+  }, [router]);
 
   return (
     <main className="min-h-screen bg-[#f8fafc] flex items-center justify-center">

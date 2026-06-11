@@ -5,6 +5,24 @@ import { useRouter } from "next/navigation";
 import Navbar from "../../../components/Navbar";
 import { supabase } from "../../../lib/supabase";
 
+async function getRecoverySession() {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("code");
+
+  if (code) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (!error) {
+      window.history.replaceState({}, document.title, url.pathname);
+    }
+
+    return { session: data.session, error };
+  }
+
+  const { data, error } = await supabase.auth.getSession();
+  return { session: data.session, error };
+}
+
 export default function AuthResetPasswordPage() {
   const router = useRouter();
   const [newPassword, setNewPassword] = useState("");
@@ -18,8 +36,8 @@ export default function AuthResetPasswordPage() {
   // التحقق من أن المستخدم جاء من رابط الإيميل الصحيح
   useEffect(() => {
     const checkToken = async () => {
-      const { data, error } = await supabase.auth.getSession();
-      if (data.session) {
+      const { session } = await getRecoverySession();
+      if (session) {
         setIsValidToken(true);
       } else {
         setIsValidToken(false);
