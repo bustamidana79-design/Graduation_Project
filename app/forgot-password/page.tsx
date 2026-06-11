@@ -1,14 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Navbar from "../../components/Navbar";
 import { supabase } from "../../lib/supabase";
+import { getClientAppUrl } from "@/lib/app-url";
 
 export default function ForgotPasswordPage() {
-  const router = useRouter();
-
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -31,7 +29,7 @@ export default function ForgotPasswordPage() {
 
     setLoading(true);
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const appUrl = getClientAppUrl();
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${appUrl}/auth/reset-password`,
     });

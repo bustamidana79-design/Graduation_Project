@@ -3,9 +3,21 @@ import { createServerSupabase } from "@/lib/api-auth";
 
 const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || "COREX_ADMIN_SECRET";
 
+function isLocalUrl(url: string) {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
 function appOrigin(request: NextRequest) {
   const configuredUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_PUBLIC_URL;
-  if (configuredUrl) return configuredUrl.replace(/\/$/, "");
+  const requestOrigin = new URL(request.url).origin;
+  if (configuredUrl && (!isLocalUrl(configuredUrl) || isLocalUrl(requestOrigin))) {
+    return configuredUrl.replace(/\/$/, "");
+  }
 
   const forwardedProto = request.headers.get("x-forwarded-proto");
   const forwardedHost = request.headers.get("x-forwarded-host") || request.headers.get("host");
@@ -14,7 +26,7 @@ function appOrigin(request: NextRequest) {
     return `${forwardedProto || "https"}://${forwardedHost}`;
   }
 
-  return new URL(request.url).origin;
+  return requestOrigin;
 }
 
 export async function POST(request: NextRequest) {
@@ -41,7 +53,7 @@ export async function POST(request: NextRequest) {
     const supabase = createServerSupabase();
 
     // Step 1: Create auth user
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_PUBLIC_URL || new URL(request.url).origin;
+    const appUrl = appOrigin(request);
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,

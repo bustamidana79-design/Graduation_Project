@@ -13,6 +13,7 @@ import ar from "react-phone-number-input/locale/ar.json";
 import countries from "world-countries";
 import { ARAB_COUNTRY_NAMES, getCitiesByCountryCode } from "@/lib/locations";
 import { categories } from "@/lib/categories";
+import { getClientAppUrl } from "@/lib/app-url";
 
 const disposableDomains = [
   "10minutemail.com",
@@ -376,7 +377,7 @@ if (interests === "other" && !interestsOther.trim()) return "يرجى كتابة
 
       await supabase.auth.signOut();
 
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      const appUrl = getClientAppUrl();
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: cleanEmail,
         password,

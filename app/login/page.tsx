@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "../../components/Navbar";
 import { supabase } from "../../lib/supabase";
+import { getClientAppUrl } from "@/lib/app-url";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -138,7 +139,7 @@ export default function LoginPage() {
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+      redirectTo: `${getClientAppUrl()}/auth/reset-password`,
     });
 
     if (error) {

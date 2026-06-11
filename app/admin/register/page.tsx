@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "../../../components/Navbar";
 import { supabase } from "../../../lib/supabase";
+import { getClientAppUrl } from "@/lib/app-url";
 
 const ADMIN_SECRET_KEY = process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY || "COREX_ADMIN_SECRET";
 
@@ -55,7 +56,7 @@ function AdminRegisterContent() {
 
     try {
       // Step 1: Create auth user
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      const appUrl = getClientAppUrl();
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
