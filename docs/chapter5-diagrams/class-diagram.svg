@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1200" viewBox="0 0 1700 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Class Diagram</title>
+  <desc id="desc">UML-style class diagram for the main entities in the platform.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#36516f"/>
+    </marker>
+    <style>
+      .bg { fill: #f7fafc; }
+      .title { font: 700 34px Arial, Segoe UI, sans-serif; fill: #273347; }
+      .subtitle { font: 400 17px Arial, Segoe UI, sans-serif; fill: #5d6b7d; }
+      .class { fill: #ffffff; stroke: #cddaea; stroke-width: 2; rx: 10; }
+      .header { fill: #273347; rx: 10; }
+      .header-flat { fill: #273347; }
+      .class-name { font: 700 17px Arial, Segoe UI, sans-serif; fill: #ffffff; }
+      .attr { font: 400 14px Arial, Segoe UI, sans-serif; fill: #34475f; }
+      .line { stroke: #36516f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .assoc { stroke: #7c91aa; stroke-width: 1.7; fill: none; }
+      .label { font: 700 13px Arial, Segoe UI, sans-serif; fill: #273347; }
+      .note { fill: #fff8e6; stroke: #e3c466; stroke-width: 2; rx: 12; }
+      .note-text { font: 400 14px Arial, Segoe UI, sans-serif; fill: #34475f; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1700" height="1200"/>
+  <text class="title" x="70" y="75">Class Diagram</text>
+  <text class="subtitle" x="70" y="108">Main classes/entities and their relationships in the platform database.</text>
+
+  <!-- AuthUser -->
+  <rect class="class" x="690" y="150" width="300" height="135"/>
+  <path class="header" d="M 690 150 H 990 V 192 H 690 Z"/>
+  <text class="class-name" x="720" y="177">AuthUser</text>
+  <text class="attr" x="720" y="222">+ id: UUID</text>
+  <text class="attr" x="720" y="246">+ email: string</text>
+  <text class="attr" x="720" y="270">+ created_at: datetime</text>
+
+  <!-- Profile -->
+  <rect class="class" x="650" y="350" width="380" height="185"/>
+  <path class="header" d="M 650 350 H 1030 V 392 H 650 Z"/>
+  <text class="class-name" x="680" y="377">Profile</text>
+  <text class="attr" x="680" y="422">+ id: UUID</text>
+  <text class="attr" x="680" y="446">+ full_name: string</text>
+  <text class="attr" x="680" y="470">+ account_type: enum</text>
+  <text class="attr" x="680" y="494">+ status: enum</text>
+  <text class="attr" x="680" y="518">+ preferred_currency: string</text>
+
+  <path class="line" d="M 840 285 L 840 350"/>
+  <text class="label" x="858" y="322">1 : 1</text>
+
+  <!-- Role classes -->
+  <rect class="class" x="80" y="640" width="300" height="160"/>
+  <path class="header" d="M 80 640 H 380 V 682 H 80 Z"/>
+  <text class="class-name" x="110" y="667">SupplierProfile</text>
+  <text class="attr" x="110" y="712">+ user_id: UUID</text>
+  <text class="attr" x="110" y="736">+ store_name: string</text>
+  <text class="attr" x="110" y="760">+ product_category: string</text>
+  <text class="attr" x="110" y="784">+ shipping_company_id: UUID</text>
+
+  <rect class="class" x="460" y="640" width="300" height="160"/>
+  <path class="header" d="M 460 640 H 760 V 682 H 460 Z"/>
+  <text class="class-name" x="490" y="667">SmallBusinessProfile</text>
+  <text class="attr" x="490" y="712">+ user_id: UUID</text>
+  <text class="attr" x="490" y="736">+ project_name: string</text>
+  <text class="attr" x="490" y="760">+ project_stage: string</text>
+  <text class="attr" x="490" y="784">+ needs: string[]</text>
+
+  <rect class="class" x="840" y="640" width="300" height="160"/>
+  <path class="header" d="M 840 640 H 1140 V 682 H 840 Z"/>
+  <text class="class-name" x="870" y="667">ShippingCompanyProfile</text>
+  <text class="attr" x="870" y="712">+ user_id: UUID</text>
+  <text class="attr" x="870" y="736">+ company_name: string</text>
+  <text class="attr" x="870" y="760">+ delivery_scope: string</text>
+  <text class="attr" x="870" y="784">+ license_no: string</text>
+
+  <rect class="class" x="1220" y="640" width="300" height="160"/>
+  <path class="header" d="M 1220 640 H 1520 V 682 H 1220 Z"/>
+  <text class="class-name" x="1250" y="667">SupporterProfile</text>
+  <text class="attr" x="1250" y="712">+ user_id: UUID</text>
+  <text class="attr" x="1250" y="736">+ support_type: string</text>
+  <text class="attr" x="1250" y="760">+ funding_range: string</text>
+  <text class="attr" x="1250" y="784">+ interests: string</text>
+
+  <path class="assoc" d="M 730 535 C 570 575, 400 600, 230 640"/>
+  <path class="assoc" d="M 805 535 C 730 585, 660 610, 610 640"/>
+  <path class="assoc" d="M 900 535 C 940 585, 970 610, 990 640"/>
+  <path class="assoc" d="M 990 535 C 1120 580, 1270 610, 1370 640"/>
+  <text class="label" x="398" y="603">1 : 0..1</text>
+  <text class="label" x="675" y="603">1 : 0..1</text>
+  <text class="label" x="1015" y="603">1 : 0..1</text>
+  <text class="label" x="1195" y="603">1 : 0..1</text>
+
+  <!-- Commerce classes -->
+  <rect class="class" x="80" y="900" width="290" height="170"/>
+  <path class="header" d="M 80 900 H 370 V 942 H 80 Z"/>
+  <text class="class-name" x="110" y="927">Product</text>
+  <text class="attr" x="110" y="972">+ id: UUID</text>
+  <text class="attr" x="110" y="996">+ supplier_id: UUID</text>
+  <text class="attr" x="110" y="1020">+ wholesale_price: number</text>
+  <text class="attr" x="110" y="1044">+ stock_quantity: number</text>
+
+  <rect class="class" x="430" y="900" width="290" height="170"/>
+  <path class="header" d="M 430 900 H 720 V 942 H 430 Z"/>
+  <text class="class-name" x="460" y="927">Cart</text>
+  <text class="attr" x="460" y="972">+ id: UUID</text>
+  <text class="attr" x="460" y="996">+ user_id: UUID</text>
+  <text class="attr" x="460" y="1020">+ cart_items: CartItem[]</text>
+
+  <rect class="class" x="780" y="900" width="290" height="170"/>
+  <path class="header" d="M 780 900 H 1070 V 942 H 780 Z"/>
+  <text class="class-name" x="810" y="927">Order</text>
+  <text class="attr" x="810" y="972">+ id: UUID</text>
+  <text class="attr" x="810" y="996">+ buyer_id: UUID</text>
+  <text class="attr" x="810" y="1020">+ supplier_id: UUID</text>
+  <text class="attr" x="810" y="1044">+ status: string</text>
+
+  <rect class="class" x="1130" y="900" width="290" height="170"/>
+  <path class="header" d="M 1130 900 H 1420 V 942 H 1130 Z"/>
+  <text class="class-name" x="1160" y="927">DeliveryOrder</text>
+  <text class="attr" x="1160" y="972">+ id: UUID</text>
+  <text class="attr" x="1160" y="996">+ order_id: UUID</text>
+  <text class="attr" x="1160" y="1020">+ tracking_number: string</text>
+  <text class="attr" x="1160" y="1044">+ status: string</text>
+
+  <path class="assoc" d="M 230 800 L 230 900"/>
+  <text class="label" x="245" y="858">1 : many</text>
+  <path class="assoc" d="M 610 800 L 575 900"/>
+  <text class="label" x="600" y="858">1 : many</text>
+  <path class="assoc" d="M 610 800 C 720 840, 830 855, 925 900"/>
+  <text class="label" x="740" y="850">1 : many</text>
+  <path class="assoc" d="M 990 800 C 1060 850, 1175 865, 1275 900"/>
+  <text class="label" x="1100" y="858">1 : many</text>
+
+  <path class="line" d="M 370 985 L 430 985"/>
+  <text class="label" x="383" y="970">cart_items</text>
+  <path class="line" d="M 720 985 L 780 985"/>
+  <text class="label" x="732" y="970">checkout</text>
+  <path class="line" d="M 1070 985 L 1130 985"/>
+  <text class="label" x="1082" y="970">delivery</text>
+
+  <!-- Side classes -->
+  <rect class="class" x="1210" y="350" width="360" height="170"/>
+  <path class="header" d="M 1210 350 H 1570 V 392 H 1210 Z"/>
+  <text class="class-name" x="1240" y="377">Application</text>
+  <text class="attr" x="1240" y="422">+ user_id: UUID</text>
+  <text class="attr" x="1240" y="446">+ account_type: string</text>
+  <text class="attr" x="1240" y="470">+ data_json: JSON</text>
+  <text class="attr" x="1240" y="494">+ status: string</text>
+
+  <rect class="class" x="80" y="350" width="360" height="170"/>
+  <path class="header" d="M 80 350 H 440 V 392 H 80 Z"/>
+  <text class="class-name" x="110" y="377">Communication</text>
+  <text class="attr" x="110" y="422">+ DirectConversation</text>
+  <text class="attr" x="110" y="446">+ DirectMessage</text>
+  <text class="attr" x="110" y="470">+ SupportTicket</text>
+  <text class="attr" x="110" y="494">+ Notification</text>
+
+  <rect class="note" x="1210" y="135" width="360" height="105"/>
+  <text class="note-text" x="1240" y="174">Each database row uses UUID keys.</text>
+  <text class="note-text" x="1240" y="200">Row-level security controls access</text>
+  <text class="note-text" x="1240" y="226">based on the logged-in profile.</text>
+
+  <path class="assoc" d="M 650 440 L 440 440"/>
+  <text class="label" x="510" y="425">1 : many</text>
+  <path class="assoc" d="M 1030 440 L 1210 440"/>
+  <text class="label" x="1080" y="425">1 : many</text>
+</svg>

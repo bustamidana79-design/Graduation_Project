@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import CorexLogo from "@/components/CorexLogo";
 import { supabase } from "../../../../lib/supabase";
 
 type Profile = {
@@ -66,7 +67,9 @@ export default function SupplierSidebar({
       `}
     >
       <div className="border-b border-white/10 px-6 py-6">
-        <h1 className="text-xl font-bold">COREX</h1>
+        <h1>
+          <CorexLogo className="h-12 w-40" />
+        </h1>
         <p className="mt-1 text-xs text-white/50">لوحة المورد</p>
       </div>
 
@@ -89,7 +92,6 @@ export default function SupplierSidebar({
       </nav>
 
       <div className="border-t border-white/10 px-4 py-6">
-        <div className="mb-3 px-4 text-xs text-white/45">{profile?.full_name || "المورد"}</div>
         <button
           onClick={handleSignOut}
           className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-white/70 transition-all hover:bg-white/10 hover:text-white"

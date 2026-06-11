@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1650" height="980" viewBox="0 0 1650 980" role="img" aria-labelledby="title desc">
+  <title id="title">Feedback Messages and Support</title>
+  <desc id="desc">Diagram showing product ratings, direct messages, support tickets, ticket messages, and notifications.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#36516f"/>
+    </marker>
+    <style>
+      .bg{fill:#f7fafc}.title{font:700 34px Arial,sans-serif;fill:#273347}.subtitle{font:400 17px Arial,sans-serif;fill:#5d6b7d}
+      .box{fill:#fff;stroke:#d8e3ef;stroke-width:2;rx:14}.rate{fill:#effaf3;stroke:#91d1a5;stroke-width:2;rx:14}.msg{fill:#edf5ff;stroke:#8eb9e3;stroke-width:2;rx:14}.sup{fill:#fff8e6;stroke:#e3c466;stroke-width:2;rx:14}.noti{fill:#fff1f3;stroke:#dfa0ab;stroke-width:2;rx:14}
+      .head{font:700 21px Arial,sans-serif;fill:#273347}.text{font:400 15px Arial,sans-serif;fill:#34475f}.small{font:400 13px Arial,sans-serif;fill:#637184}
+      .line{stroke:#36516f;stroke-width:2.35;fill:none;marker-end:url(#arrow)}.tag{fill:#273347;rx:16}.tagText{font:700 14px Arial,sans-serif;fill:#fff}
+    </style>
+  </defs>
+  <rect class="bg" width="1650" height="980"/>
+  <text class="title" x="70" y="75">5.10 Feedback, Messages, and Support</text>
+  <text class="subtitle" x="70" y="108">The system stores product feedback, user messages, support tickets, and real-time notifications.</text>
+
+  <rect class="box" x="80" y="220" width="250" height="130"/>
+  <text class="head" x="115" y="262">profiles</text>
+  <text class="text" x="115" y="294">id: User ID</text>
+  <text class="small" x="115" y="322">sender, receiver, owner</text>
+
+  <rect class="rate" x="440" y="170" width="330" height="210"/>
+  <text class="head" x="475" y="212">product_ratings</text>
+  <text class="text" x="475" y="246">id: Rating ID</text>
+  <text class="text" x="475" y="276">product_id</text>
+  <text class="text" x="475" y="306">user_id</text>
+  <text class="text" x="475" y="336">rating 1 to 5</text>
+
+  <rect class="msg" x="870" y="170" width="330" height="250"/>
+  <text class="head" x="905" y="212">direct_messages</text>
+  <text class="text" x="905" y="246">conversation_id</text>
+  <text class="text" x="905" y="276">sender_id</text>
+  <text class="text" x="905" y="306">receiver_id</text>
+  <text class="text" x="905" y="336">content</text>
+  <text class="text" x="905" y="366">created_at, read_at</text>
+
+  <rect class="msg" x="870" y="505" width="330" height="170"/>
+  <text class="head" x="905" y="547">direct_conversations</text>
+  <text class="text" x="905" y="580">user_one_id</text>
+  <text class="text" x="905" y="610">user_two_id</text>
+  <text class="text" x="905" y="640">last_message_at</text>
+
+  <rect class="sup" x="80" y="540" width="330" height="210"/>
+  <text class="head" x="115" y="582">support_tickets</text>
+  <text class="text" x="115" y="616">id: Ticket ID</text>
+  <text class="text" x="115" y="646">user_id</text>
+  <text class="text" x="115" y="676">subject, status</text>
+  <text class="text" x="115" y="706">priority, user_role</text>
+
+  <rect class="sup" x="500" y="540" width="330" height="210"/>
+  <text class="head" x="535" y="582">ticket_messages</text>
+  <text class="text" x="535" y="616">id: Message ID</text>
+  <text class="text" x="535" y="646">ticket_id</text>
+  <text class="text" x="535" y="676">sender_id</text>
+  <text class="text" x="535" y="706">message, created_at</text>
+
+  <rect class="noti" x="1275" y="310" width="300" height="230"/>
+  <text class="head" x="1310" y="352">notifications</text>
+  <text class="text" x="1310" y="386">id: Notification ID</text>
+  <text class="text" x="1310" y="416">user_id</text>
+  <text class="text" x="1310" y="446">title, body</text>
+  <text class="text" x="1310" y="476">notification_type</text>
+  <text class="text" x="1310" y="506">is_read, created_at</text>
+
+  <path class="line" d="M330 285 L440 275"/>
+  <path class="line" d="M330 300 C560 345 700 250 870 250"/>
+  <path class="line" d="M1035 420 L1035 505"/>
+  <path class="line" d="M330 340 C280 410 255 480 245 540"/>
+  <path class="line" d="M410 645 L500 645"/>
+  <path class="line" d="M1200 295 L1275 390"/>
+  <path class="line" d="M830 645 C1050 660 1190 560 1275 480"/>
+  <rect class="tag" x="730" y="795" width="230" height="36"/>
+  <text class="tagText" x="768" y="818">Section 5.10</text>
+</svg>

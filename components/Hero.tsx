@@ -1,11 +1,12 @@
 import Link from "next/link";
+import CorexLogo from "@/components/CorexLogo";
 
 export default function Hero() {
   return (
     <section className="bg-gradient-to-b from-[#546a85] to-[#273347] text-white">
       <div className="max-w-6xl mx-auto px-6 py-16 text-center animate-fade-in">
-        <h1 className="text-3xl sm:text-5xl font-extrabold leading-tight drop-shadow">
-          COREX
+        <h1 className="flex justify-center drop-shadow">
+          <CorexLogo className="h-28 w-full max-w-[620px] sm:h-36" />
         </h1>
 
       <p className="mt-4 text-white/90 max-w-2xl mx-auto">

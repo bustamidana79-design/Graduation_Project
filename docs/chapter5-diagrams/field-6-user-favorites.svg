@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="850" viewBox="0 0 1450 850" role="img" aria-labelledby="title desc">
+  <title id="title">Field 6 User Favorite Products</title>
+  <desc id="desc">User favorite products field showing the relationship between small business users and products.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#36516f"/>
+    </marker>
+    <style>
+      .bg{fill:#f7fafc}.title{font:700 34px Arial,sans-serif;fill:#273347}.subtitle{font:400 17px Arial,sans-serif;fill:#5d6b7d}
+      .box{fill:#fff;stroke:#d8e3ef;stroke-width:2;rx:14}.fav{fill:#fff1f3;stroke:#dfa0ab;stroke-width:2.5;rx:14}.user{fill:#edf5ff;stroke:#8eb9e3;stroke-width:2;rx:14}.prod{fill:#effaf3;stroke:#91d1a5;stroke-width:2;rx:14}
+      .head{font:700 22px Arial,sans-serif;fill:#273347}.text{font:400 16px Arial,sans-serif;fill:#34475f}.small{font:400 13px Arial,sans-serif;fill:#637184}
+      .line{stroke:#36516f;stroke-width:2.4;fill:none;marker-end:url(#arrow)}.tag{fill:#273347;rx:16}.tagText{font:700 14px Arial,sans-serif;fill:#fff}
+    </style>
+  </defs>
+  <rect class="bg" width="1450" height="850"/>
+  <text class="title" x="70" y="75">Field (6): User Favorite Products Field</text>
+  <text class="subtitle" x="70" y="108">Small business users can save products in a personal favorites list.</text>
+
+  <rect class="user" x="95" y="255" width="310" height="180"/>
+  <text class="head" x="130" y="298">profiles</text>
+  <text class="text" x="130" y="332">id: User ID</text>
+  <text class="text" x="130" y="362">account_type = small_business</text>
+  <text class="small" x="130" y="395">The owner of the favorite list.</text>
+
+  <rect class="fav" x="570" y="210" width="330" height="270"/>
+  <text class="head" x="615" y="254">favorites</text>
+  <text class="text" x="615" y="292">id: Favorite ID</text>
+  <text class="text" x="615" y="322">user_id</text>
+  <text class="text" x="615" y="352">product_id</text>
+  <text class="text" x="615" y="382">created_at</text>
+  <text class="small" x="615" y="422">Each row links one user with one product.</text>
+
+  <rect class="prod" x="1060" y="255" width="310" height="180"/>
+  <text class="head" x="1095" y="298">products</text>
+  <text class="text" x="1095" y="332">id: Product ID</text>
+  <text class="text" x="1095" y="362">name, price, stock</text>
+  <text class="small" x="1095" y="395">The selected favorite product.</text>
+
+  <rect class="box" x="470" y="610" width="530" height="95"/>
+  <text class="head" x="510" y="648">Favorite Toggle</text>
+  <text class="text" x="510" y="678">If a favorite row exists, it is removed. Otherwise, a new row is inserted.</text>
+
+  <path class="line" d="M405 345 L570 345"/>
+  <path class="line" d="M900 345 L1060 345"/>
+  <path class="line" d="M735 480 L735 610"/>
+  <rect class="tag" x="640" y="535" width="190" height="36"/>
+  <text class="tagText" x="673" y="558">Field (6)</text>
+</svg>

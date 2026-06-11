@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1000" viewBox="0 0 1500 1000" role="img" aria-labelledby="title desc">
+  <title id="title">User and Role Information Fields</title>
+  <desc id="desc">Diagram showing the common profile fields and the additional role-specific fields.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#36516f"/>
+    </marker>
+    <style>
+      .bg { fill: #f7fafc; }
+      .title { font: 700 33px Arial, Segoe UI, sans-serif; fill: #273347; }
+      .subtitle { font: 400 17px Arial, Segoe UI, sans-serif; fill: #5d6b7d; }
+      .card { fill: #ffffff; stroke: #d8e3ef; stroke-width: 2; rx: 14; }
+      .main { fill: #edf5ff; stroke: #8eb9e3; stroke-width: 2.5; rx: 14; }
+      .supplier { fill: #effaf3; stroke: #91d1a5; stroke-width: 2; rx: 14; }
+      .smallbiz { fill: #fff8e6; stroke: #e3c466; stroke-width: 2; rx: 14; }
+      .ship { fill: #eef7f7; stroke: #8cc8c8; stroke-width: 2; rx: 14; }
+      .supporter { fill: #fff1f3; stroke: #dfa0ab; stroke-width: 2; rx: 14; }
+      .head { font: 700 22px Arial, Segoe UI, sans-serif; fill: #273347; }
+      .text { font: 400 16px Arial, Segoe UI, sans-serif; fill: #34475f; }
+      .small { font: 400 13px Arial, Segoe UI, sans-serif; fill: #6a7585; }
+      .line { stroke: #36516f; stroke-width: 2.3; fill: none; marker-end: url(#arrow); }
+      .chip { fill: #273347; rx: 12; }
+      .chip-text { font: 700 13px Arial, Segoe UI, sans-serif; fill: #ffffff; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1500" height="1000"/>
+  <text class="title" x="70" y="75">User and Role Information Fields</text>
+  <text class="subtitle" x="70" y="108">The profiles table stores common information; each account type has its own specialized table.</text>
+
+  <rect class="main" x="470" y="155" width="560" height="270"/>
+  <text class="head" x="515" y="198">profiles</text>
+  <text class="text" x="515" y="235">Primary key: id</text>
+  <text class="text" x="515" y="264">full_name, email, phone</text>
+  <text class="text" x="515" y="293">country, city, area, village</text>
+  <text class="text" x="515" y="322">account_type, status</text>
+  <text class="text" x="515" y="351">bio, avatar_url, social_links</text>
+  <text class="text" x="515" y="380">preferred_currency, created_at, updated_at</text>
+
+  <rect class="chip" x="715" y="445" width="70" height="28"/>
+  <text class="chip-text" x="731" y="464">roles</text>
+
+  <rect class="supplier" x="70" y="550" width="310" height="235"/>
+  <text class="head" x="105" y="590">Supplier</text>
+  <text class="small" x="105" y="616">supplier_profiles</text>
+  <text class="text" x="105" y="653">user_id</text>
+  <text class="text" x="105" y="681">store_name</text>
+  <text class="text" x="105" y="709">product_category</text>
+  <text class="text" x="105" y="737">store_link</text>
+  <text class="text" x="105" y="765">shipping_company_id</text>
+
+  <rect class="smallbiz" x="430" y="550" width="310" height="235"/>
+  <text class="head" x="465" y="590">Small Business</text>
+  <text class="small" x="465" y="616">small_business_profiles</text>
+  <text class="text" x="465" y="653">user_id</text>
+  <text class="text" x="465" y="681">project_name</text>
+  <text class="text" x="465" y="709">project_field</text>
+  <text class="text" x="465" y="737">project_stage</text>
+  <text class="text" x="465" y="765">needs, social_link</text>
+
+  <rect class="ship" x="790" y="550" width="310" height="235"/>
+  <text class="head" x="825" y="590">Shipping Company</text>
+  <text class="small" x="825" y="616">shipping_company_profiles</text>
+  <text class="text" x="825" y="653">user_id</text>
+  <text class="text" x="825" y="681">company_name</text>
+  <text class="text" x="825" y="709">delivery_scope</text>
+  <text class="text" x="825" y="737">delivery_cities</text>
+  <text class="text" x="825" y="765">avg_delivery_time, license_no</text>
+
+  <rect class="supporter" x="1150" y="550" width="310" height="235"/>
+  <text class="head" x="1185" y="590">Supporter</text>
+  <text class="small" x="1185" y="616">supporter_profiles</text>
+  <text class="text" x="1185" y="653">user_id</text>
+  <text class="text" x="1185" y="681">support_type</text>
+  <text class="text" x="1185" y="709">funding_range</text>
+  <text class="text" x="1185" y="737">interests</text>
+  <text class="text" x="1185" y="765">professional_link</text>
+
+  <path class="line" d="M 650 425 C 560 485, 380 500, 225 550"/>
+  <path class="line" d="M 720 425 C 665 485, 625 505, 585 550"/>
+  <path class="line" d="M 795 425 C 840 485, 900 510, 945 550"/>
+  <path class="line" d="M 865 425 C 1015 485, 1170 505, 1305 550"/>
+
+  <rect class="card" x="470" y="835" width="560" height="85"/>
+  <text class="head" x="515" y="870">Admin</text>
+  <text class="text" x="515" y="900">Admin users are identified through profiles.account_type = admin and admin permissions.</text>
+</svg>

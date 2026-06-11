@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="950" viewBox="0 0 1700 950" role="img" aria-labelledby="title desc">
+  <title id="title">Order and Delivery Flow</title>
+  <desc id="desc">Flow diagram showing how a small business creates an order and how shipping tracking is stored.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#36516f"/>
+    </marker>
+    <style>
+      .bg { fill: #f7fafc; }
+      .title { font: 700 34px Arial, Segoe UI, sans-serif; fill: #273347; }
+      .subtitle { font: 400 17px Arial, Segoe UI, sans-serif; fill: #5d6b7d; }
+      .step { fill: #ffffff; stroke: #d8e3ef; stroke-width: 2; rx: 16; }
+      .actor { fill: #edf5ff; stroke: #8eb9e3; stroke-width: 2.5; rx: 16; }
+      .db { fill: #fff8e6; stroke: #e3c466; stroke-width: 2; rx: 13; }
+      .ship { fill: #eef7f7; stroke: #8cc8c8; stroke-width: 2; rx: 16; }
+      .done { fill: #effaf3; stroke: #91d1a5; stroke-width: 2; rx: 16; }
+      .head { font: 700 20px Arial, Segoe UI, sans-serif; fill: #273347; }
+      .text { font: 400 15px Arial, Segoe UI, sans-serif; fill: #34475f; }
+      .small { font: 400 13px Arial, Segoe UI, sans-serif; fill: #637184; }
+      .line { stroke: #36516f; stroke-width: 2.4; fill: none; marker-end: url(#arrow); }
+      .soft { stroke: #9eb1c6; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1700" height="950"/>
+  <text class="title" x="70" y="75">Order and Delivery Flow</text>
+  <text class="subtitle" x="70" y="108">From product browsing to payment, supplier processing, shipping company delivery, and tracking updates.</text>
+
+  <rect class="actor" x="70" y="190" width="240" height="115"/>
+  <text class="head" x="105" y="232">Small Business</text>
+  <text class="text" x="105" y="262">Approved buyer profile</text>
+  <text class="small" x="105" y="285">profiles + small_business_profiles</text>
+
+  <rect class="step" x="380" y="190" width="240" height="115"/>
+  <text class="head" x="415" y="232">Browse Products</text>
+  <text class="text" x="415" y="262">Search, filter, view</text>
+  <text class="small" x="415" y="285">products + product_views</text>
+
+  <rect class="step" x="690" y="190" width="240" height="115"/>
+  <text class="head" x="725" y="232">Add to Cart</text>
+  <text class="text" x="725" y="262">Quantity validation</text>
+  <text class="small" x="725" y="285">carts + cart_items</text>
+
+  <rect class="step" x="1000" y="190" width="240" height="115"/>
+  <text class="head" x="1035" y="232">Checkout</text>
+  <text class="text" x="1035" y="262">Address and currency</text>
+  <text class="small" x="1035" y="285">shipping_rates lookup</text>
+
+  <rect class="db" x="1310" y="190" width="300" height="115"/>
+  <text class="head" x="1345" y="232">Create Order</text>
+  <text class="text" x="1345" y="262">Grouped by supplier</text>
+  <text class="small" x="1345" y="285">orders + order_items</text>
+
+  <path class="line" d="M 310 247 L 380 247"/>
+  <path class="line" d="M 620 247 L 690 247"/>
+  <path class="line" d="M 930 247 L 1000 247"/>
+  <path class="line" d="M 1240 247 L 1310 247"/>
+
+  <rect class="db" x="1310" y="410" width="300" height="115"/>
+  <text class="head" x="1345" y="452">Payment</text>
+  <text class="text" x="1345" y="482">Payment confirmation</text>
+  <text class="small" x="1345" y="505">payments + transactions</text>
+
+  <rect class="actor" x="1000" y="410" width="240" height="115"/>
+  <text class="head" x="1035" y="452">Supplier</text>
+  <text class="text" x="1035" y="482">Prepare order</text>
+  <text class="small" x="1035" y="505">order status update</text>
+
+  <rect class="ship" x="690" y="410" width="240" height="115"/>
+  <text class="head" x="725" y="452">Shipping Company</text>
+  <text class="text" x="725" y="482">Receives delivery order</text>
+  <text class="small" x="725" y="505">delivery_orders</text>
+
+  <rect class="ship" x="380" y="410" width="240" height="115"/>
+  <text class="head" x="415" y="452">Tracking Updates</text>
+  <text class="text" x="415" y="482">Picked up to delivered</text>
+  <text class="small" x="415" y="505">delivery_tracking</text>
+
+  <rect class="done" x="70" y="410" width="240" height="115"/>
+  <text class="head" x="105" y="452">Delivered</text>
+  <text class="text" x="105" y="482">Buyer can follow status</text>
+  <text class="small" x="105" y="505">notifications</text>
+
+  <path class="line" d="M 1460 305 L 1460 410"/>
+  <path class="line" d="M 1310 467 L 1240 467"/>
+  <path class="line" d="M 1000 467 L 930 467"/>
+  <path class="line" d="M 690 467 L 620 467"/>
+  <path class="line" d="M 380 467 L 310 467"/>
+
+  <rect class="db" x="225" y="675" width="360" height="145"/>
+  <text class="head" x="260" y="715">Order Tables</text>
+  <text class="text" x="260" y="746">orders: buyer_id, supplier_id, status</text>
+  <text class="text" x="260" y="774">order_items: product_id, quantity, price</text>
+  <text class="text" x="260" y="802">payments: provider, status, amount</text>
+
+  <rect class="db" x="670" y="675" width="360" height="145"/>
+  <text class="head" x="705" y="715">Shipping Tables</text>
+  <text class="text" x="705" y="746">shipping_rates: city, area, price</text>
+  <text class="text" x="705" y="774">delivery_orders: tracking_number, status</text>
+  <text class="text" x="705" y="802">delivery_tracking: status, location</text>
+
+  <rect class="db" x="1115" y="675" width="360" height="145"/>
+  <text class="head" x="1150" y="715">Notification Tables</text>
+  <text class="text" x="1150" y="746">notifications: user_id, title, body</text>
+  <text class="text" x="1150" y="774">support_tickets: issue status</text>
+  <text class="text" x="1150" y="802">ticket_messages: replies</text>
+
+  <path class="soft" d="M 1460 525 C 1260 615, 690 625, 405 675"/>
+  <path class="soft" d="M 810 525 L 850 675"/>
+  <path class="soft" d="M 190 525 C 420 625, 1015 620, 1295 675"/>
+</svg>

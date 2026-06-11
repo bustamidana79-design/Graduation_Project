@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1550" height="900" viewBox="0 0 1550 900" role="img" aria-labelledby="title desc">
+  <title id="title">Registration and Approval Flow</title>
+  <desc id="desc">Flow diagram for user registration, application review, approval, rejection, and profile provisioning.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#36516f"/>
+    </marker>
+    <style>
+      .bg { fill: #f7fafc; }
+      .title { font: 700 34px Arial, Segoe UI, sans-serif; fill: #273347; }
+      .subtitle { font: 400 17px Arial, Segoe UI, sans-serif; fill: #5d6b7d; }
+      .step { fill: #ffffff; stroke: #d8e3ef; stroke-width: 2; rx: 16; }
+      .auth { fill: #edf5ff; stroke: #8eb9e3; stroke-width: 2.5; rx: 16; }
+      .review { fill: #fff8e6; stroke: #e3c466; stroke-width: 2; rx: 16; }
+      .approved { fill: #effaf3; stroke: #91d1a5; stroke-width: 2; rx: 16; }
+      .rejected { fill: #fff1f3; stroke: #dfa0ab; stroke-width: 2; rx: 16; }
+      .head { font: 700 20px Arial, Segoe UI, sans-serif; fill: #273347; }
+      .text { font: 400 15px Arial, Segoe UI, sans-serif; fill: #34475f; }
+      .small { font: 400 13px Arial, Segoe UI, sans-serif; fill: #637184; }
+      .line { stroke: #36516f; stroke-width: 2.4; fill: none; marker-end: url(#arrow); }
+      .soft { stroke: #9eb1c6; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .label { font: 700 14px Arial, Segoe UI, sans-serif; fill: #273347; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1550" height="900"/>
+  <text class="title" x="70" y="75">Registration and Approval Flow</text>
+  <text class="subtitle" x="70" y="108">How a new account is created, stored as a pending application, and approved by the admin.</text>
+
+  <rect class="step" x="70" y="210" width="250" height="120"/>
+  <text class="head" x="105" y="252">Registration Form</text>
+  <text class="text" x="105" y="282">Basic information</text>
+  <text class="small" x="105" y="306">full name, email, phone, type</text>
+
+  <rect class="auth" x="390" y="210" width="250" height="120"/>
+  <text class="head" x="425" y="252">Supabase Auth</text>
+  <text class="text" x="425" y="282">Create auth user</text>
+  <text class="small" x="425" y="306">auth.users</text>
+
+  <rect class="review" x="710" y="210" width="270" height="120"/>
+  <text class="head" x="745" y="252">Pending Application</text>
+  <text class="text" x="745" y="282">Stores submitted data</text>
+  <text class="small" x="745" y="306">applications + proof_json</text>
+
+  <rect class="review" x="1050" y="210" width="250" height="120"/>
+  <text class="head" x="1085" y="252">Admin Review</text>
+  <text class="text" x="1085" y="282">Approve or reject</text>
+  <text class="small" x="1085" y="306">admin_reviews</text>
+
+  <path class="line" d="M 320 270 L 390 270"/>
+  <path class="line" d="M 640 270 L 710 270"/>
+  <path class="line" d="M 980 270 L 1050 270"/>
+
+  <rect class="approved" x="850" y="500" width="300" height="145"/>
+  <text class="head" x="885" y="542">Approved Account</text>
+  <text class="text" x="885" y="572">Update profile status</text>
+  <text class="small" x="885" y="596">profiles.status = approved</text>
+  <text class="small" x="885" y="620">create role-specific profile</text>
+
+  <rect class="rejected" x="1210" y="500" width="270" height="145"/>
+  <text class="head" x="1245" y="542">Rejected Account</text>
+  <text class="text" x="1245" y="572">Update application</text>
+  <text class="small" x="1245" y="596">applications.status = rejected</text>
+  <text class="small" x="1245" y="620">profiles.status = rejected</text>
+
+  <path class="line" d="M 1130 330 C 1100 410, 1040 450, 1000 500"/>
+  <text class="label" x="1010" y="434">approved</text>
+  <path class="line" d="M 1215 330 C 1270 410, 1325 450, 1345 500"/>
+  <text class="label" x="1308" y="434">rejected</text>
+
+  <rect class="step" x="90" y="500" width="300" height="145"/>
+  <text class="head" x="125" y="542">Proof Files</text>
+  <text class="text" x="125" y="572">Uploaded evidence</text>
+  <text class="small" x="125" y="596">verification_files / storage URLs</text>
+  <text class="small" x="125" y="620">links, notes, usernames</text>
+
+  <rect class="step" x="470" y="500" width="300" height="145"/>
+  <text class="head" x="505" y="542">AI Evaluation</text>
+  <text class="text" x="505" y="572">Optional admin helper</text>
+  <text class="small" x="505" y="596">ai_score, ai_reason</text>
+  <text class="small" x="505" y="620">ai_recommendation, ai_risk</text>
+
+  <path class="soft" d="M 845 330 C 660 405, 445 440, 240 500"/>
+  <path class="soft" d="M 845 330 C 760 410, 680 455, 620 500"/>
+
+  <rect class="approved" x="470" y="725" width="680" height="80"/>
+  <text class="head" x="505" y="760">Dashboard Access</text>
+  <text class="text" x="505" y="790">After approval, users are redirected to the dashboard that matches their account type.</text>
+  <path class="line" d="M 1000 645 L 1000 725"/>
+</svg>

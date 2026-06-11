@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Field 8 Shipping and Delivery</title>
+  <desc id="desc">Shipping and delivery field showing shipping rates, delivery orders, and tracking updates.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#36516f"/>
+    </marker>
+    <style>
+      .bg{fill:#f7fafc}.title{font:700 34px Arial,sans-serif;fill:#273347}.subtitle{font:400 17px Arial,sans-serif;fill:#5d6b7d}
+      .box{fill:#fff;stroke:#d8e3ef;stroke-width:2;rx:14}.ship{fill:#eef7f7;stroke:#8cc8c8;stroke-width:2.5;rx:14}.track{fill:#edf5ff;stroke:#8eb9e3;stroke-width:2;rx:14}.done{fill:#effaf3;stroke:#91d1a5;stroke-width:2;rx:14}
+      .head{font:700 21px Arial,sans-serif;fill:#273347}.text{font:400 16px Arial,sans-serif;fill:#34475f}.small{font:400 13px Arial,sans-serif;fill:#637184}
+      .line{stroke:#36516f;stroke-width:2.4;fill:none;marker-end:url(#arrow)}.tag{fill:#273347;rx:16}.tagText{font:700 14px Arial,sans-serif;fill:#fff}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="1000"/>
+  <text class="title" x="70" y="75">Field (8): Shipping and Delivery Field</text>
+  <text class="subtitle" x="70" y="108">Shipping companies define rates; each paid order receives delivery and tracking records.</text>
+
+  <rect class="ship" x="80" y="200" width="330" height="210"/>
+  <text class="head" x="115" y="242">shipping_company_profiles</text>
+  <text class="text" x="115" y="276">user_id</text>
+  <text class="text" x="115" y="306">company_name</text>
+  <text class="text" x="115" y="336">delivery_scope</text>
+  <text class="text" x="115" y="366">delivery_cities</text>
+
+  <rect class="ship" x="510" y="200" width="310" height="210"/>
+  <text class="head" x="545" y="242">shipping_rates</text>
+  <text class="text" x="545" y="276">id</text>
+  <text class="text" x="545" y="306">shipping_company_id</text>
+  <text class="text" x="545" y="336">city, area</text>
+  <text class="text" x="545" y="366">price</text>
+
+  <rect class="box" x="930" y="200" width="300" height="210"/>
+  <text class="head" x="965" y="242">orders</text>
+  <text class="text" x="965" y="276">id: Order ID</text>
+  <text class="text" x="965" y="306">shipping_company_id</text>
+  <text class="text" x="965" y="336">shipping_cost</text>
+  <text class="text" x="965" y="366">delivery address</text>
+
+  <rect class="track" x="510" y="590" width="350" height="240"/>
+  <text class="head" x="545" y="632">delivery_orders</text>
+  <text class="text" x="545" y="666">id: Delivery Order ID</text>
+  <text class="text" x="545" y="696">order_id</text>
+  <text class="text" x="545" y="726">shipping_company_id</text>
+  <text class="text" x="545" y="756">tracking_number</text>
+  <text class="text" x="545" y="786">shipping_fee, avg_delivery_time</text>
+
+  <rect class="track" x="980" y="590" width="350" height="240"/>
+  <text class="head" x="1015" y="632">delivery_tracking</text>
+  <text class="text" x="1015" y="666">id: Tracking ID</text>
+  <text class="text" x="1015" y="696">delivery_order_id</text>
+  <text class="text" x="1015" y="726">status</text>
+  <text class="text" x="1015" y="756">description</text>
+  <text class="text" x="1015" y="786">location, created_at</text>
+
+  <rect class="done" x="1250" y="250" width="260" height="115"/>
+  <text class="head" x="1285" y="292">Status Flow</text>
+  <text class="text" x="1285" y="324">picked_up to delivered</text>
+
+  <path class="line" d="M410 305 L510 305"/>
+  <path class="line" d="M820 305 L930 305"/>
+  <path class="line" d="M1080 410 C1025 510 870 535 685 590"/>
+  <path class="line" d="M860 710 L980 710"/>
+  <path class="line" d="M1330 590 C1380 510 1390 430 1380 365"/>
+  <rect class="tag" x="720" y="480" width="190" height="36"/>
+  <text class="tagText" x="753" y="503">Field (8)</text>
+</svg>

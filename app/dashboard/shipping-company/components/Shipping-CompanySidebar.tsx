@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import CorexLogo from "@/components/CorexLogo";
 import { supabase } from "../../../../lib/supabase";
 
 const navItems = [
@@ -32,7 +33,9 @@ export default function ShippingCompanySidebar() {
   return (
     <aside className="flex min-h-dvh w-64 flex-col bg-[#273347]" dir="rtl">
       <div className="border-b border-white/10 px-6 py-6">
-        <h1 className="text-xl font-bold text-white">COREX</h1>
+        <h1>
+          <CorexLogo className="h-12 w-40" />
+        </h1>
         <p className="mt-1 text-xs text-white/40">لوحة شركة الشحن</p>
       </div>
 

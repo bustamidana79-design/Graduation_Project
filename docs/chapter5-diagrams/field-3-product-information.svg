@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="950" viewBox="0 0 1500 950" role="img" aria-labelledby="title desc">
+  <title id="title">Field 3 Product Information</title>
+  <desc id="desc">Product information field showing products and product images tables.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#36516f"/>
+    </marker>
+    <style>
+      .bg{fill:#f7fafc}.title{font:700 34px Arial,sans-serif;fill:#273347}.subtitle{font:400 17px Arial,sans-serif;fill:#5d6b7d}
+      .box{fill:#fff;stroke:#d8e3ef;stroke-width:2;rx:14}.main{fill:#effaf3;stroke:#91d1a5;stroke-width:2.5;rx:14}
+      .head{font:700 22px Arial,sans-serif;fill:#273347}.text{font:400 16px Arial,sans-serif;fill:#34475f}.small{font:400 13px Arial,sans-serif;fill:#637184}
+      .line{stroke:#36516f;stroke-width:2.4;fill:none;marker-end:url(#arrow)}.tag{fill:#273347;rx:16}.tagText{font:700 14px Arial,sans-serif;fill:#fff}
+    </style>
+  </defs>
+  <rect class="bg" width="1500" height="950"/>
+  <text class="title" x="70" y="75">Field (3): Product Information Field</text>
+  <text class="subtitle" x="70" y="108">Suppliers add products; product details and images are stored in related database fields.</text>
+
+  <rect class="box" x="90" y="215" width="330" height="150"/>
+  <text class="head" x="125" y="258">Supplier</text>
+  <text class="text" x="125" y="292">supplier_profiles.user_id</text>
+  <text class="text" x="125" y="320">store_name</text>
+  <text class="small" x="125" y="348">Only supplier accounts can add products.</text>
+
+  <rect class="main" x="560" y="145" width="420" height="430"/>
+  <text class="head" x="605" y="190">products</text>
+  <text class="text" x="605" y="230">id: Product ID</text>
+  <text class="text" x="605" y="260">supplier_id: Supplier ID</text>
+  <text class="text" x="605" y="290">name: Product name</text>
+  <text class="text" x="605" y="320">description</text>
+  <text class="text" x="605" y="350">wholesale_price</text>
+  <text class="text" x="605" y="380">currency</text>
+  <text class="text" x="605" y="410">min_order_quantity</text>
+  <text class="text" x="605" y="440">stock_quantity</text>
+  <text class="text" x="605" y="470">category</text>
+  <text class="text" x="605" y="500">is_published</text>
+  <text class="text" x="605" y="530">rating_average, rating_count</text>
+
+  <rect class="box" x="1110" y="215" width="310" height="210"/>
+  <text class="head" x="1145" y="258">product_images</text>
+  <text class="text" x="1145" y="292">id: Image ID</text>
+  <text class="text" x="1145" y="322">product_id</text>
+  <text class="text" x="1145" y="352">image_url</text>
+  <text class="text" x="1145" y="382">is_primary</text>
+
+  <rect class="box" x="1110" y="520" width="310" height="170"/>
+  <text class="head" x="1145" y="563">Product Display</text>
+  <text class="text" x="1145" y="597">Shown to small businesses</text>
+  <text class="text" x="1145" y="627">when published and in stock</text>
+  <text class="small" x="1145" y="660">Requires product images.</text>
+
+  <path class="line" d="M420 290 L560 290"/>
+  <path class="line" d="M980 315 L1110 315"/>
+  <path class="line" d="M980 500 C1040 545 1055 585 1110 605"/>
+  <rect class="tag" x="675" y="650" width="190" height="36"/>
+  <text class="tagText" x="708" y="673">Field (3)</text>
+</svg>
