@@ -26,6 +26,11 @@ function normalizeAccountType(accountType: string | null | undefined) {
   return accountType?.trim().toLowerCase() as DashboardAccountType | undefined;
 }
 
+function loginRedirect() {
+  const nextPath = `${window.location.pathname}${window.location.search}`;
+  return `/login?redirect=${encodeURIComponent(nextPath)}`;
+}
+
 export function useDashboardAccess({ requiredAccountType }: UseDashboardAccessOptions) {
   const router = useRouter();
   const [profile, setProfile] = useState<DashboardProfile | null>(null);
@@ -41,7 +46,7 @@ export function useDashboardAccess({ requiredAccountType }: UseDashboardAccessOp
       } = await supabase.auth.getUser();
 
       if (authError || !user) {
-        router.replace("/login");
+        router.replace(loginRedirect());
         return;
       }
 
@@ -52,7 +57,7 @@ export function useDashboardAccess({ requiredAccountType }: UseDashboardAccessOp
         .maybeSingle();
 
       if (profileError || !data) {
-        router.replace("/login");
+        router.replace(loginRedirect());
         return;
       }
 

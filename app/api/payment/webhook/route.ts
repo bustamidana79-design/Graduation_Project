@@ -15,12 +15,18 @@ function verifyWebhookSecret(request: NextRequest) {
 }
 
 function parseWebhookText(text: string) {
-  if (!text.trim()) return {};
+  const trimmed = text.trim();
+  if (!trimmed) return {};
 
   try {
-    return JSON.parse(text);
+    return JSON.parse(trimmed);
   } catch {
-    return Object.fromEntries(new URLSearchParams(text));
+    const params = Object.fromEntries(new URLSearchParams(trimmed));
+    if (Object.keys(params).length > 0 && (params.order_id || params.orderId || params.provider_payment_id)) {
+      return params;
+    }
+
+    return { order_id: trimmed };
   }
 }
 
@@ -31,6 +37,8 @@ function getTalerOrderId(payload: Record<string, any>, request: NextRequest) {
       payload.orderId ||
       payload.provider_payment_id ||
       payload.providerPaymentId ||
+      payload.contract_terms?.order_id ||
+      payload.contract?.order_id ||
       requestUrl.searchParams.get("order_id") ||
       requestUrl.searchParams.get("provider_payment_id") ||
       ""

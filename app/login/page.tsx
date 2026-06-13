@@ -29,7 +29,20 @@ export default function LoginPage() {
   const normalizeAccountType = (accountType: string | null | undefined) =>
     accountType?.trim().toLowerCase();
 
+  const getSafeRedirect = () => {
+    if (typeof window === "undefined") return "";
+
+    const redirect = new URL(window.location.href).searchParams.get("redirect") || "";
+    return redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "";
+  };
+
   const redirectByAccountType = (accountType: string | null | undefined) => {
+    const redirect = getSafeRedirect();
+    if (redirect) {
+      router.push(redirect);
+      return;
+    }
+
     const normalizedAccountType = normalizeAccountType(accountType);
 
     if (normalizedAccountType === "merchant") router.push("/dashboard/supplier");

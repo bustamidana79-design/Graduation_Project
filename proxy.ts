@@ -1,6 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+function getSafeInternalRedirect(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "";
+  if (value.startsWith("/login") || value.startsWith("/register") || value.startsWith("/forgot-password")) return "";
+  return value;
+}
+
 export async function proxy(request: NextRequest) {
   const response = NextResponse.next({
     request: {
@@ -114,6 +120,11 @@ export async function proxy(request: NextRequest) {
       if (profile) {
         if (profile.status === "pending") {
           return NextResponse.redirect(new URL("/pending", request.url));
+        }
+
+        const requestedRedirect = getSafeInternalRedirect(request.nextUrl.searchParams.get("redirect"));
+        if (requestedRedirect) {
+          return NextResponse.redirect(new URL(requestedRedirect, request.url));
         }
 
         const accountTypeRedirects: Record<string, string> = {

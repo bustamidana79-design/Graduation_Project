@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, CreditCard, MapPin, Package, Phone, RotateCw, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatMoney, normalizeCurrency } from "@/lib/currency";
@@ -56,6 +56,13 @@ type Order = {
 };
 
 const ORDERS_PER_PAGE = 3;
+const PENDING_CHECKOUT_PAYMENT_IDS_KEY = "pending_checkout_payment_ids";
+
+type LoadOrdersOptions = {
+  preserveMessage?: boolean;
+};
+
+type PaymentCheckStatus = "none" | "paid" | "pending" | "error";
 
 async function getAuthHeaders() {
   const { data } = await supabase.auth.getSession();
@@ -68,6 +75,18 @@ async function getAuthHeaders() {
 function formatDate(value?: string | null) {
   if (!value) return "";
   return new Date(value).toLocaleDateString("ar", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+function getStoredIds(key: string) {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return Array.from(new Set(parsed.map((value) => String(value || "").trim()).filter(Boolean)));
+  } catch {
+    return [];
+  }
 }
 
 export default function SmallBusinessOrdersPage() {
@@ -93,7 +112,7 @@ export default function SmallBusinessOrdersPage() {
     order.delivery_orders?.some((delivery) => delivery.status !== "delivered")
   ).length;
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async (options: LoadOrdersOptions = {}) => {
     setLoading(true);
     const headers = await getAuthHeaders();
     const response = await fetch("/api/orders", { headers });
@@ -104,26 +123,76 @@ export default function SmallBusinessOrdersPage() {
       setOrders([]);
     } else {
       setOrders(result.orders || []);
-      setMessage("");
+      if (!options.preserveMessage) setMessage("");
     }
 
     setLoading(false);
-  };
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void loadOrders(), 0);
-    return () => window.clearTimeout(timer);
   }, []);
 
+  const checkPendingPayments = useCallback(async (force = false): Promise<PaymentCheckStatus> => {
+    const paymentIds = getStoredIds(PENDING_CHECKOUT_PAYMENT_IDS_KEY);
+    if (!force && paymentIds.length === 0) return "none";
+
+    const headers = await getAuthHeaders();
+    const response = await fetch("/api/payment/check-payment", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(paymentIds.length > 0 ? { payment_ids: paymentIds } : {}),
+    });
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setMessage(result.error || "تعذر التحقق من حالة الدفع. حدّث الصفحة بعد قليل.");
+      return "error";
+    }
+
+    const paidCount = Number(result.paid_count || 0);
+    const pendingCount = Number(result.pending_count || 0);
+    const errorCount = Number(result.error_count || 0);
+    const checkedCount = Number(result.checked || 0);
+
+    if (paidCount > 0) {
+      window.localStorage.removeItem(PENDING_CHECKOUT_PAYMENT_IDS_KEY);
+      setMessage("تم تأكيد الدفع بنجاح. الطلب أصبح جاهزًا للمتابعة.");
+      return "paid";
+    }
+
+    if (checkedCount === 0) {
+      window.localStorage.removeItem(PENDING_CHECKOUT_PAYMENT_IDS_KEY);
+      return "none";
+    }
+
+    if (pendingCount > 0) {
+      setMessage("الدفع ما زال قيد المعالجة. إذا تم الخصم، انتظر قليلًا ثم حدّث الصفحة.");
+      return "pending";
+    }
+
+    if (errorCount > 0) {
+      const firstError = Array.isArray(result.errors) ? result.errors[0]?.error : "";
+      setMessage(firstError || "تعذر التحقق من حالة الدفع. حدّث الصفحة بعد قليل.");
+      return "error";
+    }
+
+    return "none";
+  }, []);
+
+  const refreshOrders = useCallback(async () => {
+    const status = await checkPendingPayments(true);
+    await loadOrders({ preserveMessage: status !== "none" });
+  }, [checkPendingPayments, loadOrders]);
+
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    const timer = window.setTimeout(async () => {
       const params = new URLSearchParams(window.location.search);
       const payment = params.get("payment");
+      const hasPaymentReturn = payment === "success" || payment === "failed";
       if (payment === "success") setMessage("تم تأكيد الدفع بنجاح. الطلب أصبح جاهزًا للمتابعة.");
       if (payment === "failed") setMessage("تعذر تأكيد الدفع. إذا تم الخصم، انتظر قليلًا ثم حدّث الصفحة.");
+      const status = await checkPendingPayments(hasPaymentReturn);
+      await loadOrders({ preserveMessage: hasPaymentReturn || status !== "none" });
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [checkPendingPayments, loadOrders]);
 
   useEffect(() => {
     const reload = () => void loadOrders();
@@ -135,7 +204,7 @@ export default function SmallBusinessOrdersPage() {
       window.removeEventListener("delivery-orders:changed", reload);
       window.removeEventListener("delivery-tracking:changed", reload);
     };
-  }, []);
+  }, [loadOrders]);
 
   return (
     <div className="space-y-6 p-6" dir="rtl">
@@ -146,7 +215,7 @@ export default function SmallBusinessOrdersPage() {
         </div>
         <button
           type="button"
-          onClick={() => void loadOrders()}
+          onClick={() => void refreshOrders()}
           className="inline-flex items-center gap-2 rounded-lg border border-[#bbd0e4] bg-white px-4 py-2 text-sm font-semibold text-[#273347]"
         >
           <RotateCw size={16} />

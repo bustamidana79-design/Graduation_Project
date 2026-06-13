@@ -28,8 +28,14 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL }}
+          TALER_API_KEY: ${{ secrets.TALER_API_KEY }}
+          TALER_BACKEND_URL: ${{ secrets.TALER_BACKEND_URL }}
+          TALER_MERCHANT_INSTANCE: ${{ secrets.TALER_MERCHANT_INSTANCE }}
+          TALER_CURRENCY: ${{ secrets.TALER_CURRENCY }}
         run: |
           npm install
           npm run build --if-present
@@ -60,6 +66,45 @@ jobs:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_7754DB66463444F694998351B78A202A }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_24C1D7B83ED44ADABEC4A2E4CD0C2BA2 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E22636F8B6EF4C39B5ECD82B60F83C0B }}
+
+      - name: Configure Azure App Settings
+        env:
+          APP_NAME: grad-b2b-project
+          APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+          TALER_API_KEY: ${{ secrets.TALER_API_KEY }}
+          TALER_BACKEND_URL: ${{ secrets.TALER_BACKEND_URL }}
+          TALER_MERCHANT_INSTANCE: ${{ secrets.TALER_MERCHANT_INSTANCE }}
+          TALER_CURRENCY: ${{ secrets.TALER_CURRENCY }}
+        run: |
+          missing=()
+          for name in APP_PUBLIC_URL NEXT_PUBLIC_APP_URL TALER_API_KEY TALER_BACKEND_URL TALER_MERCHANT_INSTANCE TALER_CURRENCY; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing GitHub secrets required for GNU Taler: ${missing[*]}"
+            exit 1
+          fi
+
+          resource_group="$(az webapp list --query "[?name=='${APP_NAME}'].resourceGroup | [0]" -o tsv)"
+          if [ -z "$resource_group" ]; then
+            echo "::error::Could not find Azure Web App resource group for ${APP_NAME}"
+            exit 1
+          fi
+
+          az webapp config appsettings set \
+            --name "$APP_NAME" \
+            --resource-group "$resource_group" \
+            --settings \
+              APP_PUBLIC_URL="$APP_PUBLIC_URL" \
+              NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
+              TALER_API_KEY="$TALER_API_KEY" \
+              TALER_BACKEND_URL="$TALER_BACKEND_URL" \
+              TALER_MERCHANT_INSTANCE="$TALER_MERCHANT_INSTANCE" \
+              TALER_CURRENCY="$TALER_CURRENCY"
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp

@@ -56,6 +56,7 @@ function getPublicImage(path?: string | null) {
 }
 
 const PENDING_CHECKOUT_ORDER_IDS_KEY = "pending_checkout_order_ids";
+const PENDING_CHECKOUT_PAYMENT_IDS_KEY = "pending_checkout_payment_ids";
 
 export default function SmallBusinessCartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
@@ -294,7 +295,7 @@ export default function SmallBusinessCartPage() {
         body: JSON.stringify({
           orderIds,
           currency,
-          returnUrl: `${window.location.origin}/dashboard/small-business/orders`,
+          returnUrl: `${window.location.origin}/payment/return`,
         }),
       });
       const paymentResult = await paymentResponse.json();
@@ -305,7 +306,17 @@ export default function SmallBusinessCartPage() {
         return false;
       }
 
+      const paymentIds = Array.isArray(paymentResult.payments)
+        ? paymentResult.payments.map((payment: { id?: string }) => String(payment.id || "")).filter(Boolean)
+        : paymentResult.primary_payment_id
+          ? [String(paymentResult.primary_payment_id)]
+          : [];
       window.localStorage.removeItem(PENDING_CHECKOUT_ORDER_IDS_KEY);
+      if (paymentIds.length > 0) {
+        window.localStorage.setItem(PENDING_CHECKOUT_PAYMENT_IDS_KEY, JSON.stringify(paymentIds));
+      } else {
+        window.localStorage.removeItem(PENDING_CHECKOUT_PAYMENT_IDS_KEY);
+      }
       setItems([]);
       setSelectedProductIds([]);
       setMessage("تم إنشاء الدفع. إذا ظهر رصيد 0 KUDOS، افتح الدفع بنفس المتصفح وتأكد من تفعيل GNU Taler Wallet أو demo wallet.");

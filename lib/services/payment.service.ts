@@ -49,7 +49,7 @@ function appPublicUrl() {
 
 function publicReturnUrl(returnUrl?: string) {
   const baseUrl = appPublicUrl();
-  if (!returnUrl) return new URL("/dashboard/small-business/orders", baseUrl).toString();
+  if (!returnUrl) return new URL("/payment/return", baseUrl).toString();
   if (!isLocalUrl(returnUrl)) return returnUrl;
 
   const localUrl = new URL(returnUrl);
@@ -72,11 +72,12 @@ function talerHeaders() {
 
 async function readTalerResponse(response: Response, endpoint: string, label: string) {
   const responseText = await response.text();
+  const logBody = responseText.length > 2000 ? `${responseText.slice(0, 2000)}... [truncated]` : responseText;
   console.log(`[Taler] ${label} response`, {
     endpoint,
     status: response.status,
     statusText: response.statusText,
-    body: responseText,
+    body: logBody,
   });
 
   if (!response.ok) {
@@ -94,6 +95,18 @@ function isReusableTalerPayment(payment: any) {
     Boolean(payment?.payment_url) &&
     !String(payment.payment_url).startsWith("taler://") &&
     !String(payment.payment_url).includes("/api/payment/confirm")
+  );
+}
+
+function canReuseTalerPaymentGroup(payments: any[]) {
+  const primary = payments[0];
+  if (!isReusableTalerPayment(primary)) return false;
+
+  return payments.every(
+    (payment) =>
+      isReusableTalerPayment(payment) &&
+      payment.provider_payment_id === primary.provider_payment_id &&
+      payment.payment_url === primary.payment_url
   );
 }
 
@@ -140,7 +153,7 @@ async function createTalerPayment(params: { amount: number; paymentId: string; c
 
   const data = await readTalerResponse(response, endpoint, "create order");
   if (!data.order_id) throw new Error("TALER_ORDER_ID_MISSING");
-  let paymentUrl = data.taler_pay_uri || data.payment_redirect_url;
+  let paymentUrl = data.payment_redirect_url || data.order_status_url || data.taler_pay_uri;
 
   if (!paymentUrl) {
     const statusEndpoint = talerOrdersUrl(data.order_id);
@@ -181,12 +194,51 @@ async function verifyTalerPayment(providerPaymentId: string) {
 
   const data = await response.json();
   const status = String(data.order_status || "").toLowerCase();
+  const isPaid = status === "paid" || data.paid === true;
 
-  if (status !== "paid") {
+  if (!isPaid) {
     throw new Error("PAYMENT_NOT_PAID");
   }
 
   return data;
+}
+
+async function getPaymentsForConfirmation(
+  supabase: SupabaseClient,
+  paymentId?: string | null,
+  providerPaymentId?: string | null
+) {
+  if (providerPaymentId) {
+    const { data, error } = await supabase
+      .from("payments")
+      .select("*")
+      .eq("provider_payment_id", providerPaymentId);
+
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) throw new Error("PAYMENT_NOT_FOUND");
+    return data;
+  }
+
+  if (!paymentId) throw new Error("PAYMENT_NOT_FOUND");
+
+  const { data: primaryPayment, error: primaryError } = await supabase
+    .from("payments")
+    .select("*")
+    .eq("id", paymentId)
+    .single();
+
+  if (primaryError || !primaryPayment) throw new Error("PAYMENT_NOT_FOUND");
+
+  const talerPaymentId = primaryPayment.provider_payment_id;
+  if (!talerPaymentId) return [primaryPayment];
+
+  const { data: relatedPayments, error: relatedError } = await supabase
+    .from("payments")
+    .select("*")
+    .eq("provider_payment_id", talerPaymentId);
+
+  if (relatedError) throw new Error(relatedError.message);
+  return relatedPayments?.length ? relatedPayments : [primaryPayment];
 }
 
 export async function createPayment(
@@ -245,13 +297,14 @@ export async function createPayment(
   }
 
   const primaryPayment = paymentRows[0];
-  if (isReusableTalerPayment(primaryPayment)) {
+  if (canReuseTalerPaymentGroup(paymentRows)) {
     return {
       payments: paymentRows,
       amount,
       currency,
       payment_url: primaryPayment.payment_url,
       provider_payment_id: primaryPayment.provider_payment_id,
+      primary_payment_id: primaryPayment.id,
       provider: primaryPayment.payment_provider || "taler",
     };
   }
@@ -272,27 +325,31 @@ export async function createPayment(
     if (updated.error) throw new Error(updated.error.message);
   }
 
+  const updatedPaymentRows = paymentRows.map((payment) => ({
+    ...payment,
+    payment_provider: taler.provider,
+    payment_method: "taler",
+    provider_payment_id: taler.providerPaymentId,
+    payment_url: taler.paymentUrl,
+  }));
+
   return {
-    payments: paymentRows,
+    payments: updatedPaymentRows,
     amount,
     currency,
     payment_url: taler.paymentUrl,
     provider_payment_id: taler.providerPaymentId,
+    primary_payment_id: primaryPayment.id,
     provider: taler.provider,
   };
 }
 
 export async function confirmPayment(supabase: SupabaseClient, paymentId?: string | null, providerPaymentId?: string | null) {
-  let query = supabase.from("payments").select("*");
-  query = paymentId ? query.eq("id", paymentId) : query.eq("provider_payment_id", providerPaymentId);
-  const { data: payments, error } = await query;
-
-  if (error) throw new Error(error.message);
-  if (!payments || payments.length === 0) throw new Error("PAYMENT_NOT_FOUND");
+  const payments = await getPaymentsForConfirmation(supabase, paymentId, providerPaymentId);
 
   const talerPaymentId = providerPaymentId || payments[0]?.provider_payment_id;
   if (!talerPaymentId) throw new Error("PAYMENT_PROVIDER_REFERENCE_MISSING");
-  await verifyTalerPayment(talerPaymentId);
+  const talerVerification = await verifyTalerPayment(talerPaymentId);
 
   for (const payment of payments) {
     const wasAlreadyPaid = payment.payment_status === "paid";
@@ -312,11 +369,16 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
     if (!existingTx.data) {
       const tx = await supabase.from("transactions").insert({
         payment_id: payment.id,
-        amount: payment.amount,
-        transaction_type: "payment",
-        status: "completed",
-        provider: payment.payment_method || payment.payment_provider || "taler",
-        provider_reference: payment.provider_payment_id,
+        provider_reference: payment.provider_payment_id || talerPaymentId,
+        transaction_status: "completed",
+        response_payload: {
+          provider: payment.payment_method || payment.payment_provider || "taler",
+          transaction_type: "payment",
+          amount: payment.amount,
+          currency: payment.currency,
+          taler_order_id: talerPaymentId,
+          taler_status: talerVerification?.order_status || null,
+        },
       });
       if (tx.error) throw new Error(tx.error.message);
     }
