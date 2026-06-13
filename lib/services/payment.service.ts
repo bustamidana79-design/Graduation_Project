@@ -401,7 +401,7 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
 
       if (orderItemsError) throw new Error(orderItemsError.message);
 
-      const productIds = (orderItems || []).map((item: any) => String(item.product_id || "")).filter(Boolean);
+      const productIds: string[] = (orderItems || []).map((item: any) => String(item.product_id || "")).filter(Boolean);
       if (productIds.length > 0) {
         const existing = paidProductsByBuyer.get(order.buyer_id) || new Set<string>();
         productIds.forEach((productId) => existing.add(productId));
