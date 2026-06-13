@@ -311,14 +311,11 @@ export default function SmallBusinessCartPage() {
         : paymentResult.primary_payment_id
           ? [String(paymentResult.primary_payment_id)]
           : [];
-      window.localStorage.removeItem(PENDING_CHECKOUT_ORDER_IDS_KEY);
       if (paymentIds.length > 0) {
         window.localStorage.setItem(PENDING_CHECKOUT_PAYMENT_IDS_KEY, JSON.stringify(paymentIds));
       } else {
         window.localStorage.removeItem(PENDING_CHECKOUT_PAYMENT_IDS_KEY);
       }
-      setItems([]);
-      setSelectedProductIds([]);
       setMessage("تم إنشاء الدفع. إذا ظهر رصيد 0 KUDOS، افتح الدفع بنفس المتصفح وتأكد من تفعيل GNU Taler Wallet أو demo wallet.");
       console.log("[Payment] Redirecting to payment_url", paymentResult.payment_url);
       window.setTimeout(() => {

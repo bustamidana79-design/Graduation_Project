@@ -7,6 +7,9 @@ import { supabase } from "@/lib/supabase";
 
 type SyncStatus = "idle" | "checking" | "paid" | "pending" | "error";
 
+const PENDING_CHECKOUT_ORDER_IDS_KEY = "pending_checkout_order_ids";
+const PENDING_CHECKOUT_PAYMENT_IDS_KEY = "pending_checkout_payment_ids";
+
 async function getAuthHeaders() {
   const { data } = await supabase.auth.getSession();
   return {
@@ -49,6 +52,12 @@ export default function PaymentReturnPage() {
   const resolvedStatus = syncStatus === "paid" ? "success" : paymentStatus;
   const isSuccess = resolvedStatus === "success";
   const isFailed = resolvedStatus === "failed" || syncStatus === "error";
+
+  useEffect(() => {
+    if (!isSuccess) return;
+    window.localStorage.removeItem(PENDING_CHECKOUT_ORDER_IDS_KEY);
+    window.localStorage.removeItem(PENDING_CHECKOUT_PAYMENT_IDS_KEY);
+  }, [isSuccess]);
 
   const checkPayment = async () => {
     if (!hasSession) {

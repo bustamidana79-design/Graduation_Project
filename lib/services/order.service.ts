@@ -1,4 +1,4 @@
-import { clearCart, clearCartProducts, getCart } from "./cart.service";
+import { getCart } from "./cart.service";
 import { createNotification } from "./notification.service";
 import { convertCurrency, normalizeCurrency } from "@/lib/currency";
 import { getExchangeRates } from "./currency.service";
@@ -44,7 +44,7 @@ export async function createOrdersFromCart(
 
   const currency = normalizeCurrency(targetCurrency);
   const rates = await getExchangeRates();
-  const { items, cart } = await getCart(supabase, buyerId, currency);
+  const { items } = await getCart(supabase, buyerId, currency);
   const selectedIds = new Set(selectedProductIds.filter(Boolean));
   const validItems = items.filter((item) => item.product && (selectedIds.size === 0 || selectedIds.has(item.product_id))) as any[];
   if (validItems.length === 0) throw new Error("CART_EMPTY");
@@ -229,11 +229,6 @@ export async function createOrdersFromCart(
 
   }
 
-  if (selectedIds.size > 0) {
-    await clearCartProducts(supabase, cart.id, Array.from(selectedIds));
-  } else {
-    await clearCart(supabase, cart.id);
-  }
   return createdOrders;
 }
 

@@ -229,3 +229,14 @@ export async function clearCartProducts(supabase: SupabaseClient, cartId: string
   const { error } = await supabase.from("cart_items").delete().eq("cart_id", cartId).in("product_id", ids);
   if (error) throw new Error(error.message);
 }
+
+export async function clearUserCartProducts(supabase: SupabaseClient, userId: string, productIds: string[]) {
+  const ids = Array.from(new Set(productIds.filter(Boolean)));
+  if (!userId || ids.length === 0) return;
+
+  const existing = await supabase.from("carts").select("id").eq("user_id", userId).maybeSingle();
+  if (existing.error && existing.error.code !== "PGRST116") throw new Error(existing.error.message);
+  if (!existing.data?.id) return;
+
+  await clearCartProducts(supabase, existing.data.id, ids);
+}

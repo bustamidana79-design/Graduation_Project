@@ -1,4 +1,5 @@
 import { createNotification } from "./notification.service";
+import { clearUserCartProducts } from "./cart.service";
 import { normalizeCurrency } from "@/lib/currency";
 
 type SupabaseClient = {
@@ -350,6 +351,7 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
   const talerPaymentId = providerPaymentId || payments[0]?.provider_payment_id;
   if (!talerPaymentId) throw new Error("PAYMENT_PROVIDER_REFERENCE_MISSING");
   const talerVerification = await verifyTalerPayment(talerPaymentId);
+  const paidProductsByBuyer = new Map<string, Set<string>>();
 
   for (const payment of payments) {
     const wasAlreadyPaid = payment.payment_status === "paid";
@@ -392,6 +394,22 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
       .single();
 
     if (order?.buyer_id) {
+      const { data: orderItems, error: orderItemsError } = await supabase
+        .from("order_items")
+        .select("product_id")
+        .eq("order_id", order.id);
+
+      if (orderItemsError) throw new Error(orderItemsError.message);
+
+      const productIds = (orderItems || []).map((item: any) => String(item.product_id || "")).filter(Boolean);
+      if (productIds.length > 0) {
+        const existing = paidProductsByBuyer.get(order.buyer_id) || new Set<string>();
+        productIds.forEach((productId) => existing.add(productId));
+        paidProductsByBuyer.set(order.buyer_id, existing);
+      }
+    }
+
+    if (order?.buyer_id) {
       await createNotification({
         supabase,
         userId: order.buyer_id,
@@ -423,6 +441,10 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
         data: { order_id: order.id, route: "/dashboard/shipping-company/orders" },
       });
     }
+  }
+
+  for (const [buyerId, productIds] of paidProductsByBuyer.entries()) {
+    await clearUserCartProducts(supabase, buyerId, Array.from(productIds));
   }
 
   return payments;
