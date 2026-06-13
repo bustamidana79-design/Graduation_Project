@@ -188,7 +188,7 @@ export default function SmallBusinessOrdersPage() {
       const hasPaymentReturn = payment === "success" || payment === "failed";
       if (payment === "success") setMessage("تم تأكيد الدفع بنجاح. الطلب أصبح جاهزًا للمتابعة.");
       if (payment === "failed") setMessage("تعذر تأكيد الدفع. إذا تم الخصم، انتظر قليلًا ثم حدّث الصفحة.");
-      const status = await checkPendingPayments(hasPaymentReturn);
+      const status = await checkPendingPayments(true);
       await loadOrders({ preserveMessage: hasPaymentReturn || status !== "none" });
     }, 0);
     return () => window.clearTimeout(timer);

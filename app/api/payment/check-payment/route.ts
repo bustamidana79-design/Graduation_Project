@@ -98,8 +98,12 @@ async function checkPayments(request: NextRequest) {
     ...stringArray((body as any).providerPaymentIds),
     ...stringArray((body as any).provider_payment_id),
     ...stringArray((body as any).order_id),
+    ...stringArray((body as any).orderId),
+    ...stringArray((body as any).taler_order_id),
     ...stringArray(params.get("provider_payment_id")),
     ...stringArray(params.get("order_id")),
+    ...stringArray(params.get("orderId")),
+    ...stringArray(params.get("taler_order_id")),
   ]);
 
   const supabase = createSupabaseAdmin();

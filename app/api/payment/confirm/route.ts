@@ -26,7 +26,9 @@ export async function GET(request: NextRequest) {
   const providerPaymentId =
     requestUrl.searchParams.get("providerPaymentId") ||
     requestUrl.searchParams.get("provider_payment_id") ||
-    requestUrl.searchParams.get("order_id");
+    requestUrl.searchParams.get("order_id") ||
+    requestUrl.searchParams.get("orderId") ||
+    requestUrl.searchParams.get("taler_order_id");
 
   try {
     if (requestUrl.searchParams.get("mock") === "true") {

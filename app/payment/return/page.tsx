@@ -10,6 +10,17 @@ type SyncStatus = "idle" | "checking" | "paid" | "pending" | "error";
 const PENDING_CHECKOUT_ORDER_IDS_KEY = "pending_checkout_order_ids";
 const PENDING_CHECKOUT_PAYMENT_IDS_KEY = "pending_checkout_payment_ids";
 
+function readStoredIds(key: string) {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const value = JSON.parse(window.localStorage.getItem(key) || "[]");
+    return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 async function getAuthHeaders() {
   const { data } = await supabase.auth.getSession();
   return {
@@ -67,12 +78,14 @@ export default function PaymentReturnPage() {
 
     setSyncStatus("checking");
     setMessage("");
+    const storedPaymentIds = readStoredIds(PENDING_CHECKOUT_PAYMENT_IDS_KEY);
 
     const headers = await getAuthHeaders();
     const response = await fetch("/api/payment/check-payment", {
       method: "POST",
       headers,
       body: JSON.stringify({
+        payment_ids: paymentId ? [paymentId] : storedPaymentIds,
         payment_id: paymentId || undefined,
         provider_payment_id: providerPaymentId || undefined,
       }),
@@ -102,8 +115,8 @@ export default function PaymentReturnPage() {
   };
 
   useEffect(() => {
-    if (!hasSession || paymentStatus !== "failed") return;
-    if (!paymentId && !providerPaymentId) return;
+    if (!hasSession) return;
+    if (!paymentId && !providerPaymentId && readStoredIds(PENDING_CHECKOUT_PAYMENT_IDS_KEY).length === 0) return;
     void checkPayment();
     // Run once when the page has enough return data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
