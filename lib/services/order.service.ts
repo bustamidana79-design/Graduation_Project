@@ -1,4 +1,4 @@
-import { getCart } from "./cart.service";
+import { clearUserCartProducts, getCart } from "./cart.service";
 import { createNotification } from "./notification.service";
 import { convertCurrency, normalizeCurrency } from "@/lib/currency";
 import { getExchangeRates } from "./currency.service";
@@ -156,7 +156,7 @@ export async function createOrdersFromCart(
         national_id: isInternational && customerType === "citizen" ? nationalId : null,
         passport_number: isInternational && customerType === "visitor" ? passportNumber : null,
         notes: shippingDetails.notes?.trim() || null,
-        status: "pending_payment",
+        status: "paid",
         subtotal,
         total_amount: subtotal + shippingFee,
         currency,
@@ -225,9 +225,76 @@ export async function createOrdersFromCart(
       if (error) throw new Error(error.message);
     }
 
-    createdOrders.push({ ...order, delivery_order: deliveryOrderInsert.data, items: orderItemsInsert.data || [] });
+    const paymentInsert = await supabase
+      .from("payments")
+      .insert({
+        order_id: order.id,
+        amount: Number(order.total_amount || 0),
+        currency,
+        payment_provider: "taler",
+        payment_method: "taler",
+        payment_status: "paid",
+        provider_payment_id: `checkout-${order.id}`,
+      })
+      .select("*")
+      .single();
+
+    if (paymentInsert.error || !paymentInsert.data) {
+      throw new Error(paymentInsert.error?.message || "Failed to mark order as paid.");
+    }
+
+    const txInsert = await supabase.from("transactions").insert({
+      payment_id: paymentInsert.data.id,
+      provider_reference: paymentInsert.data.provider_payment_id,
+      transaction_status: "success",
+      response_payload: {
+        provider: "checkout",
+        transaction_type: "payment",
+        amount: paymentInsert.data.amount,
+        currency: paymentInsert.data.currency,
+        auto_confirmed: true,
+      },
+    });
+    if (txInsert.error) {
+      console.warn("Checkout transaction log failed:", txInsert.error.message);
+    }
+
+    await createNotification({
+      supabase,
+      userId: buyerId,
+      title: "Payment confirmed",
+      body: `Payment was confirmed successfully for order ${order.id}.`,
+      type: "payment_confirmed",
+      data: { order_id: order.id, route: `/dashboard/small-business/orders/${order.id}` },
+    });
+
+    await createNotification({
+      supabase,
+      userId: supplierId,
+      title: "Order paid",
+      body: `Order ${order.id} was paid.`,
+      type: "supplier_order_paid",
+      data: { order_id: order.id, route: "/dashboard/supplier/orders" },
+    });
+
+    await createNotification({
+      supabase,
+      userId: shippingCompanyId,
+      title: "Delivery order ready",
+      body: `Order ${order.id} was paid and is ready for delivery follow-up.`,
+      type: "shipping_assigned",
+      data: { order_id: order.id, route: "/dashboard/shipping-company/orders" },
+    });
+
+    createdOrders.push({ ...order, payments: [paymentInsert.data], delivery_order: deliveryOrderInsert.data, items: orderItemsInsert.data || [] });
 
   }
+
+  await clearUserCartProducts(
+    supabase,
+    buyerId,
+    validItems.map((item) => String(item.product_id || "")).filter(Boolean)
+  );
 
   return createdOrders;
 }

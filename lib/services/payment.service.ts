@@ -372,7 +372,7 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
       const tx = await supabase.from("transactions").insert({
         payment_id: payment.id,
         provider_reference: payment.provider_payment_id || talerPaymentId,
-        transaction_status: "completed",
+        transaction_status: "success",
         response_payload: {
           provider: payment.payment_method || payment.payment_provider || "taler",
           transaction_type: "payment",
@@ -382,7 +382,9 @@ export async function confirmPayment(supabase: SupabaseClient, paymentId?: strin
           taler_status: talerVerification?.order_status || null,
         },
       });
-      if (tx.error) throw new Error(tx.error.message);
+      if (tx.error) {
+        console.warn("Payment transaction log failed:", tx.error.message);
+      }
     }
 
     if (wasAlreadyPaid) continue;

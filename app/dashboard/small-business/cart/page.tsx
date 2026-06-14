@@ -55,9 +55,6 @@ function getPublicImage(path?: string | null) {
   return supabase.storage.from(PRODUCT_IMAGES_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
-const PENDING_CHECKOUT_ORDER_IDS_KEY = "pending_checkout_order_ids";
-const PENDING_CHECKOUT_PAYMENT_IDS_KEY = "pending_checkout_payment_ids";
-
 export default function SmallBusinessCartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -288,48 +285,6 @@ export default function SmallBusinessCartPage() {
 
     setCheckoutLoading(true);
     const headers = await getAuthHeaders();
-    const createPaymentForOrders = async (orderIds: string[]) => {
-      const paymentResponse = await fetch("/api/payment/create", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          orderIds,
-          currency,
-          returnUrl: `${window.location.origin}/payment/return`,
-        }),
-      });
-      const paymentResult = await paymentResponse.json();
-
-      if (!paymentResponse.ok) {
-        setMessage(paymentResult.error || "تعذر إنشاء الدفع. يمكنك الضغط على الدفع مرة أخرى لإعادة المحاولة.");
-        setCheckoutLoading(false);
-        return false;
-      }
-
-      const paymentIds = Array.isArray(paymentResult.payments)
-        ? paymentResult.payments.map((payment: { id?: string }) => String(payment.id || "")).filter(Boolean)
-        : paymentResult.primary_payment_id
-          ? [String(paymentResult.primary_payment_id)]
-          : [];
-      if (paymentIds.length > 0) {
-        window.localStorage.setItem(PENDING_CHECKOUT_PAYMENT_IDS_KEY, JSON.stringify(paymentIds));
-      } else {
-        window.localStorage.removeItem(PENDING_CHECKOUT_PAYMENT_IDS_KEY);
-      }
-      setMessage("تم إنشاء الدفع. إذا ظهر رصيد 0 KUDOS، افتح الدفع بنفس المتصفح وتأكد من تفعيل GNU Taler Wallet أو demo wallet.");
-      console.log("[Payment] Redirecting to payment_url", paymentResult.payment_url);
-      window.setTimeout(() => {
-        window.location.assign(paymentResult.payment_url || "/dashboard/small-business/orders");
-      }, 1800);
-      return true;
-    };
-
-    const pendingOrderIds = JSON.parse(window.localStorage.getItem(PENDING_CHECKOUT_ORDER_IDS_KEY) || "[]") as string[];
-    if (pendingOrderIds.length > 0) {
-      await createPaymentForOrders(pendingOrderIds);
-      return;
-    }
-
     const response = await fetch("/api/orders/create", {
       method: "POST",
       headers,
@@ -351,10 +306,15 @@ export default function SmallBusinessCartPage() {
     const result = await response.json();
 
     if (response.ok) {
-      const orders = (result.orders || []) as Array<{ id: string }>;
-      const orderIds = orders.map((order) => order.id);
-      window.localStorage.setItem(PENDING_CHECKOUT_ORDER_IDS_KEY, JSON.stringify(orderIds));
-      await createPaymentForOrders(orderIds);
+      const paidProductIds = new Set(selectedProductIds);
+      setItems((current) => current.filter((item) => !paidProductIds.has(item.product_id)));
+      setSelectedProductIds([]);
+      window.localStorage.removeItem("pending_checkout_order_ids");
+      window.localStorage.removeItem("pending_checkout_payment_ids");
+      setMessage("تم إنشاء الطلب واعتماده كمدفوع. جاري نقلك لمتابعة الطلب.");
+      window.setTimeout(() => {
+        window.location.assign("/dashboard/small-business/orders");
+      }, 700);
       return;
     }
 

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Package, RotateCw, Save } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatMoney, normalizeCurrency } from "@/lib/currency";
-import { StatusPill, TrackingTimeline } from "@/components/orders/TrackingTimeline";
+import { StatusPill } from "@/components/orders/TrackingTimeline";
 
 type Order = {
   id: string;
@@ -160,8 +160,6 @@ export default function SupplierOrdersPage() {
         <div className="space-y-4">
           {orders.map((order) => {
             const currency = normalizeCurrency(order.currency);
-            const delivery = order.delivery_orders?.[0];
-
             return (
               <article key={order.id} className="rounded-lg border border-[#e6edf5] bg-white p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#eef3f8] pb-4">
@@ -215,8 +213,6 @@ export default function SupplierOrdersPage() {
                     )}
                   </div>
                 </div>
-
-                {delivery && <TrackingTimeline status={delivery.status} tracking={delivery.delivery_tracking || []} />}
               </article>
             );
           })}
