@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CoreX Graduation Project
+
+CoreX is a B2B web platform built with Next.js. The system supports multiple user roles, including small businesses, suppliers, shipping companies, supporters, and administrators.
+
+The project includes dashboards, product management, orders, shipping, chat/support features, payment flow, and an AI-based application evaluation service.
+
+## Technologies Used
+
+- Next.js
+- React
+- TypeScript
+- Supabase
+- Python
+- FastAPI
+- Scikit-learn
+- Azure deployment
 
 ## Getting Started
 
-First, run the development server:
+Install the project dependencies:
 
-```bash
+
+npm install
+
+Run the development server:
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
+http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+AI Service
+The AI model files and training data are located in:
+AI_Model/
+Training dataset:
+AI_Model/seed_training_data.json
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The testing dataset is generated inside the training script using train_test_split with a test size of 25%.
 
-## Learn More
+Training and testing metrics are available in:
+AI_Model/training_metrics.json
+To run the AI service locally, install the Python requirements:
+pip install -r requirements-ai.txt
+Then run:
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
 
-To learn more about Next.js, take a look at the following resources:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Deployment
+The final application was deployed on Microsoft Azure.
+Live website:
+https://grad-b2b-project-hmfebpecbnfsfcd2.polandcentral-01.azurewebsites.net/
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Source Code
+GitHub repository:
+https://github.com/bustamidana79-design/Graduation_Project
